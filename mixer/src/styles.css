@@ -816,3 +816,15 @@ button {
   font-size: 0.72rem;
   color: var(--muted);
 }
+
+/* ---- Build/version stamp ------------------------------------------------ */
+
+.app-version {
+  padding: 0.75rem 1rem 1.25rem;
+  text-align: center;
+  font-size: 0.68rem;
+  color: var(--muted);
+  opacity: 0.5;
+  font-variant-numeric: tabular-nums;
+  user-select: text;
+}
