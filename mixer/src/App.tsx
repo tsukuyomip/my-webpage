@@ -123,6 +123,10 @@ export default function App() {
           onExport={(onProgress) => engine.exportMix({ greyOpacity, onProgress })}
         />
       </main>
+
+      <footer className="app-version" title="ビルド識別子">
+        build {__BUILD_INFO__}
+      </footer>
     </div>
   )
 }
