@@ -12,18 +12,20 @@ import type {
 const PROJECT_VERSION = 1
 
 /**
- * Drift correction between each media element and the master clock.
+ * Drift correction between a video element and the master clock.
  *
- * Hard-reseeking (`el.currentTime = …`) every time the element lags causes an
- * audible click and, on iOS, fires often enough to sound like stuttering. So we
- * only hard-reseek for a large desync (a stall or a user seek); for ordinary
- * small drift we nudge `playbackRate` to glide the element back into alignment
- * without any glitch.
+ * Crucial iOS detail: a <video>'s `currentTime` only updates a few times a
+ * second (~4Hz), so on any given frame it can read up to ~0.25s behind the true
+ * playback position even when perfectly in sync. If we react to that apparent
+ * lag every frame — by reseeking or nudging playbackRate — the correction
+ * oscillates at that update rate and is heard as ~0.25s stuttering.
+ *
+ * So we don't fight it: the element plays at its natural 1x rate (the master
+ * clock is also real-time, so they can't actually drift apart), and we only
+ * hard-reseek for a large, real desync — a stall or a user seek — using a
+ * threshold safely above the coarse `currentTime` granularity.
  */
-const SOFT_DRIFT = 0.05 // s: start nudging playbackRate beyond this
-const HARD_RESEEK = 0.45 // s: only hard-reseek beyond this (stall/desync)
-const CATCHUP_RATE = 1.05 // element is behind -> speed up slightly
-const SLOWDOWN_RATE = 0.95 // element is ahead -> slow down slightly
+const HARD_RESEEK = 0.75 // s: only reseek beyond this (stall / seek)
 
 interface Track {
   id: string
@@ -752,20 +754,16 @@ export class AudioEngine {
         continue
       }
 
-      // Playing: keep the element aligned with the master clock.
-      const diff = target - el.currentTime // > 0 => element is behind
-      if (forceReseek || Math.abs(diff) > HARD_RESEEK) {
+      // Playing: let the element run at its natural rate. Only correct on a
+      // large, real desync — never react to the coarse per-frame currentTime
+      // reading, or we'd oscillate at ~4Hz and stutter (see HARD_RESEEK).
+      if (el.playbackRate !== 1) el.playbackRate = 1
+      if (forceReseek || Math.abs(target - el.currentTime) > HARD_RESEEK) {
         try {
           el.currentTime = target
         } catch {
           /* not seekable yet; retry next frame */
         }
-        el.playbackRate = 1
-      } else if (Math.abs(diff) > SOFT_DRIFT) {
-        // Glide back into alignment instead of an audible reseek.
-        el.playbackRate = diff > 0 ? CATCHUP_RATE : SLOWDOWN_RATE
-      } else if (el.playbackRate !== 1) {
-        el.playbackRate = 1
       }
 
       if (el.paused) void el.play().catch(() => {})
