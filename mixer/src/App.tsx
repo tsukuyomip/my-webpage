@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { ExportBar } from './components/ExportBar'
 import { FileDrop } from './components/FileDrop'
+import { LiveBoard } from './components/LiveBoard'
 import { ProjectBar } from './components/ProjectBar'
 import { SeBank } from './components/SeBank'
 import { Timeline } from './components/Timeline'
@@ -104,10 +105,22 @@ export default function App() {
         <Timeline
           tracks={snapshot.tracks}
           seCues={seCues}
+          onlyEvents={snapshot.onlyEvents}
+          manualOnly={snapshot.manualOnly}
           position={position}
           duration={snapshot.duration}
           onSeek={(p) => engine.seek(p)}
           onSetOffset={(id, offset) => engine.setOffset(id, offset)}
+        />
+
+        <LiveBoard
+          tracks={snapshot.tracks}
+          onlyEvents={snapshot.onlyEvents}
+          manualOnly={snapshot.manualOnly}
+          position={position}
+          isPlaying={snapshot.isPlaying}
+          onRecordToggle={(id, type) => engine.addMarker(id, type)}
+          onToggleOnly={(id) => engine.toggleOnly(id)}
         />
 
         <TrackList

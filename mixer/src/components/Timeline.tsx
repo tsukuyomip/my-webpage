@@ -1,10 +1,13 @@
 import { useRef, useState } from 'react'
-import type { TrackState } from '../audio/types'
+import type { OnlyEvent, TrackState } from '../audio/types'
+import { onlySegmentsFor, toggleSegments } from '../audio/automation'
 
 interface Props {
   tracks: TrackState[]
   /** SE cue times (seconds) drawn as full-height ticks across the ruler. */
   seCues: number[]
+  onlyEvents: OnlyEvent[]
+  manualOnly: string | null
   position: number
   duration: number
   onSeek: (position: number) => void
@@ -26,6 +29,8 @@ interface DragState {
 export function Timeline({
   tracks,
   seCues,
+  onlyEvents,
+  manualOnly,
   position,
   duration,
   onSeek,
@@ -115,12 +120,29 @@ export function Timeline({
               >
                 <span className="timeline__clip-label">{t.name}</span>
               </div>
-              {t.markers.map((m) => (
+              {/* Range bands: the intervals where mute / solo / only are ON. */}
+              {toggleSegments(t.muted, t.markers, 'mute', span).map(([a, b], i) => (
                 <div
-                  key={m.id}
-                  className={`timeline__marker timeline__marker--${m.type}`}
-                  style={{ left: `${(m.time / span) * 100}%` }}
-                  title={`${m.type === 'mute' ? 'ミュート' : 'ソロ'}切替 @ ${m.time.toFixed(1)}s`}
+                  key={`m${i}`}
+                  className="timeline__band timeline__band--mute"
+                  style={{ left: `${(a / span) * 100}%`, width: `${((b - a) / span) * 100}%` }}
+                  title={`ミュート ${a.toFixed(1)}–${b.toFixed(1)}s`}
+                />
+              ))}
+              {toggleSegments(t.soloed, t.markers, 'solo', span).map(([a, b], i) => (
+                <div
+                  key={`s${i}`}
+                  className="timeline__band timeline__band--solo"
+                  style={{ left: `${(a / span) * 100}%`, width: `${((b - a) / span) * 100}%` }}
+                  title={`ソロ ${a.toFixed(1)}–${b.toFixed(1)}s`}
+                />
+              ))}
+              {onlySegmentsFor(onlyEvents, manualOnly, t.id, span).map(([a, b], i) => (
+                <div
+                  key={`o${i}`}
+                  className="timeline__band timeline__band--only"
+                  style={{ left: `${(a / span) * 100}%`, width: `${((b - a) / span) * 100}%` }}
+                  title={`ONLY ${a.toFixed(1)}–${b.toFixed(1)}s`}
                 />
               ))}
             </div>
