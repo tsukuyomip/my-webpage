@@ -69,7 +69,11 @@ interface Track {
 interface Se {
   id: string
   name: string
-  buffer: AudioBuffer
+  /** Decoded buffer: preferred (overlappable, sample-accurate, export-capturable). */
+  buffer: AudioBuffer | null
+  /** Fallback object URL used when decodeAudioData can't handle the file (e.g.
+   *  AAC/.m4a/.mov on iOS Safari); fired via a short-lived <audio> element. */
+  objectUrl: string | null
   cues: SeCue[]
   blob: Blob
 }
@@ -640,7 +644,7 @@ export class AudioEngine {
 
   /** Replace the current session with a saved project. */
   async loadProject(p: ProjectData): Promise<void> {
-    const ctx = this.ensureContext()
+    this.ensureContext()
     this.pause()
     for (const t of [...this.tracks]) this.removeTrack(t.id)
     for (const s of [...this.ses]) this.removeSe(s.id)
@@ -657,14 +661,15 @@ export class AudioEngine {
       })
     }
     for (const ps of p.ses) {
-      const buffer = await ctx.decodeAudioData(await ps.blob.arrayBuffer())
-      this.ses.push({
-        id: crypto.randomUUID(),
-        name: ps.name,
-        buffer,
-        cues: ps.cues,
-        blob: ps.blob,
-      })
+      try {
+        this.ses.push(await this.createSe(ps.blob, ps.name, ps.cues))
+      } catch {
+        this.seErrors.push({
+          id: crypto.randomUUID(),
+          name: ps.name || 'SE',
+          message: 'プロジェクト内のSEを読み込めませんでした。',
+        })
+      }
     }
     this.emit()
   }
@@ -672,24 +677,66 @@ export class AudioEngine {
   // ---- Sound effects / one-shots (Phase 3) --------------------------------
 
   /**
-   * Load and decode a one-shot SE file. Decoding can fail for codecs the
-   * browser's Web Audio can't handle (notably AAC/.m4a/.mov on iOS Safari);
-   * rather than silently dropping the file, record the failure so the UI can
-   * tell the user and suggest a supported format.
+   * Build a SE from a blob. Prefers decoding to an AudioBuffer (overlappable,
+   * sample-accurate, captured by export). When the browser's Web Audio can't
+   * decode the file — common on iOS Safari for AAC/.m4a/.mov, the usual cause of
+   * a SE "not loading" — falls back to an <audio> element that plays whatever
+   * the browser itself can play. Throws only if the file can't be played at all.
    */
-  async addSe(file: File): Promise<void> {
+  private async createSe(blob: Blob, name: string, cues: SeCue[]): Promise<Se> {
     const ctx = this.ensureContext()
     try {
-      const arrayBuf = await file.arrayBuffer()
-      const buffer = await ctx.decodeAudioData(arrayBuf)
-      this.ses.push({ id: crypto.randomUUID(), name: file.name, buffer, cues: [], blob: file })
+      const buffer = await ctx.decodeAudioData(await blob.arrayBuffer())
+      return { id: crypto.randomUUID(), name, buffer, objectUrl: null, cues, blob }
+    } catch {
+      // Decode failed: confirm an element can at least load the media.
+      const objectUrl = URL.createObjectURL(blob)
+      try {
+        await new Promise<void>((resolve, reject) => {
+          const probe = new Audio()
+          probe.preload = 'auto'
+          const cleanup = () => {
+            probe.removeEventListener('loadeddata', onOk)
+            probe.removeEventListener('canplaythrough', onOk)
+            probe.removeEventListener('error', onErr)
+            clearTimeout(timer)
+          }
+          const onOk = () => {
+            cleanup()
+            resolve()
+          }
+          const onErr = () => {
+            cleanup()
+            reject(new Error('unplayable'))
+          }
+          probe.addEventListener('loadeddata', onOk)
+          probe.addEventListener('canplaythrough', onOk)
+          probe.addEventListener('error', onErr)
+          // Don't hang if neither event fires; assume playable and let firing decide.
+          const timer = setTimeout(onOk, 2000)
+          probe.src = objectUrl
+          probe.load()
+        })
+      } catch (e) {
+        URL.revokeObjectURL(objectUrl)
+        throw e
+      }
+      return { id: crypto.randomUUID(), name, buffer: null, objectUrl, cues, blob }
+    }
+  }
+
+  /** Load a one-shot SE file, surfacing a clear error if it can't be played. */
+  async addSe(file: File): Promise<void> {
+    try {
+      const se = await this.createSe(file, file.name, [])
+      this.ses.push(se)
       // A prior failure for the same name is now moot; clear it.
       this.seErrors = this.seErrors.filter((e) => e.name !== file.name)
     } catch {
       this.seErrors.push({
         id: crypto.randomUUID(),
         name: file.name || 'SE',
-        message: 'この音声を読み込めませんでした（このブラウザが対応しない形式の可能性。WAV / MP3 をお試しください）',
+        message: 'この音声ファイルを再生できませんでした。WAV / MP3 など別の形式でお試しください。',
       })
     }
     this.emit()
@@ -701,6 +748,8 @@ export class AudioEngine {
   }
 
   removeSe(id: string): void {
+    const s = this.ses.find((s) => s.id === id)
+    if (s?.objectUrl) URL.revokeObjectURL(s.objectUrl)
     this.ses = this.ses.filter((s) => s.id !== id)
     this.emit()
   }
@@ -708,16 +757,30 @@ export class AudioEngine {
   /** Total SE one-shots fired (manual + cues). Exposed for debugging/tests. */
   seFireCount = 0
 
-  /** Fire an SE immediately as a one-shot (AudioBufferSourceNode). */
+  /** Fire an SE immediately as a one-shot. */
   playSe(id: string): void {
     const ctx = this.ctx
     const s = this.ses.find((s) => s.id === id)
     if (!ctx || !this.masterGain || !s) return
     if (ctx.state === 'suspended') void ctx.resume()
-    const node = ctx.createBufferSource()
-    node.buffer = s.buffer
-    node.connect(this.masterGain)
-    node.start()
+    if (s.buffer) {
+      const node = ctx.createBufferSource()
+      node.buffer = s.buffer
+      node.connect(this.masterGain)
+      node.start()
+    } else if (s.objectUrl) {
+      // Element fallback (undecodable codec): a fresh element per fire so
+      // rapid one-shots can overlap. Route through the mix when possible.
+      const a = new Audio(s.objectUrl)
+      try {
+        const src = ctx.createMediaElementSource(a)
+        src.connect(this.masterGain)
+        a.addEventListener('ended', () => src.disconnect())
+      } catch {
+        /* routing unavailable; element plays through default output */
+      }
+      void a.play().catch(() => {})
+    }
     this.seFireCount++
   }
 
@@ -787,8 +850,13 @@ export class AudioEngine {
   toggleOnly(trackId: string, time = this.position): void {
     const current = effectiveOnly(this.onlyEvents, this.manualOnly, time)
     const next = current === trackId ? null : trackId
-    if (this.playing) {
-      this.onlyEvents.push({ id: crypto.randomUUID(), time: Math.max(0, time), trackId: next })
+    // While playing we always record a timed event. While paused we normally set
+    // the manual base — but if a recorded event at/under the playhead would
+    // shadow that base (so changing it has no visible effect), record an event
+    // at the playhead instead. This is what makes "off" reliable after toggling
+    // on during playback and then pausing.
+    if (this.playing || this.onlyEvents.some((e) => e.time <= time)) {
+      this.setOnlyAt(time, next)
     } else {
       this.manualOnly = next
     }
@@ -798,6 +866,14 @@ export class AudioEngine {
     if (this.performanceMode && this.playing) this.syncElements(false)
     this.applyGains()
     this.emit()
+  }
+
+  /** Set the "only" selection at an exact time, replacing any event already there. */
+  private setOnlyAt(time: number, trackId: string | null): void {
+    const at = Math.max(0, time)
+    const existing = this.onlyEvents.find((e) => e.time === at)
+    if (existing) existing.trackId = trackId
+    else this.onlyEvents.push({ id: crypto.randomUUID(), time: at, trackId })
   }
 
   removeOnlyEvent(eventId: string): void {
