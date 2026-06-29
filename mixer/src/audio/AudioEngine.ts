@@ -4,6 +4,7 @@ import type {
   EngineSnapshot,
   SeCue,
   SeState,
+  TrackKind,
   TrackState,
 } from './types'
 
@@ -17,7 +18,8 @@ const RESEEK_THRESHOLD = 0.18
 interface Track {
   id: string
   name: string
-  el: HTMLAudioElement
+  kind: TrackKind
+  el: HTMLMediaElement
   source: MediaElementAudioSourceNode
   gain: GainNode
   objectUrl: string
@@ -81,6 +83,7 @@ export class AudioEngine {
     const tracks: TrackState[] = this.tracks.map((t) => ({
       id: t.id,
       name: t.name,
+      kind: t.kind,
       duration: t.el.duration && isFinite(t.el.duration) ? t.el.duration : 0,
       offset: t.offset,
       muted: t.muted,
@@ -120,11 +123,21 @@ export class AudioEngine {
     const ctx = this.ensureContext()
     const objectUrl = URL.createObjectURL(file)
 
-    const el = new Audio()
+    const isVideo = file.type.startsWith('video/')
+    const el: HTMLMediaElement = isVideo
+      ? document.createElement('video')
+      : new Audio()
+    if (isVideo) {
+      const v = el as HTMLVideoElement
+      v.playsInline = true
+      v.setAttribute('playsinline', '')
+    }
     el.src = objectUrl
     el.preload = 'auto'
     el.crossOrigin = 'anonymous'
 
+    // Routing audio through a MediaElementSource diverts it from the element's
+    // own output, so mute/solo is governed entirely by the gain node.
     const source = ctx.createMediaElementSource(el)
     const gain = ctx.createGain()
     source.connect(gain)
@@ -133,6 +146,7 @@ export class AudioEngine {
     const track: Track = {
       id: crypto.randomUUID(),
       name: file.name,
+      kind: isVideo ? 'video' : 'audio',
       el,
       source,
       gain,
@@ -336,6 +350,11 @@ export class AudioEngine {
     this.syncElements(true)
     this.applyGains()
     this.emit()
+  }
+
+  /** The underlying media element for a track (used to mount video previews). */
+  getElement(id: string): HTMLMediaElement | null {
+    return this.tracks.find((t) => t.id === id)?.el ?? null
   }
 
   /** Current applied gain of a track (0..1). Exposed for debugging/tests. */

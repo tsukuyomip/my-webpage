@@ -11,7 +11,9 @@ export function FileDrop({ onFiles }: Props) {
 
   const handleFiles = (list: FileList | null) => {
     if (!list) return
-    const files = Array.from(list).filter((f) => f.type.startsWith('audio/'))
+    const files = Array.from(list).filter(
+      (f) => f.type.startsWith('audio/') || f.type.startsWith('video/'),
+    )
     if (files.length) onFiles(files)
   }
 
@@ -35,7 +37,7 @@ export function FileDrop({ onFiles }: Props) {
       <input
         ref={inputRef}
         type="file"
-        accept="audio/*"
+        accept="audio/*,video/*"
         multiple
         hidden
         onChange={(e) => {
@@ -44,7 +46,7 @@ export function FileDrop({ onFiles }: Props) {
         }}
       />
       <span className="filedrop__icon">＋</span>
-      <span>音声ファイルをドラッグ&amp;ドロップ / タップして選択</span>
+      <span>音声・動画ファイルをドラッグ&amp;ドロップ / タップして選択</span>
     </div>
   )
 }

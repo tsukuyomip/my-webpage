@@ -8,10 +8,13 @@ export interface AutomationMarker {
   type: AutomationType
 }
 
+export type TrackKind = 'audio' | 'video'
+
 /** Serializable, render-facing snapshot of a single track. */
 export interface TrackState {
   id: string
   name: string
+  kind: TrackKind
   /** Source media duration in seconds (0 until metadata has loaded). */
   duration: number
   /** Start position on the timeline in seconds (Phase 2 lets users drag this). */
