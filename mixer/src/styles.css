@@ -467,6 +467,54 @@ button {
   margin: 0.6rem 0 0;
 }
 
+.sebank__errors {
+  list-style: none;
+  margin: 0.6rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.sebank__error {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.6rem;
+  border-radius: 6px;
+  background: rgba(220, 60, 60, 0.12);
+  border: 1px solid rgba(220, 60, 60, 0.45);
+  font-size: 0.82rem;
+}
+
+.sebank__error-name {
+  font-weight: 600;
+  color: #ff8080;
+  white-space: nowrap;
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sebank__error-msg {
+  flex: 1;
+  color: var(--muted);
+  line-height: 1.3;
+}
+
+.sebank__error-dismiss {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 0.9rem;
+  padding: 0 0.2rem;
+}
+
+.sebank__error-dismiss:hover {
+  color: #fff;
+}
+
 .sebank__list {
   list-style: none;
   margin: 0.6rem 0 0;

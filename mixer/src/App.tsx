@@ -135,12 +135,14 @@ export default function App() {
 
         <SeBank
           ses={snapshot.ses}
+          errors={snapshot.seErrors}
           onAddSe={(files) => files.forEach((f) => void engine.addSe(f))}
           onRemoveSe={(id) => engine.removeSe(id)}
           onPlaySe={(id) => engine.playSe(id)}
           onAddCue={(id) => engine.addCue(id)}
           onRemoveCue={(id, cueId) => engine.removeCue(id, cueId)}
           onMoveCue={(id, cueId, time) => engine.moveCue(id, cueId, time)}
+          onDismissError={(id) => engine.dismissSeError(id)}
         />
 
         <ExportBar

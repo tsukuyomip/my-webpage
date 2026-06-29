@@ -5,6 +5,7 @@ import type {
   OnlyEvent,
   ProjectData,
   SeCue,
+  SeLoadError,
   SeState,
   TrackKind,
   TrackState,
@@ -89,6 +90,8 @@ export class AudioEngine {
   private masterGain: GainNode | null = null
   private tracks: Track[] = []
   private ses: Se[] = []
+  /** SE files that failed to load (undecodable), shown in the UI. */
+  private seErrors: SeLoadError[] = []
   /** Global "only" automation (exclusive single-track mode). */
   private onlyEvents: OnlyEvent[] = []
   private manualOnly: string | null = null
@@ -112,6 +115,7 @@ export class AudioEngine {
     duration: 0,
     tracks: [],
     ses: [],
+    seErrors: [],
     performanceMode: false,
     activeVideoId: null,
     onlyEvents: [],
@@ -149,6 +153,7 @@ export class AudioEngine {
       duration: this.computeDuration(),
       tracks,
       ses,
+      seErrors: this.seErrors.slice(),
       performanceMode: this.performanceMode,
       activeVideoId: this.activeVideoId(),
       onlyEvents: this.onlyEvents.slice().sort((a, b) => a.time - b.time),
@@ -157,10 +162,18 @@ export class AudioEngine {
     this.listeners.forEach((l) => l())
   }
 
-  /** The video that keeps decoding in performance mode: soloed one, else first. */
+  /**
+   * The video that keeps decoding in performance mode. "Only" wins (if it
+   * targets a video, that one stays live); otherwise the soloed one, else first.
+   */
   private activeVideoId(): string | null {
     const vids = this.tracks.filter((t) => t.kind === 'video')
     if (vids.length === 0) return null
+    const only = effectiveOnly(this.onlyEvents, this.manualOnly, this.position)
+    if (only !== null) {
+      const onlyVid = vids.find((t) => t.id === only)
+      if (onlyVid) return onlyVid.id
+    }
     return (vids.find((t) => t.soloed) ?? vids[0]).id
   }
 
@@ -658,12 +671,32 @@ export class AudioEngine {
 
   // ---- Sound effects / one-shots (Phase 3) --------------------------------
 
-  /** Load and decode a one-shot SE file. */
+  /**
+   * Load and decode a one-shot SE file. Decoding can fail for codecs the
+   * browser's Web Audio can't handle (notably AAC/.m4a/.mov on iOS Safari);
+   * rather than silently dropping the file, record the failure so the UI can
+   * tell the user and suggest a supported format.
+   */
   async addSe(file: File): Promise<void> {
     const ctx = this.ensureContext()
-    const arrayBuf = await file.arrayBuffer()
-    const buffer = await ctx.decodeAudioData(arrayBuf)
-    this.ses.push({ id: crypto.randomUUID(), name: file.name, buffer, cues: [], blob: file })
+    try {
+      const arrayBuf = await file.arrayBuffer()
+      const buffer = await ctx.decodeAudioData(arrayBuf)
+      this.ses.push({ id: crypto.randomUUID(), name: file.name, buffer, cues: [], blob: file })
+      // A prior failure for the same name is now moot; clear it.
+      this.seErrors = this.seErrors.filter((e) => e.name !== file.name)
+    } catch {
+      this.seErrors.push({
+        id: crypto.randomUUID(),
+        name: file.name || 'SE',
+        message: 'この音声を読み込めませんでした（このブラウザが対応しない形式の可能性。WAV / MP3 をお試しください）',
+      })
+    }
+    this.emit()
+  }
+
+  dismissSeError(id: string): void {
+    this.seErrors = this.seErrors.filter((e) => e.id !== id)
     this.emit()
   }
 
@@ -759,6 +792,10 @@ export class AudioEngine {
     } else {
       this.manualOnly = next
     }
+    // "Only" changes which video stays active in performance mode. Re-evaluate
+    // now, inside this user gesture, so the newly-active video is allowed to
+    // start decoding on mobile (the old active one freezes).
+    if (this.performanceMode && this.playing) this.syncElements(false)
     this.applyGains()
     this.emit()
   }
