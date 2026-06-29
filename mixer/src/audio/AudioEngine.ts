@@ -12,11 +12,18 @@ import type {
 const PROJECT_VERSION = 1
 
 /**
- * If a media element's currentTime drifts from the master clock by more than
- * this many seconds, we hard-reseek it. Below the threshold we leave it alone
- * to avoid audible glitches.
+ * Drift correction between each media element and the master clock.
+ *
+ * Hard-reseeking (`el.currentTime = …`) every time the element lags causes an
+ * audible click and, on iOS, fires often enough to sound like stuttering. So we
+ * only hard-reseek for a large desync (a stall or a user seek); for ordinary
+ * small drift we nudge `playbackRate` to glide the element back into alignment
+ * without any glitch.
  */
-const RESEEK_THRESHOLD = 0.18
+const SOFT_DRIFT = 0.05 // s: start nudging playbackRate beyond this
+const HARD_RESEEK = 0.45 // s: only hard-reseek beyond this (stall/desync)
+const CATCHUP_RATE = 1.05 // element is behind -> speed up slightly
+const SLOWDOWN_RATE = 0.95 // element is ahead -> slow down slightly
 
 interface Track {
   id: string
@@ -251,7 +258,10 @@ export class AudioEngine {
     if (!this.playing) return
     this.pausedPosition = this.position
     this.playing = false
-    this.tracks.forEach((t) => t.el.pause())
+    this.tracks.forEach((t) => {
+      t.el.pause()
+      t.el.playbackRate = 1
+    })
     this.stopLoop()
     this.emit()
   }
@@ -630,20 +640,40 @@ export class AudioEngine {
 
       if (!inRange) {
         if (!t.el.paused) t.el.pause()
+        if (t.el.playbackRate !== 1) t.el.playbackRate = 1
         continue
       }
 
       const target = Math.max(0, localTime)
-      if (forceReseek || Math.abs(t.el.currentTime - target) > RESEEK_THRESHOLD) {
+
+      if (!this.playing) {
+        // Paused (seek / scrub): position the element exactly, no rate tricks.
         try {
           t.el.currentTime = target
         } catch {
-          /* element not seekable yet; will retry next frame */
+          /* not seekable yet; retry next time */
         }
+        if (t.el.playbackRate !== 1) t.el.playbackRate = 1
+        continue
       }
-      if (this.playing && t.el.paused) {
-        void t.el.play().catch(() => {})
+
+      // Playing: keep the element aligned with the master clock.
+      const diff = target - t.el.currentTime // > 0 => element is behind
+      if (forceReseek || Math.abs(diff) > HARD_RESEEK) {
+        try {
+          t.el.currentTime = target
+        } catch {
+          /* not seekable yet; retry next frame */
+        }
+        t.el.playbackRate = 1
+      } else if (Math.abs(diff) > SOFT_DRIFT) {
+        // Glide back into alignment instead of an audible reseek.
+        t.el.playbackRate = diff > 0 ? CATCHUP_RATE : SLOWDOWN_RATE
+      } else if (t.el.playbackRate !== 1) {
+        t.el.playbackRate = 1
       }
+
+      if (t.el.paused) void t.el.play().catch(() => {})
     }
   }
 
