@@ -828,3 +828,32 @@ button {
   font-variant-numeric: tabular-nums;
   user-select: text;
 }
+
+/* ---- Performance mode --------------------------------------------------- */
+
+.videobar__perf {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  color: var(--text);
+  cursor: pointer;
+  user-select: none;
+}
+
+.videobar__perf input {
+  width: 1rem;
+  height: 1rem;
+}
+
+.videogrid__frozen {
+  position: absolute;
+  top: 0.4rem;
+  right: 0.4rem;
+  padding: 0.1rem 0.4rem;
+  font-size: 0.7rem;
+  background: rgba(0, 0, 0, 0.6);
+  border-radius: 4px;
+  color: #ffcf4f;
+  pointer-events: none;
+}
