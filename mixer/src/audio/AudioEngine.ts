@@ -204,6 +204,17 @@ export class AudioEngine {
     this.emit()
   }
 
+  /** Move a track's start position on the timeline (seconds, clamped to >= 0). */
+  setOffset(id: string, offset: number): void {
+    const t = this.tracks.find((t) => t.id === id)
+    if (!t) return
+    t.offset = Math.max(0, offset)
+    // The element's local time changed; reseek and refresh gains immediately.
+    this.syncElements(true)
+    this.applyGains()
+    this.emit()
+  }
+
   // ---- Internals ----------------------------------------------------------
 
   private computeDuration(): number {

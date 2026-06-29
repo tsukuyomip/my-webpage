@@ -37,6 +37,7 @@ export default function App() {
           position={position}
           duration={snapshot.duration}
           onSeek={(p) => engine.seek(p)}
+          onSetOffset={(id, offset) => engine.setOffset(id, offset)}
         />
 
         <TrackList

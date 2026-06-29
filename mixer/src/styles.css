@@ -177,6 +177,13 @@ button {
   display: flex;
   align-items: center;
   overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+}
+
+.timeline__clip:active {
+  cursor: grabbing;
+  filter: brightness(1.15);
 }
 
 .timeline__clip-label {
