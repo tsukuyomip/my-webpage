@@ -219,6 +219,20 @@ export class AudioEngine {
         track.duration = el.duration && isFinite(el.duration) ? el.duration : 0
         this.emit()
       })
+      // Best-effort: also decode the audio track to a buffer, so that in
+      // performance mode a frozen video can keep its sound playing (the element
+      // is paused to stop video decode). If the container can't be decoded, the
+      // frozen video is simply silent.
+      void blob.arrayBuffer().then(
+        (buf) =>
+          ctx.decodeAudioData(buf).then(
+            (decoded) => {
+              track.buffer = decoded
+            },
+            () => {},
+          ),
+        () => {},
+      )
     } else {
       // Decode the audio up front so it can be scheduled drift-free.
       void blob.arrayBuffer().then(
@@ -227,7 +241,7 @@ export class AudioEngine {
             track.buffer = decoded
             track.duration = decoded.duration
             // If playback is already running, fold this track in.
-            if (this.playing) this.scheduleAudioTrack(track)
+            if (this.playing) this.scheduleBuffer(track)
             this.emit()
           }),
         () => {},
@@ -278,7 +292,7 @@ export class AudioEngine {
     this.playing = true
 
     for (const t of this.tracks) {
-      if (t.kind === 'audio') this.scheduleAudioTrack(t)
+      if (t.kind === 'audio') this.scheduleBuffer(t)
     }
     this.primeElements()
     this.syncElements(true)
@@ -287,12 +301,14 @@ export class AudioEngine {
   }
 
   /**
-   * Schedule an audio track's buffer on the AudioContext timeline so it lines
-   * up with the transport — sample-accurate and free of drift/reseeks.
+   * Schedule a track's decoded buffer on the AudioContext timeline so it lines
+   * up with the transport — sample-accurate and free of drift/reseeks. Used for
+   * audio tracks always, and for video tracks whose picture is frozen in
+   * performance mode (so their sound stays in the mix).
    */
-  private scheduleAudioTrack(t: Track): void {
+  private scheduleBuffer(t: Track): void {
     const ctx = this.ctx
-    if (!ctx || !this.playing || t.kind !== 'audio' || !t.buffer) return
+    if (!ctx || !this.playing || !t.buffer) return
     this.stopAudioNode(t)
 
     const trackLocal = this.position - t.offset // desired buffer position "now"
@@ -384,7 +400,7 @@ export class AudioEngine {
       this.lastTickPosition = clamped
       // Reschedule audio buffers from the new position; resync video elements.
       for (const t of this.tracks) {
-        if (t.kind === 'audio') this.scheduleAudioTrack(t)
+        if (t.kind === 'audio') this.scheduleBuffer(t)
       }
       this.syncElements(true)
     } else {
@@ -656,7 +672,7 @@ export class AudioEngine {
     if (!t) return
     t.offset = Math.max(0, offset)
     // The track's local time changed; reschedule/reseek and refresh gains.
-    if (t.kind === 'audio') this.scheduleAudioTrack(t)
+    if (t.kind === 'audio') this.scheduleBuffer(t)
     this.syncElements(true)
     this.applyGains()
     this.emit()
@@ -764,8 +780,20 @@ export class AudioEngine {
       const inRange = localTime >= 0 && localTime <= dur
       const frozen = this.performanceMode && this.playing && t.id !== activeId
 
-      if (!inRange || frozen) {
-        // Out of range, or frozen for performance: stop decoding (last frame stays).
+      if (frozen) {
+        // Stop video decode (last frame stays) but keep the SOUND in the mix by
+        // playing the decoded audio buffer instead of the element.
+        if (!el.paused) el.pause()
+        if (el.playbackRate !== 1) el.playbackRate = 1
+        if (inRange && t.buffer && !t.node) this.scheduleBuffer(t)
+        continue
+      }
+
+      // Active/normal video: the element provides the audio, so make sure the
+      // buffer fallback isn't also playing (which would double the sound).
+      if (t.node) this.stopAudioNode(t)
+
+      if (!inRange) {
         if (!el.paused) el.pause()
         if (el.playbackRate !== 1) el.playbackRate = 1
         continue
