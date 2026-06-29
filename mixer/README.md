@@ -20,7 +20,9 @@ npm run preview  # ビルド成果物のプレビュー
 
 - **Phase 0** — Vite + React + TS の足場、`/mixer/` base パス設定。✅
 - **Phase 1** — オーディオエンジン + トランスポート（複数ファイル読込・Web Audio グラフ・master clock・play / pause / seek・mute / solo・シークバー / プレイヘッド）。✅
-- Phase 2 以降は `docs/mixer-plan.md` を参照。
+- **Phase 2** — タイムライン整列（クリップをドラッグして開始オフセット調整・クリップブロック表示）。✅
+- **Phase 3** — オートメーション。mute / solo の時刻付きトグルマーカー（一時停止中編集・再生中リアルタイム適用）と、SE ワンショット（読込・今すぐ発声・タイムラインキュー発火）。✅
+- Phase 4 以降（動画グリッド・プロジェクト保存・書き出し）はストレッチ。`docs/mixer-plan.md` を参照。
 
 ## アーキテクチャ概要
 
