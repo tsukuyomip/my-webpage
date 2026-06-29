@@ -23,10 +23,24 @@ export interface TrackState {
   markers: AutomationMarker[]
 }
 
+/** A timed trigger that fires a one-shot SE during playback. */
+export interface SeCue {
+  id: string
+  time: number
+}
+
+/** A one-shot sound effect (decoded buffer) plus its timeline cues. */
+export interface SeState {
+  id: string
+  name: string
+  cues: SeCue[]
+}
+
 /** Render-facing snapshot of the whole engine (structural state only). */
 export interface EngineSnapshot {
   isPlaying: boolean
-  /** Length of the timeline = max(offset + duration) across tracks. */
+  /** Length of the timeline = max(offset + duration, cue times) across content. */
   duration: number
   tracks: TrackState[]
+  ses: SeState[]
 }

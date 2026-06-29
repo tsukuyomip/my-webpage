@@ -1,4 +1,5 @@
 import { FileDrop } from './components/FileDrop'
+import { SeBank } from './components/SeBank'
 import { Timeline } from './components/Timeline'
 import { TrackList } from './components/TrackList'
 import { Transport } from './components/Transport'
@@ -7,6 +8,7 @@ import { useAudioEngine, useTransportPosition } from './audio/useAudioEngine'
 export default function App() {
   const { engine, snapshot } = useAudioEngine()
   const position = useTransportPosition(engine, snapshot.isPlaying)
+  const seCues = snapshot.ses.flatMap((s) => s.cues.map((c) => c.time))
 
   return (
     <div className="app">
@@ -34,6 +36,7 @@ export default function App() {
 
         <Timeline
           tracks={snapshot.tracks}
+          seCues={seCues}
           position={position}
           duration={snapshot.duration}
           onSeek={(p) => engine.seek(p)}
@@ -48,6 +51,16 @@ export default function App() {
           onAddMarker={(id, type) => engine.addMarker(id, type)}
           onRemoveMarker={(id, markerId) => engine.removeMarker(id, markerId)}
           onMoveMarker={(id, markerId, time) => engine.moveMarker(id, markerId, time)}
+        />
+
+        <SeBank
+          ses={snapshot.ses}
+          onAddSe={(files) => files.forEach((f) => void engine.addSe(f))}
+          onRemoveSe={(id) => engine.removeSe(id)}
+          onPlaySe={(id) => engine.playSe(id)}
+          onAddCue={(id) => engine.addCue(id)}
+          onRemoveCue={(id, cueId) => engine.removeCue(id, cueId)}
+          onMoveCue={(id, cueId, time) => engine.moveCue(id, cueId, time)}
         />
       </main>
     </div>

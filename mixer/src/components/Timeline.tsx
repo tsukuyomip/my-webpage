@@ -3,6 +3,8 @@ import type { TrackState } from '../audio/types'
 
 interface Props {
   tracks: TrackState[]
+  /** SE cue times (seconds) drawn as full-height ticks across the ruler. */
+  seCues: number[]
   position: number
   duration: number
   onSeek: (position: number) => void
@@ -21,7 +23,14 @@ interface DragState {
  * - Click / drag on empty ruler area seeks the transport.
  * - Drag a clip horizontally to set that track's start offset (Phase 2).
  */
-export function Timeline({ tracks, position, duration, onSeek, onSetOffset }: Props) {
+export function Timeline({
+  tracks,
+  seCues,
+  position,
+  duration,
+  onSeek,
+  onSetOffset,
+}: Props) {
   const rulerRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<DragState | null>(null)
   // Freeze the time scale while dragging a clip so it tracks the cursor 1:1
@@ -120,6 +129,14 @@ export function Timeline({ tracks, position, duration, onSeek, onSetOffset }: Pr
         {tracks.length === 0 && (
           <div className="timeline__lane timeline__lane--empty" />
         )}
+        {seCues.map((time, i) => (
+          <div
+            key={i}
+            className="timeline__secue"
+            style={{ left: `${(time / span) * 100}%` }}
+            title={`SE @ ${time.toFixed(1)}s`}
+          />
+        ))}
         <div
           className="timeline__playhead"
           style={{ left: `${Math.min(100, playheadPct)}%` }}

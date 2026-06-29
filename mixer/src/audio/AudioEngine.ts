@@ -1,4 +1,11 @@
-import type { AutomationMarker, AutomationType, EngineSnapshot, TrackState } from './types'
+import type {
+  AutomationMarker,
+  AutomationType,
+  EngineSnapshot,
+  SeCue,
+  SeState,
+  TrackState,
+} from './types'
 
 /**
  * If a media element's currentTime drifts from the master clock by more than
@@ -20,6 +27,13 @@ interface Track {
   markers: AutomationMarker[]
 }
 
+interface Se {
+  id: string
+  name: string
+  buffer: AudioBuffer
+  cues: SeCue[]
+}
+
 /**
  * Web Audio based mixing engine.
  *
@@ -33,6 +47,9 @@ export class AudioEngine {
   private ctx: AudioContext | null = null
   private masterGain: GainNode | null = null
   private tracks: Track[] = []
+  private ses: Se[] = []
+  /** Transport position at the previous loop tick, for crossing detection. */
+  private lastTickPosition = 0
 
   private playing = false
   /** Transport position (seconds) captured at the moment playback last started. */
@@ -44,7 +61,12 @@ export class AudioEngine {
 
   private rafId: number | null = null
   private listeners = new Set<() => void>()
-  private snapshot: EngineSnapshot = { isPlaying: false, duration: 0, tracks: [] }
+  private snapshot: EngineSnapshot = {
+    isPlaying: false,
+    duration: 0,
+    tracks: [],
+    ses: [],
+  }
 
   // ---- React external-store interface -------------------------------------
 
@@ -65,10 +87,16 @@ export class AudioEngine {
       soloed: t.soloed,
       markers: t.markers.slice().sort((a, b) => a.time - b.time),
     }))
+    const ses: SeState[] = this.ses.map((s) => ({
+      id: s.id,
+      name: s.name,
+      cues: s.cues.slice().sort((a, b) => a.time - b.time),
+    }))
     this.snapshot = {
       isPlaying: this.playing,
       duration: this.computeDuration(),
       tracks,
+      ses,
     }
     this.listeners.forEach((l) => l())
   }
@@ -155,6 +183,7 @@ export class AudioEngine {
 
     this.positionAtStart = this.pausedPosition
     this.ctxTimeAtStart = ctx.currentTime
+    this.lastTickPosition = this.pausedPosition
     this.playing = true
 
     this.syncElements(true)
@@ -181,6 +210,8 @@ export class AudioEngine {
     if (this.playing && this.ctx) {
       this.positionAtStart = clamped
       this.ctxTimeAtStart = this.ctx.currentTime
+      // Don't retro-fire every cue we jumped over.
+      this.lastTickPosition = clamped
       this.syncElements(true)
     } else {
       this.pausedPosition = clamped
@@ -205,6 +236,62 @@ export class AudioEngine {
     if (!t) return
     t.soloed = soloed
     this.applyGains()
+    this.emit()
+  }
+
+  // ---- Sound effects / one-shots (Phase 3) --------------------------------
+
+  /** Load and decode a one-shot SE file. */
+  async addSe(file: File): Promise<void> {
+    const ctx = this.ensureContext()
+    const arrayBuf = await file.arrayBuffer()
+    const buffer = await ctx.decodeAudioData(arrayBuf)
+    this.ses.push({ id: crypto.randomUUID(), name: file.name, buffer, cues: [] })
+    this.emit()
+  }
+
+  removeSe(id: string): void {
+    this.ses = this.ses.filter((s) => s.id !== id)
+    this.emit()
+  }
+
+  /** Total SE one-shots fired (manual + cues). Exposed for debugging/tests. */
+  seFireCount = 0
+
+  /** Fire an SE immediately as a one-shot (AudioBufferSourceNode). */
+  playSe(id: string): void {
+    const ctx = this.ctx
+    const s = this.ses.find((s) => s.id === id)
+    if (!ctx || !this.masterGain || !s) return
+    if (ctx.state === 'suspended') void ctx.resume()
+    const node = ctx.createBufferSource()
+    node.buffer = s.buffer
+    node.connect(this.masterGain)
+    node.start()
+    this.seFireCount++
+  }
+
+  /** Add a timeline cue that fires this SE at `time` (defaults to playhead). */
+  addCue(seId: string, time = this.position): void {
+    const s = this.ses.find((s) => s.id === seId)
+    if (!s) return
+    s.cues.push({ id: crypto.randomUUID(), time: Math.max(0, time) })
+    this.emit()
+  }
+
+  removeCue(seId: string, cueId: string): void {
+    const s = this.ses.find((s) => s.id === seId)
+    if (!s) return
+    s.cues = s.cues.filter((c) => c.id !== cueId)
+    this.emit()
+  }
+
+  moveCue(seId: string, cueId: string, time: number): void {
+    const s = this.ses.find((s) => s.id === seId)
+    if (!s) return
+    const c = s.cues.find((c) => c.id === cueId)
+    if (!c) return
+    c.time = Math.max(0, time)
     this.emit()
   }
 
@@ -265,7 +352,20 @@ export class AudioEngine {
       const d = t.el.duration && isFinite(t.el.duration) ? t.el.duration : 0
       max = Math.max(max, t.offset + d)
     }
+    for (const s of this.ses) {
+      for (const c of s.cues) max = Math.max(max, c.time)
+    }
     return max
+  }
+
+  /** Fire any SE cues whose time falls in (from, to]. */
+  private fireCues(from: number, to: number): void {
+    if (to <= from) return
+    for (const s of this.ses) {
+      for (const c of s.cues) {
+        if (c.time > from && c.time <= to) this.playSe(s.id)
+      }
+    }
   }
 
   /**
@@ -340,6 +440,9 @@ export class AudioEngine {
   private startLoop(): void {
     if (this.rafId != null) return
     const tick = () => {
+      const pos = this.position
+      this.fireCues(this.lastTickPosition, pos)
+      this.lastTickPosition = pos
       this.syncElements(false)
       this.applyGains()
       // Auto-stop at the end of the timeline.
