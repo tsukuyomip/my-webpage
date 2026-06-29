@@ -149,7 +149,8 @@ export class AudioEngine {
     }
     el.src = objectUrl
     el.preload = 'auto'
-    el.crossOrigin = 'anonymous'
+    // No crossOrigin: the source is a same-origin blob: URL, and setting
+    // crossOrigin can break media loading on some mobile browsers.
 
     // Routing audio through a MediaElementSource diverts it from the element's
     // own output, so mute/solo is governed entirely by the gain node.
@@ -203,10 +204,13 @@ export class AudioEngine {
     return this.pausedPosition
   }
 
-  async play(): Promise<void> {
+  play(): void {
     if (this.playing) return
     const ctx = this.ensureContext()
-    if (ctx.state === 'suspended') await ctx.resume()
+    // Resume within the user gesture but DO NOT await: an await here would move
+    // the el.play() calls below out of the gesture call stack, which iOS Safari
+    // rejects (clock would advance but no audio would actually start).
+    if (ctx.state === 'suspended') void ctx.resume()
 
     // Restart from the end if we were parked past the timeline.
     if (this.pausedPosition >= this.computeDuration()) this.pausedPosition = 0
@@ -216,9 +220,31 @@ export class AudioEngine {
     this.lastTickPosition = this.pausedPosition
     this.playing = true
 
+    this.primeElements()
     this.syncElements(true)
     this.startLoop()
     this.emit()
+  }
+
+  /**
+   * On the first play, unlock every media element by starting it within the
+   * user gesture (out-of-range ones are paused again immediately). Without
+   * this, mobile browsers refuse to start tracks that begin at an offset, since
+   * their later el.play() happens outside any gesture.
+   */
+  private primed = false
+  private primeElements(): void {
+    if (this.primed) return
+    this.primed = true
+    for (const t of this.tracks) {
+      const localTime = this.position - t.offset
+      const dur = t.el.duration && isFinite(t.el.duration) ? t.el.duration : Infinity
+      const inRange = localTime >= 0 && localTime <= dur
+      if (!inRange) {
+        const p = t.el.play()
+        if (p && typeof p.then === 'function') p.then(() => t.el.pause()).catch(() => {})
+      }
+    }
   }
 
   pause(): void {
@@ -232,7 +258,7 @@ export class AudioEngine {
 
   togglePlay(): void {
     if (this.playing) this.pause()
-    else void this.play()
+    else this.play()
   }
 
   seek(position: number): void {
@@ -344,7 +370,7 @@ export class AudioEngine {
 
     this.seek(0)
     rec.start(100)
-    await this.play()
+    this.play()
 
     // Wait for the transport to run to the end (startLoop auto-pauses there).
     await new Promise<void>((res) => {
