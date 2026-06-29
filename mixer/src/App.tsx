@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import { FileDrop } from './components/FileDrop'
+import { ProjectBar } from './components/ProjectBar'
 import { SeBank } from './components/SeBank'
 import { Timeline } from './components/Timeline'
 import { TrackList } from './components/TrackList'
 import { Transport } from './components/Transport'
 import { VideoGrid, type VideoLayout } from './components/VideoGrid'
 import { useAudioEngine, useTransportPosition } from './audio/useAudioEngine'
+import { loadProject, saveProject } from './storage/projectStore'
 
 export default function App() {
   const { engine, snapshot } = useAudioEngine()
@@ -26,7 +28,15 @@ export default function App() {
       </header>
 
       <main className="app-main">
-        <FileDrop onFiles={(files) => files.forEach((f) => void engine.addTrack(f))} />
+        <FileDrop onFiles={(files) => files.forEach((f) => engine.addTrack(f))} />
+
+        <ProjectBar
+          onSave={(name) => saveProject(name, engine.toProject())}
+          onLoad={async (name) => {
+            const p = await loadProject(name)
+            if (p) await engine.loadProject(p)
+          }}
+        />
 
         {hasVideo && (
           <div className="videobar">

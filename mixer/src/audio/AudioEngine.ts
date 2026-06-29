@@ -2,11 +2,14 @@ import type {
   AutomationMarker,
   AutomationType,
   EngineSnapshot,
+  ProjectData,
   SeCue,
   SeState,
   TrackKind,
   TrackState,
 } from './types'
+
+const PROJECT_VERSION = 1
 
 /**
  * If a media element's currentTime drifts from the master clock by more than
@@ -27,6 +30,8 @@ interface Track {
   muted: boolean
   soloed: boolean
   markers: AutomationMarker[]
+  /** Original file, retained so the project (incl. media) can be persisted. */
+  blob: Blob
 }
 
 interface Se {
@@ -34,6 +39,7 @@ interface Se {
   name: string
   buffer: AudioBuffer
   cues: SeCue[]
+  blob: Blob
 }
 
 /**
@@ -119,11 +125,20 @@ export class AudioEngine {
     return this.ctx
   }
 
-  async addTrack(file: File): Promise<void> {
-    const ctx = this.ensureContext()
-    const objectUrl = URL.createObjectURL(file)
+  addTrack(file: File): void {
+    this.buildTrack(file, file.name, {})
+  }
 
-    const isVideo = file.type.startsWith('video/')
+  /** Create a track from a blob, optionally seeding persisted state. */
+  private buildTrack(
+    blob: Blob,
+    name: string,
+    init: Partial<Pick<Track, 'offset' | 'muted' | 'soloed' | 'markers'>>,
+  ): void {
+    const ctx = this.ensureContext()
+    const objectUrl = URL.createObjectURL(blob)
+
+    const isVideo = blob.type.startsWith('video/')
     const el: HTMLMediaElement = isVideo
       ? document.createElement('video')
       : new Audio()
@@ -145,16 +160,17 @@ export class AudioEngine {
 
     const track: Track = {
       id: crypto.randomUUID(),
-      name: file.name,
+      name,
       kind: isVideo ? 'video' : 'audio',
       el,
       source,
       gain,
       objectUrl,
-      offset: 0,
-      muted: false,
-      soloed: false,
-      markers: [],
+      offset: init.offset ?? 0,
+      muted: init.muted ?? false,
+      soloed: init.soloed ?? false,
+      markers: init.markers ?? [],
+      blob,
     }
 
     // Re-emit once metadata (duration) is known.
@@ -253,6 +269,58 @@ export class AudioEngine {
     this.emit()
   }
 
+  // ---- Project persistence (Phase 5) --------------------------------------
+
+  /** Snapshot the full project (timeline state + media blobs) for saving. */
+  toProject(): ProjectData {
+    return {
+      version: PROJECT_VERSION,
+      tracks: this.tracks.map((t) => ({
+        name: t.name,
+        kind: t.kind,
+        offset: t.offset,
+        muted: t.muted,
+        soloed: t.soloed,
+        markers: t.markers.map((m) => ({ ...m })),
+        blob: t.blob,
+      })),
+      ses: this.ses.map((s) => ({
+        name: s.name,
+        cues: s.cues.map((c) => ({ ...c })),
+        blob: s.blob,
+      })),
+    }
+  }
+
+  /** Replace the current session with a saved project. */
+  async loadProject(p: ProjectData): Promise<void> {
+    const ctx = this.ensureContext()
+    this.pause()
+    for (const t of [...this.tracks]) this.removeTrack(t.id)
+    for (const s of [...this.ses]) this.removeSe(s.id)
+    this.pausedPosition = 0
+
+    for (const pt of p.tracks) {
+      this.buildTrack(pt.blob, pt.name, {
+        offset: pt.offset,
+        muted: pt.muted,
+        soloed: pt.soloed,
+        markers: pt.markers,
+      })
+    }
+    for (const ps of p.ses) {
+      const buffer = await ctx.decodeAudioData(await ps.blob.arrayBuffer())
+      this.ses.push({
+        id: crypto.randomUUID(),
+        name: ps.name,
+        buffer,
+        cues: ps.cues,
+        blob: ps.blob,
+      })
+    }
+    this.emit()
+  }
+
   // ---- Sound effects / one-shots (Phase 3) --------------------------------
 
   /** Load and decode a one-shot SE file. */
@@ -260,7 +328,7 @@ export class AudioEngine {
     const ctx = this.ensureContext()
     const arrayBuf = await file.arrayBuffer()
     const buffer = await ctx.decodeAudioData(arrayBuf)
-    this.ses.push({ id: crypto.randomUUID(), name: file.name, buffer, cues: [] })
+    this.ses.push({ id: crypto.randomUUID(), name: file.name, buffer, cues: [], blob: file })
     this.emit()
   }
 

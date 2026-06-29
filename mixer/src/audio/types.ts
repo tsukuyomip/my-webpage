@@ -39,6 +39,31 @@ export interface SeState {
   cues: SeCue[]
 }
 
+// ---- Project persistence (Phase 5) ---------------------------------------
+
+export interface ProjectTrack {
+  name: string
+  kind: TrackKind
+  offset: number
+  muted: boolean
+  soloed: boolean
+  markers: AutomationMarker[]
+  /** Original media blob, persisted alongside the timeline state. */
+  blob: Blob
+}
+
+export interface ProjectSe {
+  name: string
+  cues: SeCue[]
+  blob: Blob
+}
+
+export interface ProjectData {
+  version: number
+  tracks: ProjectTrack[]
+  ses: ProjectSe[]
+}
+
 /** Render-facing snapshot of the whole engine (structural state only). */
 export interface EngineSnapshot {
   isPlaying: boolean
