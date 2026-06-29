@@ -9,6 +9,9 @@ interface Props {
   layout: VideoLayout
   /** Opacity (0..1) applied to a video that is currently silenced by mute/solo. */
   greyOpacity: number
+  /** Performance mode: only the active video decodes; others freeze. */
+  performanceMode: boolean
+  activeVideoId: string | null
 }
 
 /** Mount the engine-owned <video> element for one track into the DOM. */
@@ -17,11 +20,13 @@ function VideoCell({
   name,
   silenced,
   greyOpacity,
+  frozen,
 }: {
   el: HTMLMediaElement | null
   name: string
   silenced: boolean
   greyOpacity: number
+  frozen: boolean
 }) {
   const hostRef = useRef<HTMLDivElement>(null)
 
@@ -42,6 +47,7 @@ function VideoCell({
         ref={hostRef}
         style={{ opacity: silenced ? greyOpacity : 1 }}
       />
+      {frozen && <span className="videogrid__frozen">⏸ 静止中</span>}
       <span className="videogrid__label">{name}</span>
     </div>
   )
@@ -51,7 +57,14 @@ function VideoCell({
  * Grid / row / column preview of all video tracks. A track is greyed out
  * (configurable opacity) while it is silenced by the current mute/solo state.
  */
-export function VideoGrid({ tracks, getElement, layout, greyOpacity }: Props) {
+export function VideoGrid({
+  tracks,
+  getElement,
+  layout,
+  greyOpacity,
+  performanceMode,
+  activeVideoId,
+}: Props) {
   const videos = tracks.filter((t) => t.kind === 'video')
   if (videos.length === 0) return null
 
@@ -67,6 +80,7 @@ export function VideoGrid({ tracks, getElement, layout, greyOpacity }: Props) {
           name={t.name}
           silenced={anySolo ? !t.soloed : t.muted}
           greyOpacity={greyOpacity}
+          frozen={performanceMode && t.id !== activeVideoId}
         />
       ))}
     </div>

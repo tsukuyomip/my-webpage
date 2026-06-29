@@ -81,6 +81,8 @@ export class AudioEngine {
   private lastTickPosition = 0
 
   private playing = false
+  /** When true, only the active video decodes; others freeze (mobile perf). */
+  private performanceMode = false
   /** Transport position (seconds) captured at the moment playback last started. */
   private positionAtStart = 0
   /** `AudioContext.currentTime` captured at the moment playback last started. */
@@ -95,6 +97,8 @@ export class AudioEngine {
     duration: 0,
     tracks: [],
     ses: [],
+    performanceMode: false,
+    activeVideoId: null,
   }
 
   // ---- React external-store interface -------------------------------------
@@ -127,8 +131,26 @@ export class AudioEngine {
       duration: this.computeDuration(),
       tracks,
       ses,
+      performanceMode: this.performanceMode,
+      activeVideoId: this.activeVideoId(),
     }
     this.listeners.forEach((l) => l())
+  }
+
+  /** The video that keeps decoding in performance mode: soloed one, else first. */
+  private activeVideoId(): string | null {
+    const vids = this.tracks.filter((t) => t.kind === 'video')
+    if (vids.length === 0) return null
+    return (vids.find((t) => t.soloed) ?? vids[0]).id
+  }
+
+  /** Toggle mobile performance mode (one decoding video at a time). */
+  setPerformanceMode(on: boolean): void {
+    if (this.performanceMode === on) return
+    this.performanceMode = on
+    // Apply immediately: pause newly-frozen videos / resume the active one.
+    this.syncElements(true)
+    this.emit()
   }
 
   // ---- Lifecycle ----------------------------------------------------------
@@ -318,8 +340,11 @@ export class AudioEngine {
   private primeElements(): void {
     if (this.primed) return
     this.primed = true
+    const activeId = this.performanceMode ? this.activeVideoId() : null
     for (const t of this.tracks) {
       if (!t.el) continue
+      // Don't even briefly unlock videos that will stay frozen in perf mode.
+      if (this.performanceMode && t.id !== activeId) continue
       const localTime = this.position - t.offset
       const dur = t.duration || Infinity
       const inRange = localTime >= 0 && localTime <= dur
@@ -728,14 +753,19 @@ export class AudioEngine {
    * @param forceReseek hard-set currentTime regardless of drift (after seek/play).
    */
   private syncElements(forceReseek: boolean): void {
+    // In performance mode only this video keeps decoding; the rest freeze.
+    const activeId = this.performanceMode ? this.activeVideoId() : null
+
     for (const t of this.tracks) {
       const el = t.el
       if (!el) continue
       const localTime = this.position - t.offset
       const dur = t.duration || Infinity
       const inRange = localTime >= 0 && localTime <= dur
+      const frozen = this.performanceMode && this.playing && t.id !== activeId
 
-      if (!inRange) {
+      if (!inRange || frozen) {
+        // Out of range, or frozen for performance: stop decoding (last frame stays).
         if (!el.paused) el.pause()
         if (el.playbackRate !== 1) el.playbackRate = 1
         continue

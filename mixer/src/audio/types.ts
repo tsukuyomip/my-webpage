@@ -71,4 +71,8 @@ export interface EngineSnapshot {
   duration: number
   tracks: TrackState[]
   ses: SeState[]
+  /** When true, only one video decodes at a time (mobile performance). */
+  performanceMode: boolean
+  /** The video that keeps playing in performance mode (others freeze). */
+  activeVideoId: string | null
 }

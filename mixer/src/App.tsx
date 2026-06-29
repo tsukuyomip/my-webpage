@@ -66,6 +66,17 @@ export default function App() {
                 {Math.round(greyOpacity * 100)}%
               </span>
             </label>
+            <label
+              className="videobar__perf"
+              title="ONにすると同時に再生する動画は1本（ソロ/先頭）だけになり、他は静止します。スマホで2本以上が重いときに。"
+            >
+              <input
+                type="checkbox"
+                checked={snapshot.performanceMode}
+                onChange={(e) => engine.setPerformanceMode(e.target.checked)}
+              />
+              軽量モード（動画1本ずつ）
+            </label>
           </div>
         )}
 
@@ -74,6 +85,8 @@ export default function App() {
           getElement={(id) => engine.getElement(id)}
           layout={layout}
           greyOpacity={greyOpacity}
+          performanceMode={snapshot.performanceMode}
+          activeVideoId={snapshot.activeVideoId}
         />
 
         <Transport
