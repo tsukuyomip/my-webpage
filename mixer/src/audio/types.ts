@@ -8,6 +8,18 @@ export interface AutomationMarker {
   type: AutomationType
 }
 
+/**
+ * "Only" mode: at most one track is exclusively active. A global, time-ordered
+ * list of selections — at any moment the latest event decides which track (or
+ * none) is the sole audible one, overriding mute/solo.
+ */
+export interface OnlyEvent {
+  id: string
+  time: number
+  /** Track that becomes the sole active one, or null to clear "only". */
+  trackId: string | null
+}
+
 export type TrackKind = 'audio' | 'video'
 
 /** Serializable, render-facing snapshot of a single track. */
@@ -64,6 +76,8 @@ export interface ProjectData {
   version: number
   tracks: ProjectTrack[]
   ses: ProjectSe[]
+  onlyEvents?: OnlyEvent[]
+  manualOnly?: string | null
 }
 
 /** Render-facing snapshot of the whole engine (structural state only). */
@@ -77,4 +91,7 @@ export interface EngineSnapshot {
   performanceMode: boolean
   /** The video that keeps playing in performance mode (others freeze). */
   activeVideoId: string | null
+  /** Global "only" automation events and the manual base selection. */
+  onlyEvents: OnlyEvent[]
+  manualOnly: string | null
 }

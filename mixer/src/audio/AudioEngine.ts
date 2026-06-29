@@ -2,12 +2,14 @@ import type {
   AutomationMarker,
   AutomationType,
   EngineSnapshot,
+  OnlyEvent,
   ProjectData,
   SeCue,
   SeState,
   TrackKind,
   TrackState,
 } from './types'
+import { effectiveOnly, effectiveToggle } from './automation'
 
 const PROJECT_VERSION = 1
 
@@ -87,6 +89,9 @@ export class AudioEngine {
   private masterGain: GainNode | null = null
   private tracks: Track[] = []
   private ses: Se[] = []
+  /** Global "only" automation (exclusive single-track mode). */
+  private onlyEvents: OnlyEvent[] = []
+  private manualOnly: string | null = null
   /** Transport position at the previous loop tick, for crossing detection. */
   private lastTickPosition = 0
 
@@ -109,6 +114,8 @@ export class AudioEngine {
     ses: [],
     performanceMode: false,
     activeVideoId: null,
+    onlyEvents: [],
+    manualOnly: null,
   }
 
   // ---- React external-store interface -------------------------------------
@@ -144,6 +151,8 @@ export class AudioEngine {
       ses,
       performanceMode: this.performanceMode,
       activeVideoId: this.activeVideoId(),
+      onlyEvents: this.onlyEvents.slice().sort((a, b) => a.time - b.time),
+      manualOnly: this.manualOnly,
     }
     this.listeners.forEach((l) => l())
   }
@@ -276,6 +285,9 @@ export class AudioEngine {
     t.gain.disconnect()
     if (t.objectUrl) URL.revokeObjectURL(t.objectUrl)
     this.tracks.splice(idx, 1)
+    // Drop any "only" references to the removed track.
+    this.onlyEvents = this.onlyEvents.filter((e) => e.trackId !== id)
+    if (this.manualOnly === id) this.manualOnly = null
     this.applyGains()
     this.emit()
   }
@@ -619,6 +631,8 @@ export class AudioEngine {
     this.pause()
     for (const t of [...this.tracks]) this.removeTrack(t.id)
     for (const s of [...this.ses]) this.removeSe(s.id)
+    this.onlyEvents = []
+    this.manualOnly = null
     this.pausedPosition = 0
 
     for (const pt of p.tracks) {
@@ -730,6 +744,39 @@ export class AudioEngine {
     this.emit()
   }
 
+  // ---- "Only" mode (exclusive single track) -------------------------------
+
+  /**
+   * Toggle exclusive "only" for a track. If it's already the active only-track,
+   * clears it; otherwise makes it the sole active one. While playing this is
+   * recorded as a timed event; while paused it sets the manual base.
+   */
+  toggleOnly(trackId: string, time = this.position): void {
+    const current = effectiveOnly(this.onlyEvents, this.manualOnly, time)
+    const next = current === trackId ? null : trackId
+    if (this.playing) {
+      this.onlyEvents.push({ id: crypto.randomUUID(), time: Math.max(0, time), trackId: next })
+    } else {
+      this.manualOnly = next
+    }
+    this.applyGains()
+    this.emit()
+  }
+
+  removeOnlyEvent(eventId: string): void {
+    this.onlyEvents = this.onlyEvents.filter((e) => e.id !== eventId)
+    this.applyGains()
+    this.emit()
+  }
+
+  /** Clear all "only" automation and the manual selection. */
+  clearOnly(): void {
+    this.onlyEvents = []
+    this.manualOnly = null
+    this.applyGains()
+    this.emit()
+  }
+
   /** Move a track's start position on the timeline (seconds, clamped to >= 0). */
   setOffset(id: string, offset: number): void {
     const t = this.tracks.find((t) => t.id === id)
@@ -776,25 +823,19 @@ export class AudioEngine {
     }
   }
 
-  /**
-   * Effective mute/solo state at the current playhead: start from the manual
-   * base value and flip it once per automation toggle whose time has passed.
-   */
-  private effectiveState(t: Track, type: AutomationType): boolean {
-    const pos = this.position
-    let v = type === 'mute' ? t.muted : t.soloed
-    for (const m of t.markers) {
-      if (m.type === type && m.time <= pos) v = !v
-    }
-    return v
-  }
-
-  /** Whether a track should currently be audible (mute/solo only, ignoring time). */
+  /** Whether a track should currently be audible at the playhead. */
   private isAudible(t: Track): boolean {
-    const anySolo = this.tracks.some((x) => this.effectiveState(x, 'solo'))
+    const pos = this.position
+    // "Only" mode wins: if a track is exclusively selected, only it is audible.
+    const only = effectiveOnly(this.onlyEvents, this.manualOnly, pos)
+    if (only !== null) return t.id === only
+
+    const anySolo = this.tracks.some((x) =>
+      effectiveToggle(x.soloed, x.markers, 'solo', pos),
+    )
     return anySolo
-      ? this.effectiveState(t, 'solo')
-      : !this.effectiveState(t, 'mute')
+      ? effectiveToggle(t.soloed, t.markers, 'solo', pos)
+      : !effectiveToggle(t.muted, t.markers, 'mute', pos)
   }
 
   /**
