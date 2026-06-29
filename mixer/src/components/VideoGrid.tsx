@@ -21,12 +21,14 @@ function VideoCell({
   silenced,
   greyOpacity,
   frozen,
+  audioFailed,
 }: {
   el: HTMLMediaElement | null
   name: string
   silenced: boolean
   greyOpacity: number
   frozen: boolean
+  audioFailed: boolean
 }) {
   const hostRef = useRef<HTMLDivElement>(null)
 
@@ -47,7 +49,13 @@ function VideoCell({
         ref={hostRef}
         style={{ opacity: silenced ? greyOpacity : 1 }}
       />
-      {frozen && <span className="videogrid__frozen">⏸ 静止中</span>}
+      {frozen && (
+        <span
+          className={`videogrid__frozen${audioFailed ? ' videogrid__frozen--noaudio' : ''}`}
+        >
+          {audioFailed ? '⏸ 静止中・音声✕' : '⏸ 静止中・音○'}
+        </span>
+      )}
       <span className="videogrid__label">{name}</span>
     </div>
   )
@@ -81,6 +89,7 @@ export function VideoGrid({
           silenced={anySolo ? !t.soloed : t.muted}
           greyOpacity={greyOpacity}
           frozen={performanceMode && t.id !== activeVideoId}
+          audioFailed={t.frozenAudioFailed}
         />
       ))}
     </div>

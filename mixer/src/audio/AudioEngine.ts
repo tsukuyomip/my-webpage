@@ -44,12 +44,22 @@ interface Track {
   lastGainTarget: number
 
   // Audio tracks play a decoded buffer scheduled on the AudioContext timeline
-  // (sample-accurate, no drift). Video tracks use a media element so the frames
-  // can be shown, kept in sync via playbackRate nudging.
+  // (sample-accurate, no drift).
   buffer: AudioBuffer | null
   node: AudioBufferSourceNode | null
+
+  // Video tracks use a <video> element for the picture (and its audio while
+  // active). In performance mode a frozen video pauses its <video> (stops video
+  // decode) and plays a parallel audio-only <audio> element instead, so its
+  // sound stays in the mix. The <audio> element decodes only audio, so this
+  // works for any container the browser can play — including iOS .mov/AAC where
+  // decodeAudioData often can't.
   el: HTMLMediaElement | null
   source: MediaElementAudioSourceNode | null
+  audioEl: HTMLAudioElement | null
+  audioSource: MediaElementAudioSourceNode | null
+  /** True if the frozen-audio <audio> element failed to play (shown in UI). */
+  frozenAudioFailed: boolean
   objectUrl: string | null
 }
 
@@ -120,6 +130,7 @@ export class AudioEngine {
       muted: t.muted,
       soloed: t.soloed,
       markers: t.markers.slice().sort((a, b) => a.time - b.time),
+      frozenAudioFailed: t.frozenAudioFailed,
     }))
     const ses: SeState[] = this.ses.map((s) => ({
       id: s.id,
@@ -198,16 +209,20 @@ export class AudioEngine {
       node: null,
       el: null,
       source: null,
+      audioEl: null,
+      audioSource: null,
+      frozenAudioFailed: false,
       objectUrl: null,
     }
     this.tracks.push(track)
 
     if (track.kind === 'video') {
+      track.objectUrl = URL.createObjectURL(blob)
+
       const el = document.createElement('video')
       el.playsInline = true
       el.setAttribute('playsinline', '')
       // No crossOrigin: same-origin blob: URL; setting it can break loading.
-      track.objectUrl = URL.createObjectURL(blob)
       el.src = track.objectUrl
       el.preload = 'auto'
       // Routing audio through MediaElementSource diverts the element's own
@@ -219,20 +234,17 @@ export class AudioEngine {
         track.duration = el.duration && isFinite(el.duration) ? el.duration : 0
         this.emit()
       })
-      // Best-effort: also decode the audio track to a buffer, so that in
-      // performance mode a frozen video can keep its sound playing (the element
-      // is paused to stop video decode). If the container can't be decoded, the
-      // frozen video is simply silent.
-      void blob.arrayBuffer().then(
-        (buf) =>
-          ctx.decodeAudioData(buf).then(
-            (decoded) => {
-              track.buffer = decoded
-            },
-            () => {},
-          ),
-        () => {},
-      )
+
+      // Parallel audio-only element for performance mode: when the video is
+      // frozen we pause `el` (no video decode) and play this instead so the
+      // sound stays in the mix. <audio> ignores the video track, so it's light
+      // and works wherever the file itself plays.
+      const audioEl = new Audio()
+      audioEl.src = track.objectUrl
+      audioEl.preload = 'auto'
+      track.audioSource = ctx.createMediaElementSource(audioEl)
+      track.audioSource.connect(gain)
+      track.audioEl = audioEl
     } else {
       // Decode the audio up front so it can be scheduled drift-free.
       void blob.arrayBuffer().then(
@@ -258,7 +270,9 @@ export class AudioEngine {
     const t = this.tracks[idx]
     this.stopAudioNode(t)
     if (t.el) t.el.pause()
+    if (t.audioEl) t.audioEl.pause()
     t.source?.disconnect()
+    t.audioSource?.disconnect()
     t.gain.disconnect()
     if (t.objectUrl) URL.revokeObjectURL(t.objectUrl)
     this.tracks.splice(idx, 1)
@@ -346,6 +360,51 @@ export class AudioEngine {
   }
 
   /**
+   * Drive a frozen video's parallel audio element. `target` is the desired
+   * playback position, or null when out of range (then it's stopped). Records
+   * whether playback succeeded so the UI can flag a no-audio fallback.
+   */
+  private syncFrozenAudio(t: Track, target: number | null): void {
+    const a = t.audioEl
+    if (!a) return
+    if (target === null) {
+      if (!a.paused) a.pause()
+      return
+    }
+    if (a.paused) {
+      try {
+        a.currentTime = target
+      } catch {
+        /* not seekable yet */
+      }
+      const p = a.play()
+      if (p && typeof p.then === 'function') {
+        p.then(
+          () => {
+            if (t.frozenAudioFailed) {
+              t.frozenAudioFailed = false
+              this.emit()
+            }
+          },
+          () => {
+            if (!t.frozenAudioFailed) {
+              t.frozenAudioFailed = true
+              this.emit()
+            }
+          },
+        )
+      }
+    } else if (Math.abs(target - a.currentTime) > HARD_RESEEK) {
+      // Only correct large drift; small reseeks would click.
+      try {
+        a.currentTime = target
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  /**
    * On the first play, unlock every video element by starting it within the
    * user gesture (out-of-range ones are paused again immediately). Without
    * this, mobile browsers refuse to start video that begins at an offset, since
@@ -381,6 +440,7 @@ export class AudioEngine {
         t.el.pause()
         t.el.playbackRate = 1
       }
+      if (t.audioEl) t.audioEl.pause()
     })
     this.stopLoop()
     this.emit()
@@ -425,6 +485,10 @@ export class AudioEngine {
     const t = this.tracks.find((t) => t.id === id)
     if (!t) return
     t.soloed = soloed
+    // Solo changes which video stays active in performance mode. Re-evaluate now,
+    // inside this user gesture, so the newly-active video / frozen audio element
+    // is allowed to start playing on mobile.
+    if (this.performanceMode && this.playing) this.syncElements(false)
     this.applyGains()
     this.emit()
   }
@@ -782,16 +846,16 @@ export class AudioEngine {
 
       if (frozen) {
         // Stop video decode (last frame stays) but keep the SOUND in the mix by
-        // playing the decoded audio buffer instead of the element.
+        // playing the parallel audio-only element instead of the <video>.
         if (!el.paused) el.pause()
         if (el.playbackRate !== 1) el.playbackRate = 1
-        if (inRange && t.buffer && !t.node) this.scheduleBuffer(t)
+        this.syncFrozenAudio(t, inRange ? Math.max(0, localTime) : null)
         continue
       }
 
-      // Active/normal video: the element provides the audio, so make sure the
-      // buffer fallback isn't also playing (which would double the sound).
-      if (t.node) this.stopAudioNode(t)
+      // Active/normal video: the <video> element provides the audio, so make
+      // sure the parallel audio element isn't also playing (would double it).
+      if (t.audioEl && !t.audioEl.paused) t.audioEl.pause()
 
       if (!inRange) {
         if (!el.paused) el.pause()
