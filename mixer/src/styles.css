@@ -857,3 +857,7 @@ button {
   color: #ffcf4f;
   pointer-events: none;
 }
+
+.videogrid__frozen--noaudio {
+  color: #ff6b6b;
+}

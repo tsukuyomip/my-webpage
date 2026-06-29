@@ -24,6 +24,8 @@ export interface TrackState {
   soloed: boolean
   /** Mute/solo automation toggles for this track (Phase 3). */
   markers: AutomationMarker[]
+  /** Video only: true if the frozen-audio fallback couldn't play this track's sound. */
+  frozenAudioFailed: boolean
 }
 
 /** A timed trigger that fires a one-shot SE during playback. */
