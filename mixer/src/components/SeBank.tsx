@@ -1,14 +1,16 @@
 import { useRef } from 'react'
-import type { SeState } from '../audio/types'
+import type { SeLoadError, SeState } from '../audio/types'
 
 interface Props {
   ses: SeState[]
+  errors: SeLoadError[]
   onAddSe: (files: File[]) => void
   onRemoveSe: (id: string) => void
   onPlaySe: (id: string) => void
   onAddCue: (seId: string) => void
   onRemoveCue: (seId: string, cueId: string) => void
   onMoveCue: (seId: string, cueId: string, time: number) => void
+  onDismissError: (id: string) => void
 }
 
 /**
@@ -17,12 +19,14 @@ interface Props {
  */
 export function SeBank({
   ses,
+  errors,
   onAddSe,
   onRemoveSe,
   onPlaySe,
   onAddCue,
   onRemoveCue,
   onMoveCue,
+  onDismissError,
 }: Props) {
   const inputRef = useRef<HTMLInputElement>(null)
 
@@ -40,14 +44,37 @@ export function SeBank({
           multiple
           hidden
           onChange={(e) => {
-            const files = Array.from(e.target.files ?? []).filter((f) =>
-              f.type.startsWith('audio/'),
+            // Keep audio files, plus files the OS gives no MIME type for (some
+            // pickers do this); let decoding be the real gate and report any
+            // failure rather than dropping the file silently here.
+            const files = Array.from(e.target.files ?? []).filter(
+              (f) => f.type.startsWith('audio/') || f.type === '',
             )
             if (files.length) onAddSe(files)
             e.target.value = ''
           }}
         />
       </div>
+
+      {errors.length > 0 && (
+        <ul className="sebank__errors">
+          {errors.map((err) => (
+            <li className="sebank__error" key={err.id}>
+              <span className="sebank__error-name" title={err.name}>
+                ⚠ {err.name}
+              </span>
+              <span className="sebank__error-msg">{err.message}</span>
+              <button
+                className="sebank__error-dismiss"
+                onClick={() => onDismissError(err.id)}
+                aria-label="閉じる"
+              >
+                ✕
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
 
       {ses.length === 0 ? (
         <p className="sebank__empty">

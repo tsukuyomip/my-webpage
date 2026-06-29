@@ -53,6 +53,13 @@ export interface SeState {
   cues: SeCue[]
 }
 
+/** A SE file that failed to load (e.g. an undecodable codec), surfaced in the UI. */
+export interface SeLoadError {
+  id: string
+  name: string
+  message: string
+}
+
 // ---- Project persistence (Phase 5) ---------------------------------------
 
 export interface ProjectTrack {
@@ -87,6 +94,8 @@ export interface EngineSnapshot {
   duration: number
   tracks: TrackState[]
   ses: SeState[]
+  /** SE files that failed to load, so the UI can tell the user why. */
+  seErrors: SeLoadError[]
   /** When true, only one video decodes at a time (mobile performance). */
   performanceMode: boolean
   /** The video that keeps playing in performance mode (others freeze). */
