@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { AudioEngine } from './AudioEngine'
 
+declare global {
+  interface Window {
+    mixerEngine?: AudioEngine
+  }
+}
+
 /** Hold a single AudioEngine instance for the lifetime of the component. */
 export function useAudioEngine(): {
   engine: AudioEngine
@@ -9,6 +15,9 @@ export function useAudioEngine(): {
   const ref = useRef<AudioEngine | null>(null)
   if (ref.current === null) ref.current = new AudioEngine()
   const engine = ref.current
+
+  // Expose for debugging from the console (and end-to-end tests).
+  if (typeof window !== 'undefined') window.mixerEngine = engine
 
   const snapshot = useSyncExternalStore(engine.subscribe, engine.getSnapshot)
   return { engine, snapshot }

@@ -45,6 +45,9 @@ export default function App() {
           onToggleMute={(id, muted) => engine.setMuted(id, muted)}
           onToggleSolo={(id, soloed) => engine.setSoloed(id, soloed)}
           onRemove={(id) => engine.removeTrack(id)}
+          onAddMarker={(id, type) => engine.addMarker(id, type)}
+          onRemoveMarker={(id, markerId) => engine.removeMarker(id, markerId)}
+          onMoveMarker={(id, markerId, time) => engine.moveMarker(id, markerId, time)}
         />
       </main>
     </div>

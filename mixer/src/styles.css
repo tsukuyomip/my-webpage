@@ -194,6 +194,24 @@ button {
   pointer-events: none;
 }
 
+.timeline__marker {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  margin-left: -1px;
+  pointer-events: none;
+  border-radius: 1px;
+}
+
+.timeline__marker--mute {
+  background: var(--accent);
+}
+
+.timeline__marker--solo {
+  background: var(--accent-2);
+}
+
 .timeline__playhead {
   position: absolute;
   top: 0;
@@ -222,10 +240,6 @@ button {
 }
 
 .track {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
   padding: 0.6rem 0.75rem;
   background: var(--panel);
   border: 1px solid var(--border);
@@ -235,6 +249,13 @@ button {
 
 .track--muted {
   opacity: 0.55;
+}
+
+.track__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
 }
 
 .track__info {
@@ -294,4 +315,97 @@ button {
 .track__btn--remove:hover {
   color: var(--danger);
   border-color: var(--danger);
+}
+
+/* ---- Automation editor -------------------------------------------------- */
+
+.automation {
+  margin-top: 0.5rem;
+  padding-top: 0.5rem;
+  border-top: 1px dashed var(--border);
+}
+
+.automation__add {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.automation__label {
+  font-size: 0.72rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.automation__addbtn {
+  font-size: 0.75rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+  color: var(--text);
+}
+
+.automation__addbtn:hover {
+  border-color: var(--accent);
+}
+
+.automation__list {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.marker {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.2rem 0.4rem;
+  border-radius: 6px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  font-size: 0.75rem;
+}
+
+.marker__type {
+  font-weight: 600;
+}
+
+.marker--mute .marker__type {
+  color: var(--accent);
+}
+
+.marker--solo .marker__type {
+  color: var(--accent-2);
+}
+
+.marker__time {
+  width: 3.5rem;
+  padding: 0.1rem 0.25rem;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.marker__unit {
+  color: var(--muted);
+}
+
+.marker__remove {
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.85rem;
+  padding: 0 0.1rem;
+}
+
+.marker__remove:hover {
+  color: var(--danger);
 }

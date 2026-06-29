@@ -106,6 +106,14 @@ export function Timeline({ tracks, position, duration, onSeek, onSetOffset }: Pr
               >
                 <span className="timeline__clip-label">{t.name}</span>
               </div>
+              {t.markers.map((m) => (
+                <div
+                  key={m.id}
+                  className={`timeline__marker timeline__marker--${m.type}`}
+                  style={{ left: `${(m.time / span) * 100}%` }}
+                  title={`${m.type === 'mute' ? 'ミュート' : 'ソロ'}切替 @ ${m.time.toFixed(1)}s`}
+                />
+              ))}
             </div>
           )
         })}

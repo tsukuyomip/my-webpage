@@ -1,4 +1,4 @@
-import type { EngineSnapshot, TrackState } from './types'
+import type { AutomationMarker, AutomationType, EngineSnapshot, TrackState } from './types'
 
 /**
  * If a media element's currentTime drifts from the master clock by more than
@@ -17,6 +17,7 @@ interface Track {
   offset: number
   muted: boolean
   soloed: boolean
+  markers: AutomationMarker[]
 }
 
 /**
@@ -62,6 +63,7 @@ export class AudioEngine {
       offset: t.offset,
       muted: t.muted,
       soloed: t.soloed,
+      markers: t.markers.slice().sort((a, b) => a.time - b.time),
     }))
     this.snapshot = {
       isPlaying: this.playing,
@@ -110,6 +112,7 @@ export class AudioEngine {
       offset: 0,
       muted: false,
       soloed: false,
+      markers: [],
     }
 
     // Re-emit once metadata (duration) is known.
@@ -183,6 +186,7 @@ export class AudioEngine {
       this.pausedPosition = clamped
       this.syncElements(false)
     }
+    this.applyGains()
     this.emit()
   }
 
@@ -204,6 +208,38 @@ export class AudioEngine {
     this.emit()
   }
 
+  // ---- Automation markers (Phase 3) ---------------------------------------
+
+  /** Add a mute/solo toggle at `time` (defaults to the current playhead). */
+  addMarker(trackId: string, type: AutomationType, time = this.position): AutomationMarker | null {
+    const t = this.tracks.find((t) => t.id === trackId)
+    if (!t) return null
+    const marker: AutomationMarker = { id: crypto.randomUUID(), time: Math.max(0, time), type }
+    t.markers.push(marker)
+    this.applyGains()
+    this.emit()
+    return marker
+  }
+
+  removeMarker(trackId: string, markerId: string): void {
+    const t = this.tracks.find((t) => t.id === trackId)
+    if (!t) return
+    t.markers = t.markers.filter((m) => m.id !== markerId)
+    this.applyGains()
+    this.emit()
+  }
+
+  /** Reposition a marker in time (used by the paused-state visual editor). */
+  moveMarker(trackId: string, markerId: string, time: number): void {
+    const t = this.tracks.find((t) => t.id === trackId)
+    if (!t) return
+    const m = t.markers.find((m) => m.id === markerId)
+    if (!m) return
+    m.time = Math.max(0, time)
+    this.applyGains()
+    this.emit()
+  }
+
   /** Move a track's start position on the timeline (seconds, clamped to >= 0). */
   setOffset(id: string, offset: number): void {
     const t = this.tracks.find((t) => t.id === id)
@@ -213,6 +249,12 @@ export class AudioEngine {
     this.syncElements(true)
     this.applyGains()
     this.emit()
+  }
+
+  /** Current applied gain of a track (0..1). Exposed for debugging/tests. */
+  getTrackGain(id: string): number | null {
+    const t = this.tracks.find((t) => t.id === id)
+    return t ? t.gain.gain.value : null
   }
 
   // ---- Internals ----------------------------------------------------------
@@ -226,10 +268,25 @@ export class AudioEngine {
     return max
   }
 
+  /**
+   * Effective mute/solo state at the current playhead: start from the manual
+   * base value and flip it once per automation toggle whose time has passed.
+   */
+  private effectiveState(t: Track, type: AutomationType): boolean {
+    const pos = this.position
+    let v = type === 'mute' ? t.muted : t.soloed
+    for (const m of t.markers) {
+      if (m.type === type && m.time <= pos) v = !v
+    }
+    return v
+  }
+
   /** Whether a track should currently be audible (mute/solo only, ignoring time). */
   private isAudible(t: Track): boolean {
-    const anySolo = this.tracks.some((x) => x.soloed)
-    return anySolo ? t.soloed : !t.muted
+    const anySolo = this.tracks.some((x) => this.effectiveState(x, 'solo'))
+    return anySolo
+      ? this.effectiveState(t, 'solo')
+      : !this.effectiveState(t, 'mute')
   }
 
   /** Recompute and apply every track's gain (mute = 0, solo = others 0). */
@@ -240,8 +297,14 @@ export class AudioEngine {
       const localTime = this.position - t.offset
       const inRange = localTime >= 0 && localTime <= t.el.duration
       const target = this.isAudible(t) && inRange ? 1 : 0
-      // setTargetAtTime gives a short click-free ramp.
-      t.gain.gain.setTargetAtTime(target, now, 0.01)
+      if (this.playing) {
+        // setTargetAtTime gives a short click-free ramp during playback.
+        t.gain.gain.setTargetAtTime(target, now, 0.01)
+      } else {
+        // While paused the context clock is frozen, so apply immediately.
+        t.gain.gain.cancelScheduledValues(now)
+        t.gain.gain.value = target
+      }
     }
   }
 
