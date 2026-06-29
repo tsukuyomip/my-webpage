@@ -29,16 +29,26 @@ interface Track {
   id: string
   name: string
   kind: TrackKind
-  el: HTMLMediaElement
-  source: MediaElementAudioSourceNode
   gain: GainNode
-  objectUrl: string
   offset: number
   muted: boolean
   soloed: boolean
   markers: AutomationMarker[]
   /** Original file, retained so the project (incl. media) can be persisted. */
   blob: Blob
+  /** Cached media duration in seconds (0 until known). */
+  duration: number
+  /** Last gain target applied, so we don't re-schedule the param every frame. */
+  lastGainTarget: number
+
+  // Audio tracks play a decoded buffer scheduled on the AudioContext timeline
+  // (sample-accurate, no drift). Video tracks use a media element so the frames
+  // can be shown, kept in sync via playbackRate nudging.
+  buffer: AudioBuffer | null
+  node: AudioBufferSourceNode | null
+  el: HTMLMediaElement | null
+  source: MediaElementAudioSourceNode | null
+  objectUrl: string | null
 }
 
 interface Se {
@@ -52,11 +62,13 @@ interface Se {
 /**
  * Web Audio based mixing engine.
  *
- * Graph: each track `MediaElementSource -> GainNode -> masterGain -> destination`.
+ * Graph: each track `(BufferSource|MediaElementSource) -> GainNode -> masterGain
+ * -> destination`.
  *
  * The single source of truth for time is the transport position, derived from
- * `AudioContext.currentTime` while playing. Every animation frame we sync each
- * media element to the transport and recompute mute/solo gains.
+ * `AudioContext.currentTime` while playing. Audio tracks are scheduled as
+ * AudioBufferSourceNodes locked to that clock (no drift); video tracks use a
+ * media element nudged toward the clock so the picture stays in sync.
  */
 export class AudioEngine {
   private ctx: AudioContext | null = null
@@ -97,7 +109,7 @@ export class AudioEngine {
       id: t.id,
       name: t.name,
       kind: t.kind,
-      duration: t.el.duration && isFinite(t.el.duration) ? t.el.duration : 0,
+      duration: t.duration,
       offset: t.offset,
       muted: t.muted,
       soloed: t.soloed,
@@ -143,48 +155,61 @@ export class AudioEngine {
     init: Partial<Pick<Track, 'offset' | 'muted' | 'soloed' | 'markers'>>,
   ): void {
     const ctx = this.ensureContext()
-    const objectUrl = URL.createObjectURL(blob)
-
-    const isVideo = blob.type.startsWith('video/')
-    const el: HTMLMediaElement = isVideo
-      ? document.createElement('video')
-      : new Audio()
-    if (isVideo) {
-      const v = el as HTMLVideoElement
-      v.playsInline = true
-      v.setAttribute('playsinline', '')
-    }
-    el.src = objectUrl
-    el.preload = 'auto'
-    // No crossOrigin: the source is a same-origin blob: URL, and setting
-    // crossOrigin can break media loading on some mobile browsers.
-
-    // Routing audio through a MediaElementSource diverts it from the element's
-    // own output, so mute/solo is governed entirely by the gain node.
-    const source = ctx.createMediaElementSource(el)
     const gain = ctx.createGain()
-    source.connect(gain)
     gain.connect(this.masterGain!)
 
     const track: Track = {
       id: crypto.randomUUID(),
       name,
-      kind: isVideo ? 'video' : 'audio',
-      el,
-      source,
+      kind: blob.type.startsWith('video/') ? 'video' : 'audio',
       gain,
-      objectUrl,
       offset: init.offset ?? 0,
       muted: init.muted ?? false,
       soloed: init.soloed ?? false,
       markers: init.markers ?? [],
       blob,
+      duration: 0,
+      lastGainTarget: -1,
+      buffer: null,
+      node: null,
+      el: null,
+      source: null,
+      objectUrl: null,
+    }
+    this.tracks.push(track)
+
+    if (track.kind === 'video') {
+      const el = document.createElement('video')
+      el.playsInline = true
+      el.setAttribute('playsinline', '')
+      // No crossOrigin: same-origin blob: URL; setting it can break loading.
+      track.objectUrl = URL.createObjectURL(blob)
+      el.src = track.objectUrl
+      el.preload = 'auto'
+      // Routing audio through MediaElementSource diverts the element's own
+      // output, so mute/solo is governed by the gain node.
+      track.source = ctx.createMediaElementSource(el)
+      track.source.connect(gain)
+      track.el = el
+      el.addEventListener('loadedmetadata', () => {
+        track.duration = el.duration && isFinite(el.duration) ? el.duration : 0
+        this.emit()
+      })
+    } else {
+      // Decode the audio up front so it can be scheduled drift-free.
+      void blob.arrayBuffer().then(
+        (buf) =>
+          ctx.decodeAudioData(buf).then((decoded) => {
+            track.buffer = decoded
+            track.duration = decoded.duration
+            // If playback is already running, fold this track in.
+            if (this.playing) this.scheduleAudioTrack(track)
+            this.emit()
+          }),
+        () => {},
+      )
     }
 
-    // Re-emit once metadata (duration) is known.
-    el.addEventListener('loadedmetadata', () => this.emit())
-
-    this.tracks.push(track)
     this.applyGains()
     this.emit()
   }
@@ -193,10 +218,11 @@ export class AudioEngine {
     const idx = this.tracks.findIndex((t) => t.id === id)
     if (idx === -1) return
     const t = this.tracks[idx]
-    t.el.pause()
-    t.source.disconnect()
+    this.stopAudioNode(t)
+    if (t.el) t.el.pause()
+    t.source?.disconnect()
     t.gain.disconnect()
-    URL.revokeObjectURL(t.objectUrl)
+    if (t.objectUrl) URL.revokeObjectURL(t.objectUrl)
     this.tracks.splice(idx, 1)
     this.applyGains()
     this.emit()
@@ -227,6 +253,9 @@ export class AudioEngine {
     this.lastTickPosition = this.pausedPosition
     this.playing = true
 
+    for (const t of this.tracks) {
+      if (t.kind === 'audio') this.scheduleAudioTrack(t)
+    }
     this.primeElements()
     this.syncElements(true)
     this.startLoop()
@@ -234,22 +263,67 @@ export class AudioEngine {
   }
 
   /**
-   * On the first play, unlock every media element by starting it within the
+   * Schedule an audio track's buffer on the AudioContext timeline so it lines
+   * up with the transport — sample-accurate and free of drift/reseeks.
+   */
+  private scheduleAudioTrack(t: Track): void {
+    const ctx = this.ctx
+    if (!ctx || !this.playing || t.kind !== 'audio' || !t.buffer) return
+    this.stopAudioNode(t)
+
+    const trackLocal = this.position - t.offset // desired buffer position "now"
+    if (trackLocal >= t.buffer.duration) return // already finished
+
+    const node = ctx.createBufferSource()
+    node.buffer = t.buffer
+    node.connect(t.gain)
+    node.onended = () => {
+      if (t.node === node) t.node = null
+    }
+    if (trackLocal >= 0) {
+      node.start(ctx.currentTime, trackLocal)
+    } else {
+      // Track begins later on the timeline; start in the future at buffer 0.
+      node.start(ctx.currentTime - trackLocal, 0)
+    }
+    t.node = node
+  }
+
+  private stopAudioNode(t: Track): void {
+    if (!t.node) return
+    t.node.onended = null
+    try {
+      t.node.stop()
+    } catch {
+      /* already stopped */
+    }
+    try {
+      t.node.disconnect()
+    } catch {
+      /* already disconnected */
+    }
+    t.node = null
+  }
+
+  /**
+   * On the first play, unlock every video element by starting it within the
    * user gesture (out-of-range ones are paused again immediately). Without
-   * this, mobile browsers refuse to start tracks that begin at an offset, since
-   * their later el.play() happens outside any gesture.
+   * this, mobile browsers refuse to start video that begins at an offset, since
+   * their later el.play() happens outside any gesture. Audio tracks don't need
+   * this — they are scheduled buffers, not elements.
    */
   private primed = false
   private primeElements(): void {
     if (this.primed) return
     this.primed = true
     for (const t of this.tracks) {
+      if (!t.el) continue
       const localTime = this.position - t.offset
-      const dur = t.el.duration && isFinite(t.el.duration) ? t.el.duration : Infinity
+      const dur = t.duration || Infinity
       const inRange = localTime >= 0 && localTime <= dur
       if (!inRange) {
         const p = t.el.play()
-        if (p && typeof p.then === 'function') p.then(() => t.el.pause()).catch(() => {})
+        if (p && typeof p.then === 'function') p.then(() => t.el?.pause()).catch(() => {})
       }
     }
   }
@@ -259,8 +333,11 @@ export class AudioEngine {
     this.pausedPosition = this.position
     this.playing = false
     this.tracks.forEach((t) => {
-      t.el.pause()
-      t.el.playbackRate = 1
+      this.stopAudioNode(t)
+      if (t.el) {
+        t.el.pause()
+        t.el.playbackRate = 1
+      }
     })
     this.stopLoop()
     this.emit()
@@ -278,6 +355,10 @@ export class AudioEngine {
       this.ctxTimeAtStart = this.ctx.currentTime
       // Don't retro-fire every cue we jumped over.
       this.lastTickPosition = clamped
+      // Reschedule audio buffers from the new position; resync video elements.
+      for (const t of this.tracks) {
+        if (t.kind === 'audio') this.scheduleAudioTrack(t)
+      }
       this.syncElements(true)
     } else {
       this.pausedPosition = clamped
@@ -547,7 +628,8 @@ export class AudioEngine {
     const t = this.tracks.find((t) => t.id === id)
     if (!t) return
     t.offset = Math.max(0, offset)
-    // The element's local time changed; reseek and refresh gains immediately.
+    // The track's local time changed; reschedule/reseek and refresh gains.
+    if (t.kind === 'audio') this.scheduleAudioTrack(t)
     this.syncElements(true)
     this.applyGains()
     this.emit()
@@ -569,8 +651,7 @@ export class AudioEngine {
   private computeDuration(): number {
     let max = 0
     for (const t of this.tracks) {
-      const d = t.el.duration && isFinite(t.el.duration) ? t.el.duration : 0
-      max = Math.max(max, t.offset + d)
+      max = Math.max(max, t.offset + t.duration)
     }
     for (const s of this.ses) {
       for (const c of s.cues) max = Math.max(max, c.time)
@@ -609,14 +690,25 @@ export class AudioEngine {
       : !this.effectiveState(t, 'mute')
   }
 
-  /** Recompute and apply every track's gain (mute = 0, solo = others 0). */
+  /**
+   * Recompute and apply every track's gain (mute = 0, solo = others 0). Only
+   * (re)schedules an AudioParam when the target actually changes, so we don't
+   * churn the param graph every animation frame.
+   */
   private applyGains(): void {
     if (!this.ctx) return
     const now = this.ctx.currentTime
     for (const t of this.tracks) {
-      const localTime = this.position - t.offset
-      const inRange = localTime >= 0 && localTime <= t.el.duration
-      const target = this.isAudible(t) && inRange ? 1 : 0
+      let target = this.isAudible(t) ? 1 : 0
+      // Video elements play continuously; gate their gain to the in-range
+      // window. Audio buffers are silent outside their window already.
+      if (t.kind === 'video') {
+        const localTime = this.position - t.offset
+        const inRange = localTime >= 0 && localTime <= (t.duration || Infinity)
+        if (!inRange) target = 0
+      }
+      if (target === t.lastGainTarget) continue
+      t.lastGainTarget = target
       if (this.playing) {
         // setTargetAtTime gives a short click-free ramp during playback.
         t.gain.gain.setTargetAtTime(target, now, 0.01)
@@ -629,18 +721,21 @@ export class AudioEngine {
   }
 
   /**
-   * Align each media element to the transport position.
+   * Align each video element to the transport position (audio tracks are
+   * scheduled buffers and need no syncing).
    * @param forceReseek hard-set currentTime regardless of drift (after seek/play).
    */
   private syncElements(forceReseek: boolean): void {
     for (const t of this.tracks) {
+      const el = t.el
+      if (!el) continue
       const localTime = this.position - t.offset
-      const dur = t.el.duration && isFinite(t.el.duration) ? t.el.duration : Infinity
+      const dur = t.duration || Infinity
       const inRange = localTime >= 0 && localTime <= dur
 
       if (!inRange) {
-        if (!t.el.paused) t.el.pause()
-        if (t.el.playbackRate !== 1) t.el.playbackRate = 1
+        if (!el.paused) el.pause()
+        if (el.playbackRate !== 1) el.playbackRate = 1
         continue
       }
 
@@ -649,31 +744,31 @@ export class AudioEngine {
       if (!this.playing) {
         // Paused (seek / scrub): position the element exactly, no rate tricks.
         try {
-          t.el.currentTime = target
+          el.currentTime = target
         } catch {
           /* not seekable yet; retry next time */
         }
-        if (t.el.playbackRate !== 1) t.el.playbackRate = 1
+        if (el.playbackRate !== 1) el.playbackRate = 1
         continue
       }
 
       // Playing: keep the element aligned with the master clock.
-      const diff = target - t.el.currentTime // > 0 => element is behind
+      const diff = target - el.currentTime // > 0 => element is behind
       if (forceReseek || Math.abs(diff) > HARD_RESEEK) {
         try {
-          t.el.currentTime = target
+          el.currentTime = target
         } catch {
           /* not seekable yet; retry next frame */
         }
-        t.el.playbackRate = 1
+        el.playbackRate = 1
       } else if (Math.abs(diff) > SOFT_DRIFT) {
         // Glide back into alignment instead of an audible reseek.
-        t.el.playbackRate = diff > 0 ? CATCHUP_RATE : SLOWDOWN_RATE
-      } else if (t.el.playbackRate !== 1) {
-        t.el.playbackRate = 1
+        el.playbackRate = diff > 0 ? CATCHUP_RATE : SLOWDOWN_RATE
+      } else if (el.playbackRate !== 1) {
+        el.playbackRate = 1
       }
 
-      if (t.el.paused) void t.el.play().catch(() => {})
+      if (el.paused) void el.play().catch(() => {})
     }
   }
 
