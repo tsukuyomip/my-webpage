@@ -269,6 +269,103 @@ export class AudioEngine {
     this.emit()
   }
 
+  // ---- Export (Phase 6) ---------------------------------------------------
+
+  /** Whether there is anything to export. */
+  get hasContent(): boolean {
+    return this.computeDuration() > 0
+  }
+
+  /**
+   * Render the full mix to a WebM blob by playing it through in real time:
+   * master audio is tapped via a MediaStreamAudioDestinationNode and (when
+   * video tracks exist) composited onto a canvas, then captured by
+   * MediaRecorder.
+   */
+  async exportMix(opts: { greyOpacity?: number; onProgress?: (r: number) => void } = {}): Promise<Blob> {
+    const ctx = this.ensureContext()
+    if (ctx.state === 'suspended') await ctx.resume()
+    const total = this.computeDuration()
+    if (total <= 0) throw new Error('書き出す内容がありません')
+
+    const audioDest = ctx.createMediaStreamDestination()
+    this.masterGain!.connect(audioDest)
+
+    const videos = this.tracks.filter((t) => t.kind === 'video')
+    let drawRaf = 0
+    let stream: MediaStream
+
+    if (videos.length === 0) {
+      stream = audioDest.stream
+    } else {
+      const cols = Math.ceil(Math.sqrt(videos.length))
+      const rows = Math.ceil(videos.length / cols)
+      const CW = 320
+      const CH = 240
+      const canvas = document.createElement('canvas')
+      canvas.width = cols * CW
+      canvas.height = rows * CH
+      const c2d = canvas.getContext('2d')!
+      const greyOpacity = opts.greyOpacity ?? 0.25
+
+      const draw = () => {
+        c2d.fillStyle = '#000'
+        c2d.fillRect(0, 0, canvas.width, canvas.height)
+        const anySolo = this.tracks.some((t) => t.soloed)
+        videos.forEach((t, i) => {
+          const v = t.el as HTMLVideoElement
+          if (v.readyState < 2 || !v.videoWidth) return
+          const cx = (i % cols) * CW
+          const cy = Math.floor(i / cols) * CH
+          const silenced = anySolo ? !t.soloed : t.muted
+          c2d.globalAlpha = silenced ? greyOpacity : 1
+          const scale = Math.min(CW / v.videoWidth, CH / v.videoHeight)
+          const w = v.videoWidth * scale
+          const h = v.videoHeight * scale
+          c2d.drawImage(v, cx + (CW - w) / 2, cy + (CH - h) / 2, w, h)
+          c2d.globalAlpha = 1
+        })
+        drawRaf = requestAnimationFrame(draw)
+      }
+      draw()
+
+      const canvasStream = canvas.captureStream(30)
+      stream = new MediaStream([
+        ...canvasStream.getVideoTracks(),
+        ...audioDest.stream.getAudioTracks(),
+      ])
+    }
+
+    const mime = pickRecorderMime(videos.length > 0)
+    const rec = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined)
+    const chunks: Blob[] = []
+    rec.ondataavailable = (e) => e.data.size && chunks.push(e.data)
+    const stopped = new Promise<void>((res) => (rec.onstop = () => res()))
+
+    this.seek(0)
+    rec.start(100)
+    await this.play()
+
+    // Wait for the transport to run to the end (startLoop auto-pauses there).
+    await new Promise<void>((res) => {
+      const check = () => {
+        opts.onProgress?.(Math.min(1, this.position / total))
+        if (!this.playing || this.position >= total) return res()
+        setTimeout(check, 100)
+      }
+      check()
+    })
+
+    this.pause()
+    rec.stop()
+    await stopped
+    cancelAnimationFrame(drawRaf)
+    this.masterGain!.disconnect(audioDest)
+    opts.onProgress?.(1)
+
+    return new Blob(chunks, { type: chunks[0]?.type || mime || 'video/webm' })
+  }
+
   // ---- Project persistence (Phase 5) --------------------------------------
 
   /** Snapshot the full project (timeline state + media blobs) for saving. */
@@ -549,4 +646,17 @@ export class AudioEngine {
       this.rafId = null
     }
   }
+}
+
+/** Pick a MediaRecorder mime type the browser supports, preferring VP8/Opus. */
+function pickRecorderMime(withVideo: boolean): string | null {
+  const candidates = withVideo
+    ? ['video/webm;codecs=vp8,opus', 'video/webm;codecs=vp9,opus', 'video/webm']
+    : ['audio/webm;codecs=opus', 'audio/webm']
+  for (const c of candidates) {
+    if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(c)) {
+      return c
+    }
+  }
+  return null
 }

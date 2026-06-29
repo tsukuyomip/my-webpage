@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { ExportBar } from './components/ExportBar'
 import { FileDrop } from './components/FileDrop'
 import { ProjectBar } from './components/ProjectBar'
 import { SeBank } from './components/SeBank'
@@ -114,6 +115,12 @@ export default function App() {
           onAddCue={(id) => engine.addCue(id)}
           onRemoveCue={(id, cueId) => engine.removeCue(id, cueId)}
           onMoveCue={(id, cueId, time) => engine.moveCue(id, cueId, time)}
+        />
+
+        <ExportBar
+          disabled={snapshot.duration <= 0}
+          hasVideo={hasVideo}
+          onExport={(onProgress) => engine.exportMix({ greyOpacity, onProgress })}
         />
       </main>
     </div>

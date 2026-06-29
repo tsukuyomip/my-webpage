@@ -771,3 +771,48 @@ button {
 .saved__delete:hover {
   color: var(--danger);
 }
+
+/* ---- Export bar --------------------------------------------------------- */
+
+.exportbar {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.75rem;
+}
+
+.exportbar__btn {
+  width: 100%;
+  padding: 0.6rem 1rem;
+  border-radius: 8px;
+  border: 1px solid #5be59a;
+  background: rgba(91, 229, 154, 0.12);
+  color: #5be59a;
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.exportbar__btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.exportbar__bar {
+  margin-top: 0.5rem;
+  height: 6px;
+  background: var(--panel-2);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.exportbar__fill {
+  height: 100%;
+  background: #5be59a;
+  transition: width 0.1s linear;
+}
+
+.exportbar__note {
+  margin: 0.5rem 0 0;
+  font-size: 0.72rem;
+  color: var(--muted);
+}
