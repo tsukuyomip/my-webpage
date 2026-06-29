@@ -40,15 +40,18 @@ export function SeBank({
         <input
           ref={inputRef}
           type="file"
-          accept="audio/*"
+          accept="audio/*,video/*"
           multiple
           hidden
           onChange={(e) => {
-            // Keep audio files, plus files the OS gives no MIME type for (some
-            // pickers do this); let decoding be the real gate and report any
-            // failure rather than dropping the file silently here.
+            // Accept audio, video (use a clip's sound as an SE), and files the OS
+            // reports no MIME type for. Let loading be the real gate and surface
+            // any failure, rather than silently dropping the file here.
             const files = Array.from(e.target.files ?? []).filter(
-              (f) => f.type.startsWith('audio/') || f.type === '',
+              (f) =>
+                f.type.startsWith('audio/') ||
+                f.type.startsWith('video/') ||
+                f.type === '',
             )
             if (files.length) onAddSe(files)
             e.target.value = ''
