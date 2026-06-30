@@ -125,12 +125,16 @@ export default function App() {
 
         <TrackList
           tracks={snapshot.tracks}
+          onlyEvents={snapshot.onlyEvents}
           onToggleMute={(id, muted) => engine.setMuted(id, muted)}
           onToggleSolo={(id, soloed) => engine.setSoloed(id, soloed)}
           onRemove={(id) => engine.removeTrack(id)}
           onAddMarker={(id, type) => engine.addMarker(id, type)}
           onRemoveMarker={(id, markerId) => engine.removeMarker(id, markerId)}
           onMoveMarker={(id, markerId, time) => engine.moveMarker(id, markerId, time)}
+          onToggleOnly={(id) => engine.recordOnly(id)}
+          onRemoveOnlyEvent={(eventId) => engine.removeOnlyEvent(eventId)}
+          onMoveOnlyEvent={(eventId, time) => engine.moveOnlyEvent(eventId, time)}
         />
 
         <SeBank

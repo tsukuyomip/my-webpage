@@ -868,6 +868,28 @@ export class AudioEngine {
     this.emit()
   }
 
+  /**
+   * Record a timed "only" toggle for a track at `time` (defaults to the
+   * playhead). Unlike toggleOnly this always writes a timed event — even while
+   * paused — so it shows in the per-track editor and can be removed, matching
+   * how mute/solo markers work. Toggling a track off at the exact same time it
+   * was recorded removes that event rather than leaving a stray clear-event.
+   */
+  recordOnly(trackId: string, time = this.position): void {
+    const at = Math.max(0, time)
+    const current = effectiveOnly(this.onlyEvents, this.manualOnly, at)
+    const next = current === trackId ? null : trackId
+    const existing = this.onlyEvents.find((e) => e.time === at)
+    if (next === null && existing) {
+      this.onlyEvents = this.onlyEvents.filter((e) => e.id !== existing.id)
+    } else {
+      this.setOnlyAt(at, next)
+    }
+    if (this.performanceMode && this.playing) this.syncElements(false)
+    this.applyGains()
+    this.emit()
+  }
+
   /** Set the "only" selection at an exact time, replacing any event already there. */
   private setOnlyAt(time: number, trackId: string | null): void {
     const at = Math.max(0, time)
@@ -878,6 +900,15 @@ export class AudioEngine {
 
   removeOnlyEvent(eventId: string): void {
     this.onlyEvents = this.onlyEvents.filter((e) => e.id !== eventId)
+    this.applyGains()
+    this.emit()
+  }
+
+  /** Reposition an "only" event in time (used by the per-track editor). */
+  moveOnlyEvent(eventId: string, time: number): void {
+    const e = this.onlyEvents.find((e) => e.id === eventId)
+    if (!e) return
+    e.time = Math.max(0, time)
     this.applyGains()
     this.emit()
   }
