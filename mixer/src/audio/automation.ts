@@ -63,6 +63,28 @@ export function toggleSegments(
   return segs.filter(([a, b]) => b > a)
 }
 
+/**
+ * The video that should keep decoding at `pos` (others freeze in performance
+ * mode): the "only"-selected video wins, else the soloed one (effective), else
+ * the first. Shared by the engine (to drive decode) and the UI (to show which
+ * is frozen) so they always agree.
+ */
+export function resolveActiveVideo(
+  videos: { id: string; soloed: boolean; markers: AutomationMarker[] }[],
+  events: OnlyEvent[],
+  manual: string | null,
+  pos: number,
+): string | null {
+  if (videos.length === 0) return null
+  const only = effectiveOnly(events, manual, pos)
+  if (only !== null) {
+    const v = videos.find((t) => t.id === only)
+    if (v) return v.id
+  }
+  const soloed = videos.find((t) => effectiveToggle(t.soloed, t.markers, 'solo', pos))
+  return (soloed ?? videos[0]).id
+}
+
 /** Intervals [start,end] where `trackId` is the active "only" selection. */
 export function onlySegmentsFor(
   events: OnlyEvent[],

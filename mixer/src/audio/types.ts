@@ -63,6 +63,8 @@ export interface SeLoadError {
 // ---- Project persistence (Phase 5) ---------------------------------------
 
 export interface ProjectTrack {
+  /** Stable track id, preserved on load so global "only" automation keeps referring to it. */
+  id: string
   name: string
   kind: TrackKind
   offset: number

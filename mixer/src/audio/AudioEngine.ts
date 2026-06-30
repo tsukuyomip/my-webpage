@@ -10,7 +10,8 @@ import type {
   TrackKind,
   TrackState,
 } from './types'
-import { effectiveOnly, effectiveToggle } from './automation'
+import { effectiveOnly, effectiveToggle, resolveActiveVideo } from './automation'
+import { fixWebmDuration } from '../util/webmDuration'
 
 const PROJECT_VERSION = 1
 
@@ -172,13 +173,7 @@ export class AudioEngine {
    */
   private activeVideoId(): string | null {
     const vids = this.tracks.filter((t) => t.kind === 'video')
-    if (vids.length === 0) return null
-    const only = effectiveOnly(this.onlyEvents, this.manualOnly, this.position)
-    if (only !== null) {
-      const onlyVid = vids.find((t) => t.id === only)
-      if (onlyVid) return onlyVid.id
-    }
-    return (vids.find((t) => t.soloed) ?? vids[0]).id
+    return resolveActiveVideo(vids, this.onlyEvents, this.manualOnly, this.position)
   }
 
   /** Toggle mobile performance mode (one decoding video at a time). */
@@ -213,14 +208,14 @@ export class AudioEngine {
   private buildTrack(
     blob: Blob,
     name: string,
-    init: Partial<Pick<Track, 'offset' | 'muted' | 'soloed' | 'markers'>>,
+    init: Partial<Pick<Track, 'id' | 'offset' | 'muted' | 'soloed' | 'markers'>>,
   ): void {
     const ctx = this.ensureContext()
     const gain = ctx.createGain()
     gain.connect(this.masterGain!)
 
     const track: Track = {
-      id: crypto.randomUUID(),
+      id: init.id ?? crypto.randomUUID(),
       name,
       kind: blob.type.startsWith('video/') ? 'video' : 'audio',
       gain,
@@ -547,6 +542,10 @@ export class AudioEngine {
     const total = this.computeDuration()
     if (total <= 0) throw new Error('書き出す内容がありません')
 
+    // Start from a stopped transport so play() below actually (re)starts cleanly
+    // from 0 even if the user hit export mid-playback.
+    if (this.playing) this.pause()
+
     const prevPerf = this.performanceMode
     this.performanceMode = false
 
@@ -635,9 +634,15 @@ export class AudioEngine {
       rec.stop()
       await stopped
       cancelAnimationFrame(drawRaf)
+
+      const raw = new Blob(chunks, { type: chunks[0]?.type || mime || 'video/webm' })
+      // MediaRecorder omits the WebM Duration; inject the known length so the
+      // file reports a real duration and is seekable (otherwise editors and
+      // some players treat it as broken).
+      const fixed = await fixWebmDuration(raw, total)
       opts.onProgress?.(1)
 
-      return new Blob(chunks, { type: chunks[0]?.type || mime || 'video/webm' })
+      return fixed
     } finally {
       this.masterGain!.disconnect(audioDest)
       this.performanceMode = prevPerf
@@ -652,6 +657,7 @@ export class AudioEngine {
     return {
       version: PROJECT_VERSION,
       tracks: this.tracks.map((t) => ({
+        id: t.id,
         name: t.name,
         kind: t.kind,
         offset: t.offset,
@@ -665,6 +671,8 @@ export class AudioEngine {
         cues: s.cues.map((c) => ({ ...c })),
         blob: s.blob,
       })),
+      onlyEvents: this.onlyEvents.map((e) => ({ ...e })),
+      manualOnly: this.manualOnly,
     }
   }
 
@@ -674,12 +682,15 @@ export class AudioEngine {
     this.pause()
     for (const t of [...this.tracks]) this.removeTrack(t.id)
     for (const s of [...this.ses]) this.removeSe(s.id)
-    this.onlyEvents = []
-    this.manualOnly = null
+    this.onlyEvents = (p.onlyEvents ?? []).map((e) => ({ ...e }))
+    this.manualOnly = p.manualOnly ?? null
     this.pausedPosition = 0
+    // New media: allow the next play() to re-unlock elements on mobile.
+    this.primed = false
 
     for (const pt of p.tracks) {
       this.buildTrack(pt.blob, pt.name, {
+        id: pt.id,
         offset: pt.offset,
         muted: pt.muted,
         soloed: pt.soloed,

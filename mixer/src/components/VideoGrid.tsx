@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
-import type { TrackState } from '../audio/types'
+import type { OnlyEvent, TrackState } from '../audio/types'
+import { effectiveOnly, effectiveToggle, resolveActiveVideo } from '../audio/automation'
 
 export type VideoLayout = 'grid' | 'row' | 'column'
 
@@ -11,7 +12,11 @@ interface Props {
   greyOpacity: number
   /** Performance mode: only the active video decodes; others freeze. */
   performanceMode: boolean
-  activeVideoId: string | null
+  /** Global "only" automation + manual base, to resolve the live silenced state. */
+  onlyEvents: OnlyEvent[]
+  manualOnly: string | null
+  /** Live playhead, so the grey-out follows recorded automation as it crosses. */
+  position: number
 }
 
 /** Mount the engine-owned <video> element for one track into the DOM. */
@@ -71,13 +76,25 @@ export function VideoGrid({
   layout,
   greyOpacity,
   performanceMode,
-  activeVideoId,
+  onlyEvents,
+  manualOnly,
+  position,
 }: Props) {
   const videos = tracks.filter((t) => t.kind === 'video')
   if (videos.length === 0) return null
 
-  // A track is silenced if solo is active elsewhere, or it is muted.
-  const anySolo = tracks.some((t) => t.soloed)
+  // Resolve the EFFECTIVE silenced state at the playhead (only > solo > mute,
+  // incl. recorded automation), matching what the engine actually plays — so the
+  // grey-out follows the same logic as the audio, not just the base toggles.
+  const only = effectiveOnly(onlyEvents, manualOnly, position)
+  const anySolo = tracks.some((t) => effectiveToggle(t.soloed, t.markers, 'solo', position))
+  const activeVideoId = resolveActiveVideo(videos, onlyEvents, manualOnly, position)
+  const isSilenced = (t: TrackState): boolean =>
+    only !== null
+      ? t.id !== only
+      : anySolo
+        ? !effectiveToggle(t.soloed, t.markers, 'solo', position)
+        : effectiveToggle(t.muted, t.markers, 'mute', position)
 
   return (
     <div className={`videogrid videogrid--${layout}`}>
@@ -86,7 +103,7 @@ export function VideoGrid({
           key={t.id}
           el={getElement(t.id)}
           name={t.name}
-          silenced={anySolo ? !t.soloed : t.muted}
+          silenced={isSilenced(t)}
           greyOpacity={greyOpacity}
           frozen={performanceMode && t.id !== activeVideoId}
           audioFailed={t.frozenAudioFailed}
