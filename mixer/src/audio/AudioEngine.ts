@@ -534,6 +534,12 @@ export class AudioEngine {
    * master audio is tapped via a MediaStreamAudioDestinationNode and (when
    * video tracks exist) composited onto a canvas, then captured by
    * MediaRecorder.
+   *
+   * Performance mode is force-disabled for the render so every video keeps
+   * decoding and its audio stays continuous: muting is done purely with gain
+   * ramps. Otherwise each solo/only switch would swap a track's <video> for its
+   * parallel <audio> element, and that pause/play has enough latency to drop a
+   * brief gap into the mix — heard as a click/silence at the switch.
    */
   async exportMix(opts: { greyOpacity?: number; onProgress?: (r: number) => void } = {}): Promise<Blob> {
     const ctx = this.ensureContext()
@@ -541,8 +547,12 @@ export class AudioEngine {
     const total = this.computeDuration()
     if (total <= 0) throw new Error('書き出す内容がありません')
 
+    const prevPerf = this.performanceMode
+    this.performanceMode = false
+
     const audioDest = ctx.createMediaStreamDestination()
     this.masterGain!.connect(audioDest)
+    try {
 
     const videos = this.tracks.filter((t) => t.kind === 'video')
     let drawRaf = 0
@@ -564,13 +574,25 @@ export class AudioEngine {
       const draw = () => {
         c2d.fillStyle = '#000'
         c2d.fillRect(0, 0, canvas.width, canvas.height)
-        const anySolo = this.tracks.some((t) => t.soloed)
+        // Grey out the silenced videos using the EFFECTIVE state at the playhead
+        // (only > solo > mute, incl. recorded automation), so the picture matches
+        // what's audible — the same logic isAudible uses for gain.
+        const pos = this.position
+        const only = effectiveOnly(this.onlyEvents, this.manualOnly, pos)
+        const anySolo = this.tracks.some((t) =>
+          effectiveToggle(t.soloed, t.markers, 'solo', pos),
+        )
         videos.forEach((t, i) => {
           const v = t.el as HTMLVideoElement
           if (v.readyState < 2 || !v.videoWidth) return
           const cx = (i % cols) * CW
           const cy = Math.floor(i / cols) * CH
-          const silenced = anySolo ? !t.soloed : t.muted
+          const silenced =
+            only !== null
+              ? t.id !== only
+              : anySolo
+                ? !effectiveToggle(t.soloed, t.markers, 'solo', pos)
+                : effectiveToggle(t.muted, t.markers, 'mute', pos)
           c2d.globalAlpha = silenced ? greyOpacity : 1
           const scale = Math.min(CW / v.videoWidth, CH / v.videoHeight)
           const w = v.videoWidth * scale
@@ -609,14 +631,18 @@ export class AudioEngine {
       check()
     })
 
-    this.pause()
-    rec.stop()
-    await stopped
-    cancelAnimationFrame(drawRaf)
-    this.masterGain!.disconnect(audioDest)
-    opts.onProgress?.(1)
+      this.pause()
+      rec.stop()
+      await stopped
+      cancelAnimationFrame(drawRaf)
+      opts.onProgress?.(1)
 
-    return new Blob(chunks, { type: chunks[0]?.type || mime || 'video/webm' })
+      return new Blob(chunks, { type: chunks[0]?.type || mime || 'video/webm' })
+    } finally {
+      this.masterGain!.disconnect(audioDest)
+      this.performanceMode = prevPerf
+      this.emit()
+    }
   }
 
   // ---- Project persistence (Phase 5) --------------------------------------
