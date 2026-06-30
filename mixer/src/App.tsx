@@ -87,7 +87,9 @@ export default function App() {
           layout={layout}
           greyOpacity={greyOpacity}
           performanceMode={snapshot.performanceMode}
-          activeVideoId={snapshot.activeVideoId}
+          onlyEvents={snapshot.onlyEvents}
+          manualOnly={snapshot.manualOnly}
+          position={position}
         />
 
         <Transport

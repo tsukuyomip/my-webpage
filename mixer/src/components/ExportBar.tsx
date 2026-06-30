@@ -20,8 +20,12 @@ export function ExportBar({ disabled, hasVideo, onExport }: Props) {
       const a = document.createElement('a')
       a.href = url
       a.download = 'mixer-export.webm'
+      document.body.appendChild(a)
       a.click()
-      URL.revokeObjectURL(url)
+      a.remove()
+      // Revoke on a later tick: revoking immediately after click() can abort the
+      // download of a large blob before the browser has finished reading it.
+      setTimeout(() => URL.revokeObjectURL(url), 60_000)
     } catch (err) {
       console.error('export failed', err)
     } finally {
