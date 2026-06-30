@@ -525,6 +525,30 @@ export class AudioEngine {
   }
 
   /**
+   * Resolve once every video that should be visible at the current position has
+   * decoded a frame (readyState >= HAVE_CURRENT_DATA), or after `timeoutMs`.
+   * Used to pre-roll the export so it never starts capturing black frames.
+   */
+  private awaitVideosReady(timeoutMs: number): Promise<void> {
+    const vids = this.tracks.filter((t) => t.el)
+    if (vids.length === 0) return Promise.resolve()
+    return new Promise((resolve) => {
+      const t0 = performance.now()
+      const check = () => {
+        const ready = vids.every((t) => {
+          const local = this.position - t.offset
+          const inRange = local >= 0 && local <= (t.duration || Infinity)
+          const el = t.el as HTMLVideoElement
+          return !inRange || (el.readyState >= 2 && el.videoWidth > 0)
+        })
+        if (ready || performance.now() - t0 > timeoutMs) resolve()
+        else setTimeout(check, 50)
+      }
+      check()
+    })
+  }
+
+  /**
    * Render the full mix to a WebM blob by playing it through in real time:
    * master audio is tapped via a MediaStreamAudioDestinationNode and (when
    * video tracks exist) composited onto a canvas, then captured by
@@ -570,9 +594,16 @@ export class AudioEngine {
       const c2d = canvas.getContext('2d')!
       const greyOpacity = opts.greyOpacity ?? 0.25
 
+      // Manual-frame capture: the recorder only gets a frame when we call
+      // requestFrame(), and we only call it after drawing a real (decoded)
+      // frame. This is the "wait for decode before writing" the export needs —
+      // captureStream(30) would instead auto-sample the canvas on a timer and
+      // re-emit a stale frame whenever a decode hadn't landed yet, which reads
+      // as a freeze in the output at busy moments like switches.
+      const canvasStream = canvas.captureStream(0)
+      const vtrack = canvasStream.getVideoTracks()[0] as CanvasCaptureMediaStreamTrack
+
       const draw = () => {
-        c2d.fillStyle = '#000'
-        c2d.fillRect(0, 0, canvas.width, canvas.height)
         // Grey out the silenced videos using the EFFECTIVE state at the playhead
         // (only > solo > mute, incl. recorded automation), so the picture matches
         // what's audible — the same logic isAudible uses for gain.
@@ -583,15 +614,19 @@ export class AudioEngine {
         )
         videos.forEach((t, i) => {
           const v = t.el as HTMLVideoElement
-          if (v.readyState < 2 || !v.videoWidth) return
           const cx = (i % cols) * CW
-          const cy = Math.floor(i / cols) * CH
+          const cy = (Math.floor(i / cols)) * CH
+          // Not ready this frame: keep the cell's last good frame rather than
+          // blacking it out (a black flash also reads as a freeze).
+          if (v.readyState < 2 || !v.videoWidth) return
           const silenced =
             only !== null
               ? t.id !== only
               : anySolo
                 ? !effectiveToggle(t.soloed, t.markers, 'solo', pos)
                 : effectiveToggle(t.muted, t.markers, 'mute', pos)
+          c2d.fillStyle = '#000'
+          c2d.fillRect(cx, cy, CW, CH)
           c2d.globalAlpha = silenced ? greyOpacity : 1
           const scale = Math.min(CW / v.videoWidth, CH / v.videoHeight)
           const w = v.videoWidth * scale
@@ -599,11 +634,11 @@ export class AudioEngine {
           c2d.drawImage(v, cx + (CW - w) / 2, cy + (CH - h) / 2, w, h)
           c2d.globalAlpha = 1
         })
+        vtrack.requestFrame()
         drawRaf = requestAnimationFrame(draw)
       }
       draw()
 
-      const canvasStream = canvas.captureStream(30)
       stream = new MediaStream([
         ...canvasStream.getVideoTracks(),
         ...audioDest.stream.getAudioTracks(),
@@ -617,6 +652,9 @@ export class AudioEngine {
     const stopped = new Promise<void>((res) => (rec.onstop = () => res()))
 
     this.seek(0)
+    // Pre-roll: let every video decode its first frame at position 0 before we
+    // start recording, so the export doesn't capture a black/stalled opening.
+    await this.awaitVideosReady(3000)
     rec.start(100)
     this.play()
 
