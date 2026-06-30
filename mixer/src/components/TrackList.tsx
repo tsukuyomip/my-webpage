@@ -1,32 +1,48 @@
-import type { AutomationType, TrackState } from '../audio/types'
+import type { AutomationType, OnlyEvent, TrackState } from '../audio/types'
 import { formatTime } from '../util/format'
 
 interface Props {
   tracks: TrackState[]
+  onlyEvents: OnlyEvent[]
   onToggleMute: (id: string, muted: boolean) => void
   onToggleSolo: (id: string, soloed: boolean) => void
   onRemove: (id: string) => void
   onAddMarker: (trackId: string, type: AutomationType) => void
   onRemoveMarker: (trackId: string, markerId: string) => void
   onMoveMarker: (trackId: string, markerId: string, time: number) => void
+  onToggleOnly: (trackId: string) => void
+  onRemoveOnlyEvent: (eventId: string) => void
+  onMoveOnlyEvent: (eventId: string, time: number) => void
 }
 
-/** Per-track controls: mute, solo, remove, and mute/solo automation markers. */
+/** Per-track controls: mute, solo, remove, and mute/solo/only automation markers. */
 export function TrackList({
   tracks,
+  onlyEvents,
   onToggleMute,
   onToggleSolo,
   onRemove,
   onAddMarker,
   onRemoveMarker,
   onMoveMarker,
+  onToggleOnly,
+  onRemoveOnlyEvent,
+  onMoveOnlyEvent,
 }: Props) {
   if (tracks.length === 0) {
     return <p className="tracklist__empty">トラックがありません。音声ファイルを追加してください。</p>
   }
   return (
     <ul className="tracklist">
-      {tracks.map((t) => (
+      {tracks.map((t) => {
+        // "Only" events that make THIS track the sole active one (the moments a
+        // user would want to delete). Clear/off events (trackId === null) are
+        // global and not shown under any single track.
+        const trackOnly = onlyEvents
+          .filter((e) => e.trackId === t.id)
+          .slice()
+          .sort((a, b) => a.time - b.time)
+        return (
         <li className={`track${t.muted ? ' track--muted' : ''}`} key={t.id}>
           <div className="track__row">
             <div className="track__info">
@@ -77,8 +93,15 @@ export function TrackList({
               >
                 ＋ソロ切替
               </button>
+              <button
+                className="automation__addbtn"
+                onClick={() => onToggleOnly(t.id)}
+                title="再生位置にONLY切替（このトラックのみ／解除）を記録"
+              >
+                ＋ONLY切替
+              </button>
             </div>
-            {t.markers.length > 0 && (
+            {(t.markers.length > 0 || trackOnly.length > 0) && (
               <ul className="automation__list">
                 {t.markers.map((m) => (
                   <li className={`marker marker--${m.type}`} key={m.id}>
@@ -106,11 +129,36 @@ export function TrackList({
                     </button>
                   </li>
                 ))}
+                {trackOnly.map((e) => (
+                  <li className="marker marker--only" key={e.id}>
+                    <span className="marker__type">ONLY</span>
+                    <input
+                      className="marker__time"
+                      type="number"
+                      step="0.1"
+                      min="0"
+                      value={Number(e.time.toFixed(2))}
+                      onChange={(ev) =>
+                        onMoveOnlyEvent(e.id, parseFloat(ev.target.value) || 0)
+                      }
+                      aria-label="ONLY時刻 (秒)"
+                    />
+                    <span className="marker__unit">s</span>
+                    <button
+                      className="marker__remove"
+                      onClick={() => onRemoveOnlyEvent(e.id)}
+                      aria-label="ONLY削除"
+                    >
+                      ✕
+                    </button>
+                  </li>
+                ))}
               </ul>
             )}
           </div>
         </li>
-      ))}
+        )
+      })}
     </ul>
   )
 }
