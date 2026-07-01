@@ -550,6 +550,78 @@ export class AudioEngine {
   }
 
   /**
+   * Capture the whole mix into a single stereo AudioBuffer by playing it through
+   * once and tapping the master output. Used by the offline export: the audio it
+   * captures is the real mixed output (video-element audio + buffers + SE with
+   * mute/solo/only applied), so it works for any source the browser can play —
+   * including iOS video audio that decodeAudioData can't turn into a buffer.
+   *
+   * This is the one real-time pass, but with no video encoding/compositing
+   * competing for the main thread it stays light, so audio doesn't drop out the
+   * way the old real-time video export did. Performance mode is forced off so
+   * every video plays its own audio continuously (instant, gap-free switching).
+   */
+  private async captureMixBuffer(total: number, onProgress?: (r: number) => void): Promise<AudioBuffer> {
+    const ctx = this.ensureContext()
+    if (ctx.state === 'suspended') await ctx.resume()
+    const sr = ctx.sampleRate
+    const node = ctx.createScriptProcessor(4096, 2, 2)
+    const chunks: Array<[Float32Array, Float32Array]> = []
+    node.onaudioprocess = (e) => {
+      const inp = e.inputBuffer
+      const l = new Float32Array(inp.getChannelData(0))
+      const r = new Float32Array(inp.numberOfChannels > 1 ? inp.getChannelData(1) : inp.getChannelData(0))
+      chunks.push([l, r])
+      // Output silence: this node is only a tap, it must not echo to the speakers.
+      e.outputBuffer.getChannelData(0).fill(0)
+      e.outputBuffer.getChannelData(1).fill(0)
+    }
+    this.masterGain!.connect(node)
+    node.connect(ctx.destination)
+
+    const prevPerf = this.performanceMode
+    this.performanceMode = false
+    if (this.playing) this.pause()
+    this.seek(0)
+    this.play()
+    await new Promise<void>((res) => {
+      const check = () => {
+        onProgress?.(Math.min(1, this.position / total))
+        if (!this.playing || this.position >= total) return res()
+        setTimeout(check, 50)
+      }
+      check()
+    })
+    this.pause()
+    this.performanceMode = prevPerf
+    node.onaudioprocess = null
+    try {
+      this.masterGain!.disconnect(node)
+    } catch {
+      /* already disconnected */
+    }
+    try {
+      node.disconnect()
+    } catch {
+      /* already disconnected */
+    }
+
+    const length = Math.max(1, Math.ceil(total * sr))
+    const out = ctx.createBuffer(2, length, sr)
+    const L = out.getChannelData(0)
+    const R = out.getChannelData(1)
+    let off = 0
+    for (const [cl, cr] of chunks) {
+      if (off >= length) break
+      const n = Math.min(cl.length, length - off)
+      L.set(cl.subarray(0, n), off)
+      R.set(cr.subarray(0, n), off)
+      off += n
+    }
+    return out
+  }
+
+  /**
    * Render the full mix to a WebM blob by playing it through in real time:
    * master audio is tapped via a MediaStreamAudioDestinationNode and (when
    * video tracks exist) composited onto a canvas, then captured by
@@ -575,9 +647,13 @@ export class AudioEngine {
     // Start from a stopped transport (both paths need the videos seekable/quiet).
     if (this.playing) this.pause()
 
-    // Preferred: deterministic offline render (no real-time dropouts).
+    // Preferred: deterministic offline render (no real-time dropouts). Audio is
+    // captured from the real mixed output first (so it works for any source the
+    // browser can play, including iOS video audio that can't be decoded to a
+    // buffer), then video is rendered frame by frame.
     if (canOfflineExport()) {
       try {
+        const audioBuffer = await this.captureMixBuffer(total, (r) => opts.onProgress?.(r * 0.4))
         const result = await exportOffline({
           tracks: this.tracks.map((t) => ({
             id: t.id,
@@ -586,16 +662,14 @@ export class AudioEngine {
             muted: t.muted,
             soloed: t.soloed,
             markers: t.markers,
-            blob: t.blob,
-            buffer: t.buffer,
             el: t.el as HTMLVideoElement | null,
           })),
-          ses: this.ses.map((s) => ({ cues: s.cues, buffer: s.buffer, blob: s.blob })),
+          audioBuffer,
           onlyEvents: this.onlyEvents,
           manualOnly: this.manualOnly,
           total,
           greyOpacity: opts.greyOpacity ?? 0.25,
-          onProgress: opts.onProgress,
+          onProgress: (r) => opts.onProgress?.(0.4 + r * 0.6),
         })
         // Restore the preview to the start after all that seeking.
         this.seek(0)
