@@ -11,8 +11,9 @@ import { effectiveOnly, effectiveToggle } from './automation'
  * several videos) frames and audio drop out — the mix goes silent for a beat at
  * each switch. This renderer instead builds the file deterministically:
  *
- *  - Audio is rendered with an OfflineAudioContext (sample-accurate, no clock,
- *    never underruns), applying the same mute/solo/only automation as playback.
+ *  - Audio is captured up front (see AudioEngine.captureMixBuffer) into a single
+ *    AudioBuffer — the actual mixed output, so it works for any source the
+ *    browser can play (incl. iOS .mov/AAC that decodeAudioData can't handle).
  *  - Video is produced frame by frame: each source is *seeked* to the frame's
  *    time and we *wait* for the decode before compositing and encoding it, so no
  *    frame is ever skipped no matter how slow decoding is.
@@ -28,22 +29,14 @@ export interface OfflineTrack {
   muted: boolean
   soloed: boolean
   markers: AutomationMarker[]
-  blob: Blob
-  /** Pre-decoded audio (audio tracks); video tracks decode their blob here. */
-  buffer: AudioBuffer | null
   /** Video element to seek + composite (video tracks only). */
   el: HTMLVideoElement | null
 }
 
-export interface OfflineSe {
-  cues: { time: number }[]
-  buffer: AudioBuffer | null
-  blob: Blob
-}
-
 export interface OfflineExportParams {
   tracks: OfflineTrack[]
-  ses: OfflineSe[]
+  /** The already-mixed stereo audio for the whole timeline. */
+  audioBuffer: AudioBuffer
   onlyEvents: OnlyEvent[]
   manualOnly: string | null
   total: number
@@ -82,29 +75,12 @@ const PROFILES: Profile[] = [
   { container: 'webm', videoCodec: 'vp8', videoMux: 'V_VP8', audioCodec: 'opus', audioMux: 'A_OPUS' },
 ]
 
-const SAMPLE_RATE = 48000
 const FPS = 30
 const CW = 320
 const CH = 240
 
-/** Resolve whether a track is audible at `pos` — mirrors AudioEngine.isAudible. */
-function audibleAt(
-  tracks: OfflineTrack[],
-  onlyEvents: OnlyEvent[],
-  manualOnly: string | null,
-  track: OfflineTrack,
-  pos: number,
-): boolean {
-  const only = effectiveOnly(onlyEvents, manualOnly, pos)
-  if (only !== null) return track.id === only
-  const anySolo = tracks.some((t) => effectiveToggle(t.soloed, t.markers, 'solo', pos))
-  return anySolo
-    ? effectiveToggle(track.soloed, track.markers, 'solo', pos)
-    : !effectiveToggle(track.muted, track.markers, 'mute', pos)
-}
-
 /** Pick the first profile whose codecs the browser can actually encode. */
-async function pickProfile(hasVideo: boolean): Promise<Profile | null> {
+async function pickProfile(hasVideo: boolean, sampleRate: number): Promise<Profile | null> {
   for (const p of PROFILES) {
     try {
       if (hasVideo) {
@@ -117,7 +93,7 @@ async function pickProfile(hasVideo: boolean): Promise<Profile | null> {
       }
       const a = await AudioEncoder.isConfigSupported({
         codec: p.audioCodec,
-        sampleRate: SAMPLE_RATE,
+        sampleRate,
         numberOfChannels: 2,
         bitrate: 128000,
       })
@@ -128,72 +104,6 @@ async function pickProfile(hasVideo: boolean): Promise<Profile | null> {
     }
   }
   return null
-}
-
-/** Render the whole audio mix offline with mute/solo/only automation applied. */
-async function renderAudio(params: OfflineExportParams): Promise<AudioBuffer> {
-  const { tracks, ses, onlyEvents, manualOnly, total } = params
-  const length = Math.max(1, Math.ceil(total * SAMPLE_RATE))
-  const oac = new OfflineAudioContext(2, length, SAMPLE_RATE)
-  const master = oac.createGain()
-  master.connect(oac.destination)
-
-  // All times where any track's audibility can change.
-  const bounds = new Set<number>([0])
-  for (const t of tracks) for (const m of t.markers) if (m.time >= 0 && m.time <= total) bounds.add(m.time)
-  for (const e of onlyEvents) if (e.time >= 0 && e.time <= total) bounds.add(e.time)
-  const boundaries = [...bounds].sort((a, b) => a - b)
-
-  for (const t of tracks) {
-    let buffer = t.buffer
-    if (!buffer) {
-      try {
-        buffer = await oac.decodeAudioData(await t.blob.arrayBuffer())
-      } catch {
-        buffer = null // e.g. a video whose audio this browser can't decode
-      }
-    }
-    if (!buffer) continue
-
-    const src = oac.createBufferSource()
-    src.buffer = buffer
-    const g = oac.createGain()
-    src.connect(g)
-    g.connect(master)
-
-    // Step the gain across every automation boundary with a tiny click-free ramp.
-    let prev = audibleAt(tracks, onlyEvents, manualOnly, t, 0) ? 1 : 0
-    g.gain.setValueAtTime(prev, 0)
-    for (const b of boundaries) {
-      if (b <= 0) continue
-      const v = audibleAt(tracks, onlyEvents, manualOnly, t, b) ? 1 : 0
-      if (v === prev) continue
-      g.gain.setValueAtTime(prev, Math.max(0, b - 0.004))
-      g.gain.linearRampToValueAtTime(v, b + 0.004)
-      prev = v
-    }
-    src.start(Math.max(0, t.offset))
-  }
-
-  for (const s of ses) {
-    let buffer = s.buffer
-    if (!buffer) {
-      try {
-        buffer = await oac.decodeAudioData(await s.blob.arrayBuffer())
-      } catch {
-        buffer = null
-      }
-    }
-    if (!buffer) continue
-    for (const cue of s.cues) {
-      const src = oac.createBufferSource()
-      src.buffer = buffer
-      src.connect(master)
-      src.start(Math.max(0, cue.time))
-    }
-  }
-
-  return oac.startRendering()
 }
 
 /** Seek a video element to `time` and resolve once the frame is decoded. */
@@ -219,15 +129,14 @@ function seekTo(el: HTMLVideoElement, time: number): Promise<void> {
 }
 
 export async function exportOffline(params: OfflineExportParams): Promise<OfflineExportResult> {
-  const { tracks, onlyEvents, manualOnly, total, greyOpacity, onProgress } = params
+  const { tracks, audioBuffer: audio, onlyEvents, manualOnly, total, greyOpacity, onProgress } = params
   const videos = tracks.filter((t) => t.kind === 'video' && t.el)
   const hasVideo = videos.length > 0
+  const sampleRate = audio.sampleRate
 
-  const profile = await pickProfile(hasVideo)
+  const profile = await pickProfile(hasVideo, sampleRate)
   if (!profile) throw new Error('この端末では書き出しに必要なエンコーダを利用できません')
 
-  onProgress?.(0.02)
-  const audio = await renderAudio(params)
   onProgress?.(0.1)
 
   // ---- Muxer + encoders --------------------------------------------------
@@ -248,14 +157,14 @@ export async function exportOffline(params: OfflineExportParams): Promise<Offlin
     muxer = new Mp4Muxer({
       target: new Mp4Target(),
       video: hasVideo ? { codec: profile.videoMux as 'avc', width, height } : undefined,
-      audio: { codec: profile.audioMux as 'aac', numberOfChannels: 2, sampleRate: SAMPLE_RATE },
+      audio: { codec: profile.audioMux as 'aac', numberOfChannels: 2, sampleRate },
       fastStart: 'in-memory',
     }) as unknown as AnyMuxer
   } else {
     muxer = new WebmMuxer({
       target: new WebmTarget(),
       video: hasVideo ? { codec: profile.videoMux, width, height, frameRate: FPS } : undefined,
-      audio: { codec: profile.audioMux, numberOfChannels: 2, sampleRate: SAMPLE_RATE },
+      audio: { codec: profile.audioMux, numberOfChannels: 2, sampleRate },
       firstTimestampBehavior: 'offset',
     }) as unknown as AnyMuxer
   }
@@ -337,25 +246,29 @@ export async function exportOffline(params: OfflineExportParams): Promise<Offlin
   })
   audioEncoder.configure({
     codec: profile.audioCodec,
-    sampleRate: SAMPLE_RATE,
+    sampleRate,
     numberOfChannels: 2,
     bitrate: 128000,
   })
 
   const ch0 = audio.getChannelData(0)
   const ch1 = audio.numberOfChannels > 1 ? audio.getChannelData(1) : audio.getChannelData(0)
-  const CHUNK = SAMPLE_RATE // 1s chunks
+  const CHUNK = sampleRate // 1s chunks
   for (let off = 0; off < audio.length; off += CHUNK) {
     const n = Math.min(CHUNK, audio.length - off)
+    // Interleaved f32 ([L,R,L,R,…]): the most widely accepted AudioData layout
+    // across encoders (some, e.g. iOS AAC, reject f32-planar).
     const data = new Float32Array(n * 2)
-    data.set(ch0.subarray(off, off + n), 0)
-    data.set(ch1.subarray(off, off + n), n)
+    for (let j = 0; j < n; j++) {
+      data[j * 2] = ch0[off + j]
+      data[j * 2 + 1] = ch1[off + j]
+    }
     const ad = new AudioData({
-      format: 'f32-planar',
-      sampleRate: SAMPLE_RATE,
+      format: 'f32',
+      sampleRate,
       numberOfFrames: n,
       numberOfChannels: 2,
-      timestamp: Math.round((off / SAMPLE_RATE) * 1e6),
+      timestamp: Math.round((off / sampleRate) * 1e6),
       data,
     })
     audioEncoder.encode(ad)
