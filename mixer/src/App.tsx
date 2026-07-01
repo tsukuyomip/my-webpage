@@ -120,9 +120,11 @@ export default function App() {
           onlyEvents={snapshot.onlyEvents}
           manualOnly={snapshot.manualOnly}
           position={position}
+          duration={snapshot.duration}
           isPlaying={snapshot.isPlaying}
           onRecordToggle={(id, type) => engine.addMarker(id, type)}
           onToggleOnly={(id) => engine.toggleOnly(id)}
+          onSeek={(p) => engine.seek(p)}
         />
 
         <TrackList
