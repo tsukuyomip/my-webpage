@@ -13,6 +13,7 @@ import type {
 import { effectiveOnly, effectiveToggle, resolveActiveVideo } from './automation'
 import { fixWebmDuration } from '../util/webmDuration'
 import { canOfflineExport, exportOffline } from './offlineExport'
+import { extractAudioBuffer } from './audioExtract'
 
 const PROJECT_VERSION = 1
 
@@ -550,21 +551,94 @@ export class AudioEngine {
   }
 
   /**
-   * Capture the whole mix into a single stereo AudioBuffer by playing it through
-   * once and recording the master output. Used by the offline export: the audio
-   * it captures is the real mixed output (video-element audio + buffers + SE with
-   * mute/solo/only applied), so it works for any source the browser can play —
-   * including iOS video audio that decodeAudioData can't turn into a buffer.
+   * Render the whole mix into a stereo AudioBuffer WITHOUT playing anything:
+   * every source's audio is decoded to PCM (decodeAudioData, or mp4 demux +
+   * WebCodecs AudioDecoder for iPhone .mov/.mp4 AAC that decodeAudioData
+   * rejects) and mixed in an OfflineAudioContext with the same mute/solo/only
+   * automation as playback, applied as short gain crossfades.
    *
-   * We tap the master with a MediaStreamAudioDestinationNode + MediaRecorder
-   * (not a ScriptProcessor/AudioWorklet): on iOS Safari a ScriptProcessor never
-   * receives MediaElementSource audio, so it captured pure silence — whereas the
-   * MediaStream path does carry the video-element audio. This is the one
-   * real-time pass, but with no video encoding/compositing competing for the
-   * main thread it stays light, so audio doesn't drop out the way the old
-   * real-time video export did. Performance mode is forced off so every video
-   * plays its own audio continuously (instant, gap-free switching). The recorded
-   * blob is decoded back to PCM for the offline muxer.
+   * This is the primary export audio path because it cannot go silent or gap:
+   * it never touches media elements, so none of the iOS quirks apply (element
+   * audio being invisible to ScriptProcessor AND to MediaStreamDestination
+   * recording — both were tried and both captured silence on iOS), and
+   * switches are pure gain ramps, so rapid only/solo toggling can't drop out.
+   * A track whose file simply has no audio track is treated as silent; any
+   * other extraction failure throws so the caller can fall back.
+   */
+  private async renderMixOffline(total: number): Promise<AudioBuffer> {
+    const SR = 48000
+    const oac = new OfflineAudioContext(2, Math.max(1, Math.ceil(total * SR)), SR)
+    const master = oac.createGain()
+    master.connect(oac.destination)
+
+    // Every moment any track's audibility can change.
+    const bounds = new Set<number>([0])
+    for (const t of this.tracks)
+      for (const m of t.markers) if (m.time >= 0 && m.time <= total) bounds.add(m.time)
+    for (const e of this.onlyEvents) if (e.time >= 0 && e.time <= total) bounds.add(e.time)
+    const boundaries = [...bounds].sort((a, b) => a - b)
+
+    for (const t of this.tracks) {
+      let buffer: AudioBuffer | null = t.buffer
+      if (!buffer) {
+        try {
+          buffer = await extractAudioBuffer(t.blob)
+        } catch (e) {
+          // A video with no sound is legitimately silent; anything else means
+          // we can't faithfully render this mix offline.
+          if (e instanceof Error && e.message === 'no audio track') continue
+          throw e
+        }
+      }
+
+      const src = oac.createBufferSource()
+      src.buffer = buffer
+      const g = oac.createGain()
+      src.connect(g)
+      g.connect(master)
+
+      // Step the gain across each automation boundary with a click-free ramp.
+      let prev = this.isAudibleAt(t, 0) ? 1 : 0
+      g.gain.setValueAtTime(prev, 0)
+      for (const b of boundaries) {
+        if (b <= 0) continue
+        const v = this.isAudibleAt(t, b) ? 1 : 0
+        if (v === prev) continue
+        g.gain.setValueAtTime(prev, Math.max(0, b - 0.004))
+        g.gain.linearRampToValueAtTime(v, b + 0.004)
+        prev = v
+      }
+      src.start(Math.max(0, t.offset))
+    }
+
+    for (const s of this.ses) {
+      let buffer: AudioBuffer | null = s.buffer
+      if (!buffer) {
+        try {
+          buffer = await extractAudioBuffer(s.blob)
+        } catch {
+          continue // SE that can't be decoded: skip (UI already flags these)
+        }
+      }
+      for (const cue of s.cues) {
+        if (cue.time < 0 || cue.time > total) continue
+        const src = oac.createBufferSource()
+        src.buffer = buffer
+        src.connect(master)
+        src.start(cue.time)
+      }
+    }
+
+    return oac.startRendering()
+  }
+
+  /**
+   * Capture the whole mix into a single stereo AudioBuffer by playing it through
+   * once and recording the master output — fallback when renderMixOffline can't
+   * decode a source. The recorded blob is decoded back to PCM for the muxer.
+   * Note: on iOS this path records silence for video-element audio (element
+   * audio never reaches Web Audio taps there), which is why it's only a
+   * fallback; it still works on desktop browsers.
    */
   private async captureMixBuffer(total: number, onProgress?: (r: number) => void): Promise<AudioBuffer> {
     const ctx = this.ensureContext()
@@ -635,12 +709,21 @@ export class AudioEngine {
     if (this.playing) this.pause()
 
     // Preferred: deterministic offline render (no real-time dropouts). Audio is
-    // captured from the real mixed output first (so it works for any source the
-    // browser can play, including iOS video audio that can't be decoded to a
-    // buffer), then video is rendered frame by frame.
+    // decoded straight from the source files and mixed offline (works for iOS
+    // .mov/.mp4 AAC via demux + AudioDecoder; live capture there records
+    // silence). Only if a source can't be decoded do we fall back to capturing
+    // the live mix. Then video is rendered frame by frame.
     if (canOfflineExport()) {
       try {
-        const audioBuffer = await this.captureMixBuffer(total, (r) => opts.onProgress?.(r * 0.4))
+        opts.onProgress?.(0.02)
+        let audioBuffer: AudioBuffer
+        try {
+          audioBuffer = await this.renderMixOffline(total)
+        } catch (e) {
+          console.warn('offline audio render failed; capturing the live mix instead', e)
+          audioBuffer = await this.captureMixBuffer(total, (r) => opts.onProgress?.(r * 0.4))
+        }
+        opts.onProgress?.(0.4)
         const result = await exportOffline({
           tracks: this.tracks.map((t) => ({
             id: t.id,
@@ -1139,9 +1222,8 @@ export class AudioEngine {
     }
   }
 
-  /** Whether a track should currently be audible at the playhead. */
-  private isAudible(t: Track): boolean {
-    const pos = this.position
+  /** Whether a track should be audible at an arbitrary timeline position. */
+  private isAudibleAt(t: Track, pos: number): boolean {
     // "Only" mode wins: if a track is exclusively selected, only it is audible.
     const only = effectiveOnly(this.onlyEvents, this.manualOnly, pos)
     if (only !== null) return t.id === only
@@ -1152,6 +1234,11 @@ export class AudioEngine {
     return anySolo
       ? effectiveToggle(t.soloed, t.markers, 'solo', pos)
       : !effectiveToggle(t.muted, t.markers, 'mute', pos)
+  }
+
+  /** Whether a track should currently be audible at the playhead. */
+  private isAudible(t: Track): boolean {
+    return this.isAudibleAt(t, this.position)
   }
 
   /**

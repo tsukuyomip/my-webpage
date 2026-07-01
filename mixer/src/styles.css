@@ -876,6 +876,16 @@ button {
   color: var(--muted);
 }
 
+.exportbar__error {
+  margin: 0.5rem 0 0;
+  padding: 0.45rem 0.6rem;
+  border-radius: 6px;
+  background: rgba(220, 60, 60, 0.12);
+  border: 1px solid rgba(220, 60, 60, 0.45);
+  color: #ff8080;
+  font-size: 0.8rem;
+}
+
 /* ---- Build/version stamp ------------------------------------------------ */
 
 .app-version {
