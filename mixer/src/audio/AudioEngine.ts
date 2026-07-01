@@ -551,38 +551,38 @@ export class AudioEngine {
 
   /**
    * Capture the whole mix into a single stereo AudioBuffer by playing it through
-   * once and tapping the master output. Used by the offline export: the audio it
-   * captures is the real mixed output (video-element audio + buffers + SE with
+   * once and recording the master output. Used by the offline export: the audio
+   * it captures is the real mixed output (video-element audio + buffers + SE with
    * mute/solo/only applied), so it works for any source the browser can play —
    * including iOS video audio that decodeAudioData can't turn into a buffer.
    *
-   * This is the one real-time pass, but with no video encoding/compositing
-   * competing for the main thread it stays light, so audio doesn't drop out the
-   * way the old real-time video export did. Performance mode is forced off so
-   * every video plays its own audio continuously (instant, gap-free switching).
+   * We tap the master with a MediaStreamAudioDestinationNode + MediaRecorder
+   * (not a ScriptProcessor/AudioWorklet): on iOS Safari a ScriptProcessor never
+   * receives MediaElementSource audio, so it captured pure silence — whereas the
+   * MediaStream path does carry the video-element audio. This is the one
+   * real-time pass, but with no video encoding/compositing competing for the
+   * main thread it stays light, so audio doesn't drop out the way the old
+   * real-time video export did. Performance mode is forced off so every video
+   * plays its own audio continuously (instant, gap-free switching). The recorded
+   * blob is decoded back to PCM for the offline muxer.
    */
   private async captureMixBuffer(total: number, onProgress?: (r: number) => void): Promise<AudioBuffer> {
     const ctx = this.ensureContext()
     if (ctx.state === 'suspended') await ctx.resume()
-    const sr = ctx.sampleRate
-    const node = ctx.createScriptProcessor(4096, 2, 2)
-    const chunks: Array<[Float32Array, Float32Array]> = []
-    node.onaudioprocess = (e) => {
-      const inp = e.inputBuffer
-      const l = new Float32Array(inp.getChannelData(0))
-      const r = new Float32Array(inp.numberOfChannels > 1 ? inp.getChannelData(1) : inp.getChannelData(0))
-      chunks.push([l, r])
-      // Output silence: this node is only a tap, it must not echo to the speakers.
-      e.outputBuffer.getChannelData(0).fill(0)
-      e.outputBuffer.getChannelData(1).fill(0)
-    }
-    this.masterGain!.connect(node)
-    node.connect(ctx.destination)
+
+    const dest = ctx.createMediaStreamDestination()
+    this.masterGain!.connect(dest)
+    const mime = pickAudioRecorderMime()
+    const rec = new MediaRecorder(dest.stream, mime ? { mimeType: mime } : undefined)
+    const chunks: Blob[] = []
+    rec.ondataavailable = (e) => e.data.size && chunks.push(e.data)
+    const stopped = new Promise<void>((res) => (rec.onstop = () => res()))
 
     const prevPerf = this.performanceMode
     this.performanceMode = false
     if (this.playing) this.pause()
     this.seek(0)
+    rec.start(100)
     this.play()
     await new Promise<void>((res) => {
       const check = () => {
@@ -593,32 +593,19 @@ export class AudioEngine {
       check()
     })
     this.pause()
+    rec.stop()
+    await stopped
     this.performanceMode = prevPerf
-    node.onaudioprocess = null
     try {
-      this.masterGain!.disconnect(node)
-    } catch {
-      /* already disconnected */
-    }
-    try {
-      node.disconnect()
+      this.masterGain!.disconnect(dest)
     } catch {
       /* already disconnected */
     }
 
-    const length = Math.max(1, Math.ceil(total * sr))
-    const out = ctx.createBuffer(2, length, sr)
-    const L = out.getChannelData(0)
-    const R = out.getChannelData(1)
-    let off = 0
-    for (const [cl, cr] of chunks) {
-      if (off >= length) break
-      const n = Math.min(cl.length, length - off)
-      L.set(cl.subarray(0, n), off)
-      R.set(cr.subarray(0, n), off)
-      off += n
-    }
-    return out
+    const blob = new Blob(chunks, { type: chunks[0]?.type || mime || 'audio/webm' })
+    // Decode the recording back to PCM (works for the browser's own recorder
+    // output on every platform, including iOS mp4/aac).
+    return ctx.decodeAudioData(await blob.arrayBuffer())
   }
 
   /**
@@ -1294,6 +1281,17 @@ function pickRecorderMime(withVideo: boolean): string | null {
   const candidates = withVideo
     ? ['video/webm;codecs=vp8,opus', 'video/webm;codecs=vp9,opus', 'video/webm']
     : ['audio/webm;codecs=opus', 'audio/webm']
+  for (const c of candidates) {
+    if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(c)) {
+      return c
+    }
+  }
+  return null
+}
+
+/** Pick an audio-only MediaRecorder mime the browser supports (iOS emits mp4/aac). */
+function pickAudioRecorderMime(): string | null {
+  const candidates = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/aac']
   for (const c of candidates) {
     if (typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(c)) {
       return c
