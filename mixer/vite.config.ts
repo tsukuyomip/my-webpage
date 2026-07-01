@@ -6,7 +6,11 @@ import react from '@vitejs/plugin-react'
 const env = (globalThis as { process?: { env?: Record<string, string | undefined> } }).process
   ?.env
 const sha = (env?.GITHUB_SHA ?? '').slice(0, 7)
-const buildInfo = sha ? `${sha} (${new Date().toISOString().slice(0, 10)})` : 'dev'
+// Build time in JST (the deploy runs on UTC runners), e.g. "2026-07-01 15:30".
+const jst = new Date()
+  .toLocaleString('sv-SE', { timeZone: 'Asia/Tokyo', hour12: false })
+  .slice(0, 16)
+const buildInfo = `${sha || 'dev'} (${jst} JST)`
 
 // Deployed to GitHub Pages under the /mixer/ subpath so it can coexist
 // with the existing static personal site at the repository root.
