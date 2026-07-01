@@ -12,6 +12,7 @@ import type {
 } from './types'
 import { effectiveOnly, effectiveToggle, resolveActiveVideo } from './automation'
 import { fixWebmDuration } from '../util/webmDuration'
+import { canOfflineExport, exportOffline } from './offlineExport'
 
 const PROJECT_VERSION = 1
 
@@ -554,21 +555,56 @@ export class AudioEngine {
    * video tracks exist) composited onto a canvas, then captured by
    * MediaRecorder.
    *
-   * Performance mode is force-disabled for the render so every video keeps
-   * decoding and its audio stays continuous: muting is done purely with gain
-   * ramps. Otherwise each solo/only switch would swap a track's <video> for its
-   * parallel <audio> element, and that pause/play has enough latency to drop a
-   * brief gap into the mix — heard as a click/silence at the switch.
+   * Prefers a deterministic, non-real-time render (exportOffline) when the
+   * browser has WebCodecs: audio via OfflineAudioContext and video frame by
+   * frame, so nothing drops out no matter how slow the device is. Falls back to
+   * the real-time MediaRecorder capture below when WebCodecs isn't available.
+   *
+   * In the real-time path, performance mode is force-disabled so every video
+   * keeps decoding and its audio stays continuous (muting is done purely with
+   * gain ramps).
    */
-  async exportMix(opts: { greyOpacity?: number; onProgress?: (r: number) => void } = {}): Promise<Blob> {
+  async exportMix(
+    opts: { greyOpacity?: number; onProgress?: (r: number) => void } = {},
+  ): Promise<{ blob: Blob; ext: 'mp4' | 'webm' }> {
     const ctx = this.ensureContext()
     if (ctx.state === 'suspended') await ctx.resume()
     const total = this.computeDuration()
     if (total <= 0) throw new Error('書き出す内容がありません')
 
-    // Start from a stopped transport so play() below actually (re)starts cleanly
-    // from 0 even if the user hit export mid-playback.
+    // Start from a stopped transport (both paths need the videos seekable/quiet).
     if (this.playing) this.pause()
+
+    // Preferred: deterministic offline render (no real-time dropouts).
+    if (canOfflineExport()) {
+      try {
+        const result = await exportOffline({
+          tracks: this.tracks.map((t) => ({
+            id: t.id,
+            kind: t.kind,
+            offset: t.offset,
+            muted: t.muted,
+            soloed: t.soloed,
+            markers: t.markers,
+            blob: t.blob,
+            buffer: t.buffer,
+            el: t.el as HTMLVideoElement | null,
+          })),
+          ses: this.ses.map((s) => ({ cues: s.cues, buffer: s.buffer, blob: s.blob })),
+          onlyEvents: this.onlyEvents,
+          manualOnly: this.manualOnly,
+          total,
+          greyOpacity: opts.greyOpacity ?? 0.25,
+          onProgress: opts.onProgress,
+        })
+        // Restore the preview to the start after all that seeking.
+        this.seek(0)
+        return result
+      } catch (e) {
+        console.warn('offline export failed; falling back to real-time capture', e)
+        this.seek(0)
+      }
+    }
 
     const prevPerf = this.performanceMode
     this.performanceMode = false
@@ -680,7 +716,7 @@ export class AudioEngine {
       const fixed = await fixWebmDuration(raw, total)
       opts.onProgress?.(1)
 
-      return fixed
+      return { blob: fixed, ext: 'webm' as const }
     } finally {
       this.masterGain!.disconnect(audioDest)
       this.performanceMode = prevPerf

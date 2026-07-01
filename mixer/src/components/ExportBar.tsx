@@ -3,7 +3,7 @@ import { useState } from 'react'
 interface Props {
   disabled: boolean
   hasVideo: boolean
-  onExport: (onProgress: (r: number) => void) => Promise<Blob>
+  onExport: (onProgress: (r: number) => void) => Promise<{ blob: Blob; ext: string }>
 }
 
 /** Record the mix in real time and download it as a WebM file (Phase 6). */
@@ -15,11 +15,11 @@ export function ExportBar({ disabled, hasVideo, onExport }: Props) {
     if (exporting) return
     setProgress(0)
     try {
-      const blob = await onExport((r) => setProgress(r))
+      const { blob, ext } = await onExport((r) => setProgress(r))
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = 'mixer-export.webm'
+      a.download = `mixer-export.${ext}`
       document.body.appendChild(a)
       a.click()
       a.remove()
@@ -43,8 +43,8 @@ export function ExportBar({ disabled, hasVideo, onExport }: Props) {
         {exporting
           ? `書き出し中… ${Math.round((progress ?? 0) * 100)}%`
           : hasVideo
-            ? '🎬 動画を書き出す (WebM)'
-            : '🎵 ミックスを書き出す (WebM)'}
+            ? '🎬 動画を書き出す'
+            : '🎵 ミックスを書き出す'}
       </button>
       {exporting && (
         <div className="exportbar__bar">
@@ -55,7 +55,7 @@ export function ExportBar({ disabled, hasVideo, onExport }: Props) {
         </div>
       )}
       <p className="exportbar__note">
-        ※ タイムラインを最後まで実時間で再生して録画します。
+        ※ フレーム単位で書き出すため、切り替えでも音や映像が途切れません（対応端末では MP4、それ以外は WebM）。
       </p>
     </section>
   )
