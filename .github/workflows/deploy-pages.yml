@@ -25,7 +25,9 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: mixer/package-lock.json
+          cache-dependency-path: |
+            mixer/package-lock.json
+            media-vault/package-lock.json
 
       - name: Build mixer
         working-directory: mixer
@@ -33,11 +35,18 @@ jobs:
           npm ci
           npm run build
 
-      - name: Assemble site (root static page + /mixer/)
+      - name: Build media-vault
+        working-directory: media-vault
         run: |
-          mkdir -p _site/mixer
+          npm ci
+          npm run build
+
+      - name: Assemble site (root static page + /mixer/ + /media-vault/)
+        run: |
+          mkdir -p _site/mixer _site/media-vault
           cp index.html style.css _site/
           cp -r mixer/dist/* _site/mixer/
+          cp -r media-vault/dist/* _site/media-vault/
 
       - uses: actions/upload-pages-artifact@v3
         with:
