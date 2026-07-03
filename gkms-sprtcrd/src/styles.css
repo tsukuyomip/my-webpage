@@ -166,6 +166,10 @@ tr.has-warn {
   border-radius: 6px;
   display: block;
 }
+.thumb-empty {
+  aspect-ratio: 16 / 9;
+  background: #f0ece5;
+}
 select,
 input.lv {
   padding: 4px 6px;
