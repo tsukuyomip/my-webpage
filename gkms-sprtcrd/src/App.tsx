@@ -764,11 +764,13 @@ function CardOption({
       ) : (
         <span className="cp-thumb cp-noimg" />
       )}
-      <span className="cp-type-opt" style={{ background: TYPE_SHORT[card.type].color }}>
-        {TYPE_SHORT[card.type].label}
-      </span>
-      <span className="cp-name">
-        [{card.rarity}] {card.name}
+      <span className="cp-opt-main">
+        <span className="cp-type-opt" style={{ background: TYPE_SHORT[card.type].color }}>
+          {TYPE_SHORT[card.type].label}
+        </span>
+        <span className="cp-name">
+          [{card.rarity}] {card.name}
+        </span>
       </span>
       {extra && <span className="cp-extra">{extra}</span>}
     </button>

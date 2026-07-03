@@ -227,10 +227,18 @@ input.lv {
   line-height: 1.4;
   color: #fff;
 }
-/* 各選択肢: カード名の左・上下中央にごく小さなタイプチップ */
+/* 各選択肢: チップを上、カード名を下に縦積み（名前が選択肢の上下中央に来る） */
+.cp-opt-main {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  min-width: 0;
+  flex: 1 1 auto;
+  gap: 1px;
+}
 .cp-type-opt {
   flex: none;
-  align-self: center;
   padding: 0 2px;
   border-radius: 2px;
   font-size: 7px;
