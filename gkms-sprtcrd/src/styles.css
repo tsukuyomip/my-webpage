@@ -151,6 +151,124 @@ input.lv {
 .center {
   text-align: center;
 }
+
+/* --- カード選択コンボボックス（画像付き） --- */
+.cardpicker {
+  position: relative;
+  display: inline-block;
+  min-width: 220px;
+  max-width: 360px;
+  width: 100%;
+}
+.cardpicker-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 3px 6px;
+  text-align: left;
+  font-size: 13px;
+}
+.cardpicker-btn .cp-caret {
+  margin-left: auto;
+  color: #999;
+  flex: none;
+}
+.cp-thumb {
+  width: 48px;
+  height: auto;
+  border-radius: 4px;
+  flex: none;
+}
+.cp-noimg {
+  width: 48px;
+  height: 27px;
+  background: #eee;
+  display: inline-block;
+}
+.cp-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cp-placeholder {
+  color: #999;
+}
+.cardpicker-pop {
+  position: absolute;
+  z-index: 30;
+  top: calc(100% + 2px);
+  left: 0;
+  width: 340px;
+  max-width: 92vw;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.16);
+  padding: 6px;
+}
+.cp-search {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+  margin-bottom: 6px;
+}
+.cp-list {
+  max-height: 340px;
+  overflow-y: auto;
+}
+.cp-group {
+  font-size: 11px;
+  color: #999;
+  padding: 6px 4px 2px;
+  position: sticky;
+  top: 0;
+  background: #fff;
+}
+.cp-opt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  border: none;
+  border-radius: 6px;
+  padding: 4px;
+  text-align: left;
+  font-size: 13px;
+}
+.cp-opt:hover {
+  background: #f3efe8;
+  color: inherit;
+  border-color: transparent;
+}
+.cp-clear {
+  color: #888;
+}
+.cp-extra {
+  margin-left: auto;
+  color: #aaa;
+  font-size: 11px;
+  flex: none;
+}
+.cp-empty {
+  color: #999;
+  padding: 8px;
+  font-size: 13px;
+}
+
+/* --- タイプバッジ --- */
+.typebadge {
+  display: inline-block;
+  min-width: 28px;
+  text-align: center;
+  padding: 1px 6px;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  font-weight: 700;
+  font-size: 12px;
+}
 .conf {
   padding: 1px 8px;
   border-radius: 999px;
@@ -174,4 +292,64 @@ details ul {
 }
 a {
   color: #d2691e;
+}
+
+/* --- モバイル: 結果テーブルを1件=2段のカード表示に --- */
+@media (max-width: 680px) {
+  .tablewrap {
+    overflow-x: visible;
+  }
+  table,
+  tbody,
+  tr,
+  td {
+    display: block;
+  }
+  thead {
+    display: none;
+  }
+  tr {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 12px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    margin: 10px 0;
+    padding: 10px;
+  }
+  tr.has-warn {
+    background: #fff8ec;
+  }
+  td {
+    border: none;
+    padding: 0;
+  }
+  /* 1段目: サムネ + カード名 / 2段目以降: Lv・凸・上限・信頼度・タイプ・削除 */
+  .name-cell {
+    flex: 1 1 55%;
+  }
+  td[data-label]::before {
+    content: attr(data-label) '：';
+    color: #999;
+    font-size: 11px;
+    margin-right: 2px;
+  }
+  .thumb-cell .thumb {
+    width: 64px;
+  }
+  .conf-cell {
+    flex-basis: 100%;
+  }
+  .act-cell {
+    margin-left: auto;
+  }
+  .cardpicker {
+    min-width: 0;
+    max-width: 100%;
+  }
+  select,
+  input.lv {
+    max-width: 100%;
+  }
 }
