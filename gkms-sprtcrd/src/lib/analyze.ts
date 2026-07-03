@@ -1,4 +1,5 @@
 import { signatureFromImageData } from './hash'
+import { levelCap } from './levels'
 import { matchCell } from './match'
 import { recognizeLevel } from './ocr'
 import {
@@ -81,6 +82,13 @@ export async function analyzeScreenshot(
     if (error) warnings.push(`Lv OCR 失敗のため仮に 1（要確認）: ${error}`)
     else if (level === null) warnings.push('Lv を読めないため仮に 1 を入れました（要確認）')
     else if (level > 60) warnings.push(`Lv ${level} は範囲外の可能性`)
+    // レベル上限（レアリティ×凸）超過チェック
+    const cap = levelCap(features.detectedRarity, features.limitBreak)
+    if (level !== null && cap !== null && level > cap) {
+      warnings.push(
+        `Lv ${level} は ${features.detectedRarity} ${features.limitBreak}凸 の上限 ${cap} を超過（凸/レアリティ/Lv のいずれか誤りかも）`,
+      )
+    }
 
     cells.push({
       index: i,

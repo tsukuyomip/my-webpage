@@ -16,6 +16,7 @@ import {
   type SignatureFailure,
   type SignatureProgress,
 } from './lib/masterSource'
+import { levelCap } from './lib/levels'
 import { getCustomProxy, setCustomProxy } from './lib/proxy'
 import type {
   CardSignature,
@@ -501,6 +502,9 @@ function ResultRow({
   const type: CardType =
     card && card.type !== 'unknown' ? card.type : cell.detectedType
   const ts = TYPE_SHORT[type]
+  // レベル上限判定用のレアリティ（採用カードがあればそのレアリティを優先）
+  const capRarity: Rarity =
+    card && card.rarity !== 'unknown' ? card.rarity : cell.detectedRarity
   const selectCard = (id: string | null) =>
     onChange(cell.index, {
       chosenCardId: id,
@@ -530,7 +534,7 @@ function ResultRow({
         <input
           type="number"
           min={1}
-          max={60}
+          max={capRarity !== 'unknown' ? (levelCap(capRarity, cell.limitBreak) ?? 60) : 60}
           value={cell.level ?? ''}
           placeholder="?"
           className="lv"
