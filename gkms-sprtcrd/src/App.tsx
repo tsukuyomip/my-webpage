@@ -584,13 +584,23 @@ function lbStars(n: number): string {
   return '★'.repeat(filled) + '☆'.repeat(4 - filled)
 }
 
-/** タイプの短縮ラベルと表示色（Vo=赤, Da=青, Vi=アンバー, Sp=緑）。 */
+/** タイプの短縮ラベルと表示色（Vo=赤, Da=青, Vi=アンバー, As=緑）。 */
 const TYPE_SHORT: Record<CardType, { label: string; color: string }> = {
   vocal: { label: 'Vo', color: '#e0245e' },
   dance: { label: 'Da', color: '#2f6fed' },
   visual: { label: 'Vi', color: '#c98a00' },
   assist: { label: 'As', color: '#1e9e5a' },
   unknown: { label: '—', color: '#bbb' },
+}
+
+/** 色背景の小さなタイプチップ（プルダウンで一目でタイプが分かるように）。 */
+function TypeChip({ type }: { type: CardType }) {
+  const ts = TYPE_SHORT[type]
+  return (
+    <span className="cp-type" style={{ background: ts.color }}>
+      {ts.label}
+    </span>
+  )
 }
 
 /**
@@ -650,6 +660,7 @@ function CardPicker({
       <button type="button" className="cardpicker-btn" onClick={() => setOpen((v) => !v)}>
         {selected ? (
           <>
+            <TypeChip type={selected.type} />
             {selected.imageUrl ? (
               <img src={selected.imageUrl} alt="" className="cp-thumb" loading="lazy" />
             ) : (
@@ -735,6 +746,7 @@ function CardOption({
 }) {
   return (
     <button type="button" className="cp-opt" onClick={onClick}>
+      <TypeChip type={card.type} />
       {card.imageUrl ? (
         <img src={card.imageUrl} alt="" className="cp-thumb" loading="lazy" />
       ) : (
