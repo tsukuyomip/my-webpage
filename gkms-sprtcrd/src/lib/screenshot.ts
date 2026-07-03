@@ -3,12 +3,13 @@ import {
   HASH_REGION,
   LB_SLOTS,
   LV_DIGITS,
+  RARITY_BAND,
   TYPE_ICON,
   type CellRect,
   cellSize,
   columnXs,
 } from './geometry'
-import type { CardType } from './types'
+import type { CardType, Rarity } from './types'
 
 // スクショ解析のコア。DOM/Canvas に依存しない純粋関数群にしてあり、
 // Node（vitest + pngjs）でサンプルスクショに対する回帰テストができる。
@@ -326,6 +327,71 @@ export interface CellFeatures {
   limitBreakAmbiguous: boolean
   detectedType: CardType
   canLimitBreak: boolean
+  /** 最下端のレアリティ帯から検出したレアリティ（R=水色/SR=金/SSR=虹）。 */
+  detectedRarity: Rarity
+}
+
+/**
+ * サムネイル最下端のレアリティ帯から R/SR/SSR を判定する。
+ *  - SSR: 虹色 → 色相のばらつきが大きい（複数の色相バケットが立つ）
+ *  - SR : 金一色 → 色相が金（≈30-62）に集中
+ *  - R  : 水色 → 低彩度でシアン寄り（≈165-225, sat 低め）
+ */
+export function detectRarity(img: ImageDataLike, rect: CellRect): Rarity {
+  const y0 = rect.y + RARITY_BAND.y0 * rect.h
+  const y1 = rect.y + RARITY_BAND.y1 * rect.h
+  const x0 = rect.x + RARITY_BAND.x0 * rect.w
+  const x1 = rect.x + RARITY_BAND.x1 * rect.w
+  const buckets = new Array(12).fill(0) // 30°刻みの色相ヒストグラム（彩度のあるもの）
+  let colored = 0
+  let total = 0
+  let hueSinTint = 0
+  let hueCosTint = 0
+  let tintN = 0
+  let satSum = 0
+  for (let y = Math.round(y0); y <= Math.round(y1); y++) {
+    if (y < 0 || y >= img.height) continue
+    for (let x = Math.round(x0); x <= Math.round(x1); x += 2) {
+      if (x < 0 || x >= img.width) continue
+      const [r, g, b] = px(img, x, y)
+      const [h, s, v] = hsv(r, g, b)
+      if (v <= 60) continue
+      total++
+      satSum += s
+      if (s > 0.1) {
+        const rad = (h * Math.PI) / 180
+        hueSinTint += Math.sin(rad)
+        hueCosTint += Math.cos(rad)
+        tintN++
+      }
+      if (s > 0.25 && v > 120) {
+        colored++
+        buckets[Math.min(11, Math.floor(h / 30))]++
+      }
+    }
+  }
+  if (total < 20) return 'unknown'
+  const coloredFrac = colored / total
+  const satMean = satSum / total
+  const bucketsPopulated = buckets.filter((n) => n >= colored * 0.03).length
+
+  if (coloredFrac > 0.45) {
+    if (bucketsPopulated >= 3) return 'SSR' // 虹（色相が広く散る）
+    // 支配色相
+    let dom = 0
+    for (let i = 1; i < 12; i++) if (buckets[i] > buckets[dom]) dom = i
+    const domHue = dom * 30 + 15
+    if (domHue >= 28 && domHue < 62) return 'SR' // 金
+    if (domHue >= 165 && domHue < 225) return 'R' // 濃いめの水色（まれ）
+    return 'unknown'
+  }
+  // 彩度が低い → 水色(R) の可能性。色相のベクトル平均がシアン寄りか。
+  if (tintN > 0) {
+    let hueMean = (Math.atan2(hueSinTint, hueCosTint) * 180) / Math.PI
+    if (hueMean < 0) hueMean += 360
+    if (hueMean >= 165 && hueMean < 225 && satMean >= 0.05 && satMean < 0.35) return 'R'
+  }
+  return 'unknown'
 }
 
 interface SlotMetrics {
@@ -509,6 +575,7 @@ export function analyzeCellFeatures(
     limitBreakAmbiguous: ambiguous,
     detectedType,
     canLimitBreak,
+    detectedRarity: detectRarity(img, rect),
   }
 }
 

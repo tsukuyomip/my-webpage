@@ -69,7 +69,7 @@ export async function analyzeScreenshot(
     const digitHint = level === null ? null : level < 10 ? 1 : 2
     const features = analyzeCellFeatures(img, rect, digitHint)
     const sig = signatureFromImageData(toImageData(extractHashRegion(img, rect)))
-    const match = matchCell(sig, features.detectedType, cards)
+    const match = matchCell(sig, features.detectedType, features.detectedRarity, cards)
 
     const warnings: string[] = []
     if (match.confidence === 'low') warnings.push('照合の信頼度が低い')
@@ -88,6 +88,7 @@ export async function analyzeScreenshot(
       levelRaw: raw,
       limitBreak: features.limitBreak,
       detectedType: features.detectedType,
+      detectedRarity: features.detectedRarity,
       canLimitBreak: features.canLimitBreak,
       candidates: match.candidates,
       chosenCardId: match.chosenCardId,

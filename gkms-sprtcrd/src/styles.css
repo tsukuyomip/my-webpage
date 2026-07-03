@@ -16,6 +16,40 @@ body {
   max-width: 1080px;
   margin: 0 auto;
   padding: 16px;
+  display: flex;
+  flex-direction: column;
+}
+/* 表示順: ヘッダ → ③スクショ → ④結果 → ①②マスタ管理(折りたたみ・最下部)。
+   通常操作でほぼ触らない①②を目立たせないための並べ替え。 */
+.sec-shots {
+  order: 1;
+}
+.sec-results {
+  order: 2;
+}
+.advanced-panel {
+  order: 3;
+  background: #fbfaf8;
+  border-style: dashed;
+}
+.advanced > summary {
+  cursor: pointer;
+  color: #888;
+  font-weight: 600;
+  font-size: 13px;
+  list-style: none;
+}
+.advanced > summary::-webkit-details-marker {
+  display: none;
+}
+.advanced > summary::before {
+  content: '▸ ';
+}
+.advanced[open] > summary::before {
+  content: '▾ ';
+}
+.advanced-body {
+  margin-top: 12px;
 }
 header h1 {
   margin: 8px 0 4px;
@@ -165,6 +199,7 @@ input.lv {
   align-items: center;
   gap: 6px;
   width: 100%;
+  min-width: 0;
   padding: 3px 6px;
   text-align: left;
   font-size: 13px;
@@ -190,6 +225,9 @@ input.lv {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  /* 日本語名はスペースが無く1トークン扱いになるため、min-width:0 を通さないと
+     フレックスの最小幅が名前全幅になり折り返す。0 にして常に省略表示させる。 */
+  min-width: 0;
 }
 .cp-placeholder {
   color: #999;
@@ -325,9 +363,13 @@ a {
     border: none;
     padding: 0;
   }
-  /* 1段目: サムネ + カード名 / 2段目以降: Lv・凸・上限・信頼度・タイプ・削除 */
+  /* 1段目: サムネ + カード名（名前は右で切れてよい・常にサムネの右） /
+     2段目以降: Lv・凸・上限・信頼度・タイプ・削除。
+     name-cell は flex-basis:0 + grow で「サムネ以外の残り幅」を占め、min-width:0 で
+     長い名前でも縮んで下へ回り込まない。 */
   .name-cell {
-    flex: 1 1 55%;
+    flex: 1 1 0;
+    min-width: 0;
   }
   td[data-label]::before {
     content: attr(data-label) '：';

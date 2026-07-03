@@ -1,13 +1,16 @@
 import { signatureDistance } from './hash'
 import type { CardSignature, Confidence, IndexedCard, MatchCandidate } from './types'
-import type { CardType } from './types'
+import type { CardType, Rarity } from './types'
 
 // サムネイルとマスタ画像の照合。
-// 距離はシグネチャ（dHash + 色グリッド）ベース。タイプアイコンが読めている
-// 場合は「タイプの合わないカード」に軽いペナルティを載せる
-// （除外はしない: wiki 側のタイプ表記欠落や誤判定に備える）。
+// 距離はシグネチャ（dHash + 色グリッド）ベース。タイプアイコン／レアリティ帯が
+// 読めている場合は「属性の合わないカード」にペナルティを載せる
+// （除外はしない: wiki 側の表記欠落や検出ミスに備える）。
 
 const TYPE_MISMATCH_PENALTY = 0.08
+// レアリティ帯（R=水色/SR=金/SSR=虹）は色分離がはっきりしていて信頼度が高いので、
+// タイプより強めのペナルティ。上半分がそっくりな別レアリティのカードを弾ける。
+const RARITY_MISMATCH_PENALTY = 0.15
 
 export interface MatchResult {
   candidates: MatchCandidate[]
@@ -18,6 +21,7 @@ export interface MatchResult {
 export function matchCell(
   cellSignature: CardSignature,
   detectedType: CardType,
+  detectedRarity: Rarity,
   cards: IndexedCard[],
   topN = 5,
 ): MatchResult {
@@ -27,6 +31,9 @@ export function matchCell(
     let d = signatureDistance(cellSignature, card.signature)
     if (detectedType !== 'unknown' && card.type !== 'unknown' && card.type !== detectedType) {
       d += TYPE_MISMATCH_PENALTY
+    }
+    if (detectedRarity !== 'unknown' && card.rarity !== 'unknown' && card.rarity !== detectedRarity) {
+      d += RARITY_MISMATCH_PENALTY
     }
     scored.push({ cardId: card.id, distance: d })
   }

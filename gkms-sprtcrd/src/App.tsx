@@ -24,6 +24,7 @@ import type {
   MasterData,
   MatchCandidate,
   ParsedCell,
+  Rarity,
 } from './lib/types'
 import { TYPE_LABELS } from './lib/types'
 
@@ -184,8 +185,17 @@ export default function App() {
         </p>
       </header>
 
-      <section className="panel">
-        <h2>① マスタ（wiki カード一覧）</h2>
+      <section className="panel advanced-panel">
+        <details className="advanced">
+          <summary>
+            マスタ管理・詳細設定（通常は開かなくて OK）
+            {masterState.phase === 'ready'
+              ? sigReadyCount < masterState.master.cards.length
+                ? ' ⚠ 画像シグネチャ未完'
+                : ''
+              : ' ⚠ マスタ未読込'}
+          </summary>
+          <div className="advanced-body">
         {masterState.phase === 'ready' && (
           <p>
             {masterState.master.cards.length} 枚のカードを読み込み済み（{masterState.note}）
@@ -368,9 +378,11 @@ export default function App() {
             <p className="hint">build: {__BUILD_INFO__}</p>
           </div>
         )}
+          </div>
+        </details>
       </section>
 
-      <section className="panel">
+      <section className="panel sec-shots">
         <h2>③ スクショを読み込む</h2>
         <div
           className="dropzone"
@@ -406,7 +418,7 @@ export default function App() {
         {error && <p className="error">{error}</p>}
       </section>
 
-      <section className="panel">
+      <section className="panel sec-results">
         <h2>
           ④ 結果（{cells.length} 件
           {cells.length > 0 &&
@@ -510,6 +522,7 @@ function ResultRow({
           cards={cards}
           candidates={cell.candidates}
           cardById={cardById}
+          rarity={cell.detectedRarity}
           onSelect={selectCard}
         />
       </td>
@@ -584,18 +597,29 @@ function CardPicker({
   cards,
   candidates,
   cardById,
+  rarity,
   onSelect,
 }: {
   value: string | null
   cards: IndexedCard[]
   candidates: MatchCandidate[]
   cardById: Map<string, IndexedCard>
+  rarity: Rarity
   onSelect: (id: string | null) => void
 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const rootRef = useRef<HTMLDivElement>(null)
   const selected = value ? cardById.get(value) : undefined
+  const useRarity = rarity !== 'unknown'
+  // 推定レアリティのカードを上に、その他を下に。
+  const [sameRarity, otherRarity] = useMemo(() => {
+    if (!useRarity) return [cards, [] as IndexedCard[]]
+    const same: IndexedCard[] = []
+    const other: IndexedCard[] = []
+    for (const c of cards) (c.rarity === rarity ? same : other).push(c)
+    return [same, other]
+  }, [cards, rarity, useRarity])
 
   useEffect(() => {
     if (!open) return
@@ -662,10 +686,25 @@ function CardPicker({
                     />
                   )
                 })}
-                <div className="cp-group">全カード</div>
-                {cards.map((c) => (
-                  <CardOption key={c.id} card={c} onClick={() => choose(c.id)} />
-                ))}
+                {useRarity ? (
+                  <>
+                    <div className="cp-group">推定レアリティ: {rarity}</div>
+                    {sameRarity.map((c) => (
+                      <CardOption key={c.id} card={c} onClick={() => choose(c.id)} />
+                    ))}
+                    <div className="cp-group">その他</div>
+                    {otherRarity.map((c) => (
+                      <CardOption key={c.id} card={c} onClick={() => choose(c.id)} />
+                    ))}
+                  </>
+                ) : (
+                  <>
+                    <div className="cp-group">全カード</div>
+                    {cards.map((c) => (
+                      <CardOption key={c.id} card={c} onClick={() => choose(c.id)} />
+                    ))}
+                  </>
+                )}
               </>
             ) : filtered.length === 0 ? (
               <div className="cp-empty">該当なし</div>

@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { PNG } from 'pngjs'
 import { describe, expect, it } from 'vitest'
-import { analyzeCellFeatures, detectGrid, type ImageDataLike } from './screenshot'
+import { analyzeCellFeatures, detectGrid, detectRarity, type ImageDataLike } from './screenshot'
 
 // 実機スクショ（幅 1206px）を 800px に縮小し、サムネイル 7 行分に切り出した
 // フィクスチャでの回帰テスト。座標系が画像幅比で解像度非依存であることと、
@@ -122,6 +122,23 @@ describe('analyzeCellFeatures', () => {
     for (const [row, col, band] of expected) {
       const f = analyzeCellFeatures(img, cell(row, col))
       expect(f.canLimitBreak, `row${row} col${col}`).toBe(band)
+    }
+  })
+
+  it('reads rarity from the bottom band (R=水色/SR=金/SSR=虹)', () => {
+    const expected: Array<[number, number, string]> = [
+      [0, 0, 'SSR'], // 虹（色相ばらつき大）
+      [1, 0, 'SSR'],
+      [2, 1, 'SSR'],
+      [4, 2, 'SSR'],
+      [1, 1, 'SR'], // 金
+      [1, 2, 'SR'],
+      [5, 0, 'SR'],
+      [5, 1, 'SR'],
+      [5, 2, 'R'], // 水色（低彩度シアン）
+    ]
+    for (const [row, col, rarity] of expected) {
+      expect(detectRarity(img, cell(row, col)), `row${row} col${col}`).toBe(rarity)
     }
   })
 
