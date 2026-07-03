@@ -50,33 +50,39 @@ function parseRow(
   const img = row.querySelector('img')
   const imageUrl = img ? resolveImageUrl(img, baseUrl) : null
 
-  // カード名: 行内リンクのうち最も「カード名らしい」テキストを選ぶ。
-  // Seesaa のカード名は『【○○○】キャラ名』形式が多いので【】を優先する。
+  // 実際の Seesaa 一覧表の 1 行:
+  //   <td>SSR</td>
+  //   <td><a href="詳細"><img src="…-s.png"></a></td>
+  //   <td><a href="詳細">カード名</a><br>(WIKI_ID)<a class="anchor" …></a></td>
+  //   …（キャラ別の効果列が続く）
+  // カード名は 2 番目のリンク（テキストを持つリンク）、直後に (WIKI_ID) が付く。
+  const rowText = row.textContent ?? ''
+
+  // wiki用ID（例: SP_SSR_0103 / An_SR_0021 など）。安定IDとして使う。
+  const wikiId = (rowText.match(/\(([A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]+)\)/) || [])[1] ?? null
+
+  // 名前候補: テキストを持ち、詳細ページ(/d/)を指すリンク（画像リンクは除外）
   const links = Array.from(row.querySelectorAll('a')).filter((a) => {
     const t = a.textContent?.trim() ?? ''
-    return t.length >= 2 && !/^(編集|画像|top|↑|→)/i.test(t)
+    if (t.length < 1) return false
+    if (/^(編集|画像|top|↑|→)/i.test(t)) return false
+    if (a.querySelector('img')) return false // 画像を包むリンクは名前ではない
+    return true
   })
   let nameLink =
+    // 【】形式のwiki（旧構成）にも一応対応しつつ、詳細リンクを優先
     links.find((a) => /【.+】/.test(a.textContent ?? '')) ??
+    links.find((a) => /\/d\//.test(a.getAttribute('href') ?? '')) ??
     links.sort((a, b) => (b.textContent?.length ?? 0) - (a.textContent?.length ?? 0))[0] ??
     null
 
   let name = nameLink?.textContent?.trim() ?? ''
-  if (!name) {
-    // リンクが無い場合はセルのテキストから【】形式を探す
-    const m = row.textContent?.match(/【[^【】]+】[^\s　、。|]*/)
-    name = m ? m[0].trim() : ''
-  }
-  if (!name && img) {
-    // 最後の手段: 画像 alt/title
-    name = (img.getAttribute('alt') || img.getAttribute('title') || '').trim()
-  }
-  // 名前も画像も無い行（ヘッダ行など）はカードではない
-  if (!name || (!imageUrl && !/【.+】/.test(name))) return null
-  // ヘッダっぽい行を除外
-  if (/^(画像|カード名|名前|レアリティ|タイプ|入手)/.test(name)) return null
+  if (!name && img) name = (img.getAttribute('alt') || img.getAttribute('title') || '').trim()
+  if (!name) return null
+  // ヘッダ行・ノイズ行を除外（カード行は画像かwiki用IDのどちらかを必ず持つ）
+  if (!imageUrl && !wikiId) return null
+  if (/^(画像|カード名|名前|レアリティ|タイプ|入手|レ$)/.test(name)) return null
 
-  const rowText = row.textContent ?? ''
   const rarity = detectRarity(rowText) !== 'unknown' ? detectRarity(rowText) : ctxRarity
   let type = detectTypeInRow(row)
   if (type === 'unknown') type = ctxType
@@ -86,7 +92,8 @@ function parseRow(
     : null
 
   return {
-    id: imageUrl ?? `${rarity}:${name}`,
+    // 安定IDを最優先（次回取得やベイクとの突き合わせに使う）
+    id: wikiId ?? imageUrl ?? `${rarity}:${name}`,
     name,
     rarity,
     type,

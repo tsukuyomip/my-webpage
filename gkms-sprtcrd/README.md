@@ -65,7 +65,29 @@ src/lib/
   詳細ページの取得も一度きり
 - 画像・詳細ページの取得は同時 1 本 + 400ms 間隔に制限
 
-**基本セット（腹持ち）の作り方 — 推奨運用:**
+**基本セット（腹持ち）の作り方 A — スクレイパで一括生成（最推奨）:**
+`scripts/scrape-wiki.mjs` は実ブラウザ（Playwright）で一覧ページを開き、
+**表のサムネイル画像だけ**を取得して baked セット
+（`public/baked-master.json` + `public/card-images/`）を直接生成する。
+CORS プロキシを介さず直接アクセスするので、アプリ内②のプロキシ失敗を回避できる。
+署名計算はアプリと同一アルゴリズムをブラウザ内で実行するため、生成物は
+そのまま照合に使える（実データ検証で screenshot 照合 53/53 一致を確認）。
+
+```bash
+cd gkms-sprtcrd
+npm install
+npm install -D playwright          # このスクリプト用（一度だけ）
+npx playwright install chromium    # 一度だけ
+node scripts/scrape-wiki.mjs --limit 10   # まず動作確認
+node scripts/scrape-wiki.mjs              # 全カード → public/ に出力
+# public/baked-master.json と public/card-images/ をコミット
+```
+
+※ Playwright はビルド/デプロイを重くしないため通常依存には入れていない
+（使うときだけ `npm install -D playwright`）。この一覧取得は詳細ページを
+クロールせず、表のサムネイルのみを取得する。
+
+**基本セット（腹持ち）の作り方 B — アプリの画面から:**
 開発環境（サンドボックス）からは seesaawiki.jp の egress がブロックされているため、
 crawl/bake はできない。代わりに**ブラウザで一度 ②を完走**してから、診断パネルの
 いずれかで書き出してコミットする:
