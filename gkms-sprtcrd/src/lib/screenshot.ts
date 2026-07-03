@@ -579,14 +579,18 @@ export function analyzeCellFeatures(
   }
 }
 
-/** 照合ハッシュ用のアート領域を切り出す。 */
-export function extractHashRegion(img: ImageDataLike, rect: CellRect): ImageDataLike {
+/** 照合ハッシュ用のアート領域を切り出す（region で上半分/上2/3を切替）。 */
+export function extractHashRegion(
+  img: ImageDataLike,
+  rect: CellRect,
+  region: { x0: number; x1: number; y0: number; y1: number } = HASH_REGION,
+): ImageDataLike {
   return cropRegion(
     img,
-    rect.x + HASH_REGION.x0 * rect.w,
-    rect.y + HASH_REGION.y0 * rect.h,
-    (HASH_REGION.x1 - HASH_REGION.x0) * rect.w,
-    (HASH_REGION.y1 - HASH_REGION.y0) * rect.h,
+    rect.x + region.x0 * rect.w,
+    rect.y + region.y0 * rect.h,
+    (region.x1 - region.x0) * rect.w,
+    (region.y1 - region.y0) * rect.h,
   )
 }
 
