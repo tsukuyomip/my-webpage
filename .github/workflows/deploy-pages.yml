@@ -29,6 +29,7 @@ jobs:
             mixer/package-lock.json
             media-vault/package-lock.json
             gkms-sprtcrd/package-lock.json
+            train-sandbox/package-lock.json
 
       - name: Build mixer
         working-directory: mixer
@@ -48,13 +49,20 @@ jobs:
           npm ci
           npm run build
 
-      - name: Assemble site (root static page + /mixer/ + /media-vault/ + /gkms-sprtcrd/)
+      - name: Build train-sandbox
+        working-directory: train-sandbox
         run: |
-          mkdir -p _site/mixer _site/media-vault _site/gkms-sprtcrd
+          npm ci
+          npm run build
+
+      - name: Assemble site (root static page + /mixer/ + /media-vault/ + /gkms-sprtcrd/ + /train-sandbox/)
+        run: |
+          mkdir -p _site/mixer _site/media-vault _site/gkms-sprtcrd _site/train-sandbox
           cp index.html style.css _site/
           cp -r mixer/dist/* _site/mixer/
           cp -r media-vault/dist/* _site/media-vault/
           cp -r gkms-sprtcrd/dist/* _site/gkms-sprtcrd/
+          cp -r train-sandbox/dist/* _site/train-sandbox/
 
       - uses: actions/upload-pages-artifact@v3
         with:
