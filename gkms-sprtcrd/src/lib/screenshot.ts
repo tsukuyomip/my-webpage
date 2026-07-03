@@ -210,11 +210,17 @@ export function detectGrid(img: ImageDataLike): CellRect[] {
   const rects: CellRect[] = []
   let rowIndex = 0
   for (const row of accepted) {
-    const top = Math.round(row.iconCy - iconCyOff)
-    if (top + cell.h > img.height + cell.h * 0.15 || top < -cell.h * 0.15) continue
+    // アイコン中心 Y からセル上端へは約 0.8 セル分「上向きに外挿」するため、
+    // 幅から求めた cell.h の僅かな誤差（端末アスペクト差など）が上端で増幅され、
+    // 行間の余白に食い込むことがある。カードの実際の上辺（背景→絵柄の遷移）を
+    // 検出して上端をスナップし、高さもアイコン位置から逆算して自己補正する。
+    const { top, h } = refineCellVertical(img, row.iconCy, row.iconCy - iconCyOff, cell, cols)
+    const topR = Math.round(top)
+    if (topR + h > img.height + h * 0.15 || topR < -h * 0.15) continue
+    const hR = Math.round(h)
     let added = false
     for (let c = 0; c < cols.length; c++) {
-      const rect: CellRect = { x: cols[c], y: top, w: cell.w, h: cell.h, row: rowIndex, col: c }
+      const rect: CellRect = { x: cols[c], y: topR, w: cell.w, h: hR, row: rowIndex, col: c }
       // アイコンが確認できた列は無条件で採用。できなかった列
       // （UI ボタンで隠れている等）はアート領域の見た目で判断する。
       // ただし単独列だけの行（誤検出の可能性が高い）ではアイコン必須。
@@ -226,6 +232,62 @@ export function detectGrid(img: ImageDataLike): CellRect[] {
     if (added) rowIndex++
   }
   return rects
+}
+
+/**
+ * 縦アライメント自己補正。
+ * タイプアイコン中心 Y（`iconCy`）と、幅から外挿した仮の上端（`topGuess`）を基に、
+ * カードの実際の上辺を検出して上端をスナップし、高さをアイコン位置から逆算する。
+ *
+ * カード上端の判定は「行全体（全列＋列間ガター）がほぼ背景色一色か」で行う。
+ * 列間ガターは常に背景なので、絵柄の上端が明るくても、行内のどこかに絵柄が
+ * あれば背景率は下がる。仮上端の周辺（±0.2 セル）で「背景の帯 → 絵柄」の
+ * 最初の遷移を上辺とみなす。クリーンな遷移が無ければ従来の外挿値へフォールバック。
+ */
+function refineCellVertical(
+  img: ImageDataLike,
+  iconCy: number,
+  topGuess: number,
+  cell: { w: number; h: number },
+  cols: number[],
+): { top: number; h: number } {
+  const fallback = { top: topGuess, h: cell.h }
+  const spanX0 = Math.max(0, Math.round(cols[0]))
+  const spanX1 = Math.min(img.width, Math.round(cols[cols.length - 1] + cell.w))
+  if (spanX1 - spanX0 < 20) return fallback
+
+  // 行 y が「ほぼ背景一色」か（背景 = 明るく低彩度）。
+  const bgFrac = (y: number): number => {
+    if (y < 0 || y >= img.height) return 1
+    let bg = 0
+    let n = 0
+    for (let x = spanX0; x < spanX1; x += 6) {
+      const [r, g, b] = px(img, x, y)
+      const [, s, v] = hsv(r, g, b)
+      n++
+      if (v > 200 && s < 0.2) bg++
+    }
+    return n > 0 ? bg / n : 1
+  }
+  const isGap = (y: number) => bgFrac(y) > 0.88
+  const isCard = (y: number) => bgFrac(y) < 0.7
+
+  const win = Math.round(cell.h * 0.2)
+  // 仮上端の少し上（余白側）から下へ走査し、最初の「余白 → 絵柄」の境界を探す。
+  let top: number | null = null
+  for (let y = Math.round(topGuess - win); y <= Math.round(topGuess + win); y++) {
+    if (isGap(y) && isCard(y + 2) && isCard(y + 4)) {
+      top = y + 1
+      break
+    }
+  }
+  if (top === null) return fallback
+
+  // 高さはアイコン位置から逆算（アイコン中心はカード高の TYPE_ICON.centerY）。
+  const h = (iconCy - top) / TYPE_ICON.centerY
+  // 逆算値が幅由来の想定から大きく外れる場合は誤検出とみなしフォールバック。
+  if (h < cell.h * 0.75 || h > cell.h * 1.25) return fallback
+  return { top, h }
 }
 
 /** アイコンが検出できなかったセルの存在判定（アート領域の彩度・分散）。 */

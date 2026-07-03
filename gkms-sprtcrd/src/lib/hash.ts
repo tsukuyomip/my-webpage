@@ -47,15 +47,66 @@ export function signatureFromImageData(img: ImageData): CardSignature {
   return { dhash, colorGrid }
 }
 
-/** 0（同一）〜1（無関係）の正規化距離。 */
+// 照合に使う領域は「カード上半分（HASH_REGION）かつ右上隅を除く」。
+// 上半分は下部オーバーレイ（Lv/凸/上限解放帯/タイプアイコン）を避けるため
+// geometry 側で既に切り出している。ここでは加えて、右上隅に乗ることのある
+// 未読バッジ（赤丸）を照合から外す静的マスクを適用する。マスタ・スクショの
+// 双方に対称にかかるので、既存の baked 署名を作り直す必要はない。
+// （距離は「実際に使ったビット/セル数」で正規化するため、しきい値の意味も不変。）
+const DHASH_USE: boolean[] = (() => {
+  const m: boolean[] = new Array(DHASH_W * DHASH_H).fill(true)
+  for (let y = 0; y < DHASH_H; y++) {
+    for (let x = 0; x < DHASH_W; x++) {
+      // 右上隅: 上 1/4 行 × 右 1/4 列
+      if (y < DHASH_H / 4 && x >= DHASH_W * 0.75) m[y * DHASH_W + x] = false
+    }
+  }
+  return m
+})()
+const COLOR_USE: boolean[] = (() => {
+  const m: boolean[] = new Array(COLOR_GRID * COLOR_GRID).fill(true)
+  m[0 * COLOR_GRID + (COLOR_GRID - 1)] = false // 右上セル (gx=末尾, gy=0)
+  return m
+})()
+
+function hexToBits(hex: string): number[] {
+  const bits: number[] = []
+  for (const ch of hex) {
+    const v = parseInt(ch, 16)
+    bits.push((v >> 3) & 1, (v >> 2) & 1, (v >> 1) & 1, v & 1)
+  }
+  return bits
+}
+
+/** 0（同一）〜1（無関係）の正規化距離。右上隅マスクを両署名に適用する。 */
 export function signatureDistance(a: CardSignature, b: CardSignature): number {
-  const hd = hammingHex(a.dhash, b.dhash) / (DHASH_W * DHASH_H)
+  const ab = hexToBits(a.dhash)
+  const bb = hexToBits(b.dhash)
+  let hd = 0
+  let hn = 0
+  const nb = Math.min(ab.length, bb.length, DHASH_USE.length)
+  for (let i = 0; i < nb; i++) {
+    if (!DHASH_USE[i]) continue
+    hn++
+    if (ab[i] !== bb[i]) hd++
+  }
+  const hdist = hn > 0 ? hd / hn : 0
+
   let cd = 0
-  const n = Math.min(a.colorGrid.length, b.colorGrid.length)
-  for (let i = 0; i < n; i++) cd += Math.abs(a.colorGrid[i] - b.colorGrid[i])
-  cd /= n * 255
+  let cn = 0
+  const cells = Math.floor(Math.min(a.colorGrid.length, b.colorGrid.length) / 3)
+  for (let cell = 0; cell < cells; cell++) {
+    if (COLOR_USE[cell] === false) continue
+    for (let k = 0; k < 3; k++) {
+      const i = cell * 3 + k
+      cd += Math.abs(a.colorGrid[i] - b.colorGrid[i])
+      cn++
+    }
+  }
+  const cdist = cn > 0 ? cd / (cn * 255) : 0
+
   // dHash を主、色を従。重みは実スクショでの分離度を見て調整した値。
-  return 0.65 * hd + 0.35 * cd
+  return 0.65 * hdist + 0.35 * cdist
 }
 
 function resampleGray(img: ImageData, w: number, h: number): Float32Array {
@@ -88,17 +139,4 @@ function bitsToHex(bits: string): string {
     hex += parseInt(bits.slice(i, i + 4), 2).toString(16)
   }
   return hex
-}
-
-function hammingHex(a: string, b: string): number {
-  let d = 0
-  const n = Math.min(a.length, b.length)
-  for (let i = 0; i < n; i++) {
-    let x = parseInt(a[i], 16) ^ parseInt(b[i], 16)
-    while (x) {
-      d += x & 1
-      x >>= 1
-    }
-  }
-  return d + Math.abs(a.length - b.length) * 4
 }

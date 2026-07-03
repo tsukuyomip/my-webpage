@@ -17,7 +17,14 @@ import {
   type SignatureProgress,
 } from './lib/masterSource'
 import { getCustomProxy, setCustomProxy } from './lib/proxy'
-import type { CardSignature, IndexedCard, MasterData, ParsedCell } from './lib/types'
+import type {
+  CardSignature,
+  CardType,
+  IndexedCard,
+  MasterData,
+  MatchCandidate,
+  ParsedCell,
+} from './lib/types'
 import { TYPE_LABELS } from './lib/types'
 
 declare const __BUILD_INFO__: string
@@ -436,6 +443,7 @@ export default function App() {
                     <th>凸</th>
                     <th>上限解放可能</th>
                     <th>信頼度/警告</th>
+                    <th>タイプ</th>
                     <th></th>
                   </tr>
                 </thead>
@@ -477,55 +485,35 @@ function ResultRow({
   const card = cell.chosenCardId ? cardById.get(cell.chosenCardId) : undefined
   const confClass =
     cell.confidence === 'high' ? 'conf-high' : cell.confidence === 'medium' ? 'conf-mid' : 'conf-low'
+  // タイプはマスタに値があればそれを、無ければスクショから検出した値を使う
+  // （現状の baked マスタはタイプ未収録のため、実質は検出値になる）。
+  const type: CardType =
+    card && card.type !== 'unknown' ? card.type : cell.detectedType
+  const ts = TYPE_SHORT[type]
+  const selectCard = (id: string | null) =>
+    onChange(cell.index, {
+      chosenCardId: id,
+      // 手動選択は確定扱いにして照合系の警告から外す
+      confidence: id ? 'high' : cell.confidence,
+      warnings: id
+        ? cell.warnings.filter((w) => !w.includes('照合') && !w.includes('一致するカード'))
+        : cell.warnings,
+    })
   return (
     <tr className={cell.warnings.length > 0 ? 'has-warn' : ''}>
-      <td>
+      <td className="thumb-cell">
         <img src={cell.thumbDataUrl} alt="" className="thumb" />
       </td>
-      <td>
-        <select
-          value={cell.chosenCardId ?? ''}
-          onChange={(e) => {
-            const id = e.target.value || null
-            onChange(cell.index, {
-              chosenCardId: id,
-              // 手動選択は確定扱いにして警告から外す
-              confidence: id ? 'high' : cell.confidence,
-              warnings: id
-                ? cell.warnings.filter(
-                    (w) => !w.includes('照合') && !w.includes('一致するカード'),
-                  )
-                : cell.warnings,
-            })
-          }}
-        >
-          <option value="">（未特定）</option>
-          {/* 照合候補を先頭に出し、続けて全カード */}
-          <optgroup label="候補（距離順）">
-            {cell.candidates.map((cand) => {
-              const c = cardById.get(cand.cardId)
-              return (
-                <option key={`cand-${cand.cardId}`} value={cand.cardId}>
-                  {c ? `[${c.rarity}] ${c.name}` : cand.cardId}（d={cand.distance.toFixed(3)}）
-                </option>
-              )
-            })}
-          </optgroup>
-          <optgroup label="全カード">
-            {cards.map((c) => (
-              <option key={c.id} value={c.id}>
-                [{c.rarity}] {c.name}
-              </option>
-            ))}
-          </optgroup>
-        </select>
-        {card && (
-          <span className="cardmeta">
-            [{card.rarity}] {card.typeLabel || TYPE_LABELS[card.type]}
-          </span>
-        )}
+      <td className="name-cell">
+        <CardPicker
+          value={cell.chosenCardId}
+          cards={cards}
+          candidates={cell.candidates}
+          cardById={cardById}
+          onSelect={selectCard}
+        />
       </td>
-      <td>
+      <td className="lv-cell" data-label="Lv">
         <input
           type="number"
           min={1}
@@ -540,7 +528,7 @@ function ResultRow({
           }
         />
       </td>
-      <td>
+      <td className="lb-cell" data-label="凸">
         <select
           value={cell.limitBreak}
           onChange={(e) => onChange(cell.index, { limitBreak: Number(e.target.value) })}
@@ -552,22 +540,165 @@ function ResultRow({
           ))}
         </select>
       </td>
-      <td className="center">
+      <td className="cap-cell center" data-label="上限解放">
         <input
           type="checkbox"
           checked={cell.canLimitBreak}
           onChange={(e) => onChange(cell.index, { canLimitBreak: e.target.checked })}
         />
       </td>
-      <td>
+      <td className="conf-cell" data-label="信頼度">
         <span className={`conf ${confClass}`}>{cell.confidence}</span>
         {cell.warnings.length > 0 && <span className="warn"> ⚠ {cell.warnings.join('、')}</span>}
       </td>
-      <td>
+      <td className="type-cell" data-label="タイプ">
+        <span className="typebadge" style={{ color: ts.color, borderColor: ts.color }}>
+          {ts.label}
+        </span>
+      </td>
+      <td className="act-cell">
         <button className="ghost" title="この行を削除" onClick={() => onRemove(cell.index)}>
           ✕
         </button>
       </td>
     </tr>
+  )
+}
+
+/** タイプの短縮ラベルと表示色（Vo=赤, Da=青, Vi=アンバー, Sp=緑）。 */
+const TYPE_SHORT: Record<CardType, { label: string; color: string }> = {
+  vocal: { label: 'Vo', color: '#e0245e' },
+  dance: { label: 'Da', color: '#2f6fed' },
+  visual: { label: 'Vi', color: '#c98a00' },
+  assist: { label: 'Sp', color: '#1e9e5a' },
+  unknown: { label: '—', color: '#bbb' },
+}
+
+/**
+ * 画像付きのカード選択コンボボックス。
+ * <select> は画像を出せないため自作。候補（距離順）→全カードの並びで、
+ * 各項目にサムネイルを表示し、テキストで絞り込みできる。
+ */
+function CardPicker({
+  value,
+  cards,
+  candidates,
+  cardById,
+  onSelect,
+}: {
+  value: string | null
+  cards: IndexedCard[]
+  candidates: MatchCandidate[]
+  cardById: Map<string, IndexedCard>
+  onSelect: (id: string | null) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const rootRef = useRef<HTMLDivElement>(null)
+  const selected = value ? cardById.get(value) : undefined
+
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [open])
+
+  const q = query.trim().toLowerCase()
+  const filtered = q ? cards.filter((c) => c.name.toLowerCase().includes(q)) : null
+
+  const choose = (id: string | null) => {
+    onSelect(id)
+    setOpen(false)
+    setQuery('')
+  }
+
+  return (
+    <div className="cardpicker" ref={rootRef}>
+      <button type="button" className="cardpicker-btn" onClick={() => setOpen((v) => !v)}>
+        {selected ? (
+          <>
+            {selected.imageUrl ? (
+              <img src={selected.imageUrl} alt="" className="cp-thumb" loading="lazy" />
+            ) : (
+              <span className="cp-thumb cp-noimg" />
+            )}
+            <span className="cp-name">
+              [{selected.rarity}] {selected.name}
+            </span>
+          </>
+        ) : (
+          <span className="cp-placeholder">（未特定）— クリックで選択</span>
+        )}
+        <span className="cp-caret">▾</span>
+      </button>
+      {open && (
+        <div className="cardpicker-pop">
+          <input
+            className="cp-search"
+            autoFocus
+            placeholder="カード名で絞り込み…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          <div className="cp-list">
+            <button type="button" className="cp-opt cp-clear" onClick={() => choose(null)}>
+              （未特定）
+            </button>
+            {filtered === null ? (
+              <>
+                {candidates.length > 0 && <div className="cp-group">候補（距離順）</div>}
+                {candidates.map((cand) => {
+                  const c = cardById.get(cand.cardId)
+                  if (!c) return null
+                  return (
+                    <CardOption
+                      key={`cand-${c.id}`}
+                      card={c}
+                      extra={`d=${cand.distance.toFixed(3)}`}
+                      onClick={() => choose(c.id)}
+                    />
+                  )
+                })}
+                <div className="cp-group">全カード</div>
+                {cards.map((c) => (
+                  <CardOption key={c.id} card={c} onClick={() => choose(c.id)} />
+                ))}
+              </>
+            ) : filtered.length === 0 ? (
+              <div className="cp-empty">該当なし</div>
+            ) : (
+              filtered.map((c) => <CardOption key={c.id} card={c} onClick={() => choose(c.id)} />)
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function CardOption({
+  card,
+  extra,
+  onClick,
+}: {
+  card: IndexedCard
+  extra?: string
+  onClick: () => void
+}) {
+  return (
+    <button type="button" className="cp-opt" onClick={onClick}>
+      {card.imageUrl ? (
+        <img src={card.imageUrl} alt="" className="cp-thumb" loading="lazy" />
+      ) : (
+        <span className="cp-thumb cp-noimg" />
+      )}
+      <span className="cp-name">
+        [{card.rarity}] {card.name}
+      </span>
+      {extra && <span className="cp-extra">{extra}</span>}
+    </button>
   )
 }
