@@ -65,29 +65,57 @@ async function main() {
   })
 
   console.log(`opening ${URL_ARG}`)
-  await page.goto(URL_ARG, { waitUntil: 'networkidle', timeout: 60000 })
+  await page.goto(URL_ARG, { waitUntil: 'domcontentloaded', timeout: 60000 })
+  await page.waitForLoadState('networkidle', { timeout: 60000 }).catch(() => {})
+  console.log(`landed on: ${page.url()}`)
+  console.log(`title: ${await page.title().catch(() => '(no title)')}`)
 
-  // 遅延ロード画像を出し切るため、ページ末尾までゆっくりスクロール
+  // 遅延ロード画像を強制ロード（data-* を src に流し込み、eager 化）してから
+  // 末尾までスクロール。Seesaa はサムネを遅延ロードすることがある。
+  await page.evaluate(() => {
+    for (const img of Array.from(document.querySelectorAll('img'))) {
+      const lazy =
+        img.getAttribute('data-original') ||
+        img.getAttribute('data-src') ||
+        img.getAttribute('data-lazy-src')
+      if (lazy && !img.src.includes(lazy)) img.src = lazy
+      img.loading = 'eager'
+    }
+  })
   await autoScroll(page)
+  await page.waitForLoadState('networkidle', { timeout: 30000 }).catch(() => {})
   await sleep(1500)
 
   // 表の各行からカード名・レアリティ・タイプ・サムネURL・詳細URLを抽出。
-  // 画像は描画後の currentSrc（実際に読み込まれた URL）を優先する。
-  const cards = await page.evaluate(() => {
+  // 0 件時の切り分け用に debug 情報も返す。
+  const { cards, debug } = await page.evaluate(() => {
+    const imgUrlOf = (img) => {
+      if (!img) return ''
+      let u = img.currentSrc || img.src || ''
+      if (!u) {
+        u =
+          img.getAttribute('data-original') ||
+          img.getAttribute('data-src') ||
+          img.getAttribute('data-lazy-src') ||
+          ''
+      }
+      if (!u) {
+        const ss = img.getAttribute('srcset') || ''
+        u = ss.split(',')[0]?.trim().split(' ')[0] || ''
+      }
+      return u
+    }
     // 実際の一覧表の行:
     //   <td>SSR</td>
     //   <td><a href="詳細"><img src="…-s.png"></a></td>
     //   <td><a href="詳細">カード名</a><br>(WIKI_ID)…</td>
     const out = []
     const seen = new Set()
-    for (const row of Array.from(document.querySelectorAll('table tr'))) {
-      const img = row.querySelector('img')
-      if (!img) continue
-      // 描画後の実URL（遅延ロード後）を優先
-      const src = img.currentSrc || img.src || img.getAttribute('data-original') || ''
-      if (!src) continue
-      if (/emoji|icon_|spacer|blank|\.svg/i.test(src)) continue
-
+    const allRows = Array.from(document.querySelectorAll('table tr'))
+    let rowsWithId = 0
+    let rowsWithImg = 0
+    let skippedNoImg = 0
+    for (const row of allRows) {
       const rowText = row.textContent || ''
       const wikiId = (rowText.match(/\(([A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]+)\)/) || [])[1] || null
 
@@ -104,12 +132,19 @@ async function main() {
         links.sort((a, b) => (b.textContent || '').length - (a.textContent || '').length)[0] ||
         null
       const name = nameLink ? (nameLink.textContent || '').trim() : ''
-      // カード行は画像 + (名前 か wiki用ID) を持つ。ヘッダ行等は除外
+      // カード行は 名前 + wiki用ID（または【】）を持つ。ヘッダ行等は除外
       if (!name || (!wikiId && !/【.+】/.test(name))) continue
       if (/^(画像|カード名|名前|レアリティ|タイプ|入手|レ$)/.test(name)) continue
+      if (wikiId) rowsWithId++
 
+      const rawSrc = imgUrlOf(row.querySelector('img'))
+      if (!rawSrc || /emoji|icon_|spacer|blank|\.svg/i.test(rawSrc)) {
+        skippedNoImg++
+        continue
+      }
+      rowsWithImg++
+      const imageUrl = new URL(rawSrc, location.href).toString()
       const rarity = (rowText.match(/\b(SSR|SR|R)\b/) || [])[1] || 'unknown'
-      const imageUrl = new URL(src, location.href).toString()
 
       const key = wikiId || imageUrl
       if (seen.has(key)) continue
@@ -127,12 +162,46 @@ async function main() {
             : null,
       })
     }
-    return out
+    const html = document.documentElement.outerHTML
+    const firstDataRow = allRows.find((r) => /\([A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]+\)/.test(r.textContent || ''))
+    const anyImg = document.querySelector('table img')
+    return {
+      cards: out,
+      debug: {
+        tables: document.querySelectorAll('table').length,
+        rows: allRows.length,
+        imgsInTables: document.querySelectorAll('table img').length,
+        rowsWithId,
+        rowsWithImg,
+        skippedNoImg,
+        htmlLen: html.length,
+        hasCardNameHeader: html.includes('カード名'),
+        hasWikiIdText: /\([A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]+\)/.test(html),
+        sampleRowHtml: firstDataRow ? firstDataRow.outerHTML.slice(0, 600) : null,
+        sampleImg: anyImg
+          ? {
+              src: anyImg.src || null,
+              currentSrc: anyImg.currentSrc || null,
+              dataOriginal: anyImg.getAttribute('data-original'),
+              dataSrc: anyImg.getAttribute('data-src'),
+              srcset: anyImg.getAttribute('srcset'),
+            }
+          : null,
+      },
+    }
   })
 
   console.log(`found ${cards.length} cards in the table`)
+  console.log('debug:', JSON.stringify(debug, null, 1))
   if (cards.length === 0) {
-    console.error('カードを抽出できませんでした。ページ構成が変わっている可能性があります。')
+    console.error('カードを抽出できませんでした。上の debug を確認してください。')
+    console.error(
+      [
+        '- landed URL / title が想定と違う → bot 判定や別ページの可能性',
+        '- rows>0 かつ rowsWithId>0 だが skippedNoImg>0 → サムネの遅延ロード未解決',
+        '- hasWikiIdText=false → ページ構成が変わったか、取得できていない',
+      ].join('\n'),
+    )
     await browser.close()
     process.exit(1)
   }
