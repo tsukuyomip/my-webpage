@@ -65,20 +65,25 @@ src/lib/
   詳細ページの取得も一度きり
 - 画像・詳細ページの取得は同時 1 本 + 400ms 間隔に制限
 
-**基本セット（腹持ち）の更新 A0 — GitHub Actions から（最推奨・手元不要）:**
-`.github/workflows/bake-gkms.yml` が、下の `scrape-wiki.mjs` を GitHub の
-ランナー上で実行して `public/baked-master.json` + `public/card-images/` を
-再生成し、変更があれば自動コミット → Pages デプロイを起動する。
+> ⚠ **重要（Seesaa の IP ブロック）**: seesaawiki.jp は
+> データセンター/クラウドの IP（**GitHub Actions・Cloudflare 等**）からの
+> アクセスを **403 Forbidden** で拒否する。そのため下記 A0（Actions 自動）や
+> サーバレス Worker 経由の自動取得は基本的に通らない。
+> **確実なのは「手元PC（住宅回線）から実行する下記 A」**。実測で、住宅回線は
+> 200 で 192 カード取得、Actions ランナーは 403（本体HTMLが返らない）だった。
 
-- **実行方法（②手動）**: GitHub の **Actions タブ → "Bake gkms-sprtcrd master
-  data" → "Run workflow"**。動作確認用に `limit` を入れて一部だけ取得も可能
-- ランナーは wiki に直接到達できるため、CORS プロキシ問題は起きない
-- 実質変化が無い回はコミットしない（fetchedAt だけの差分は無視）
-- **定期自動（①）へ移行**: ワークフロー内 `schedule:` の2行のコメントを外すだけ
-  （既定は毎週日曜 18:00 UTC）。ページ側にトークンは一切置かない
-  （Actions 内の `GITHUB_TOKEN` のみ使用）
+**基本セット（腹持ち）の更新 A0 — GitHub Actions（※Seesaa に 403 されがち）:**
+`.github/workflows/bake-gkms.yml` が `scrape-wiki.mjs` をランナー上で実行し、
+変更があれば自動コミット → Pages デプロイを起動する。仕組みとしては動くが、
+**Seesaa がランナー IP を 403 する場合は取得できない**（その旨をログに明示する）。
+将来 Seesaa の挙動が変わった時や、セルフホストランナー（住宅回線）を使う場合の
+受け皿として残してある。
 
-**基本セット（腹持ち）の作り方 A — スクレイパを手元で実行:**
+- 実行方法（②手動）: **Actions タブ → "Bake gkms-sprtcrd master data" → Run workflow**
+- 定期自動（①）へは `schedule:` の2行のコメントを外すだけ
+- ページ側にトークンは置かない（Actions 内 `GITHUB_TOKEN` のみ）
+
+**基本セット（腹持ち）の作り方 A — スクレイパを手元で実行（最推奨・確実）:**
 `scripts/scrape-wiki.mjs` は実ブラウザ（Playwright）で一覧ページを開き、
 **表のサムネイル画像だけ**を取得して baked セット
 （`public/baked-master.json` + `public/card-images/`）を直接生成する。
