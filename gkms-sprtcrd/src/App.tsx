@@ -24,6 +24,7 @@ import type {
   MasterData,
   MatchCandidate,
   ParsedCell,
+  Rarity,
 } from './lib/types'
 import { TYPE_LABELS } from './lib/types'
 
@@ -510,6 +511,7 @@ function ResultRow({
           cards={cards}
           candidates={cell.candidates}
           cardById={cardById}
+          rarity={cell.detectedRarity}
           onSelect={selectCard}
         />
       </td>
@@ -584,18 +586,29 @@ function CardPicker({
   cards,
   candidates,
   cardById,
+  rarity,
   onSelect,
 }: {
   value: string | null
   cards: IndexedCard[]
   candidates: MatchCandidate[]
   cardById: Map<string, IndexedCard>
+  rarity: Rarity
   onSelect: (id: string | null) => void
 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
   const rootRef = useRef<HTMLDivElement>(null)
   const selected = value ? cardById.get(value) : undefined
+  const useRarity = rarity !== 'unknown'
+  // 推定レアリティのカードを上に、その他を下に。
+  const [sameRarity, otherRarity] = useMemo(() => {
+    if (!useRarity) return [cards, [] as IndexedCard[]]
+    const same: IndexedCard[] = []
+    const other: IndexedCard[] = []
+    for (const c of cards) (c.rarity === rarity ? same : other).push(c)
+    return [same, other]
+  }, [cards, rarity, useRarity])
 
   useEffect(() => {
     if (!open) return
@@ -662,10 +675,25 @@ function CardPicker({
                     />
                   )
                 })}
-                <div className="cp-group">全カード</div>
-                {cards.map((c) => (
-                  <CardOption key={c.id} card={c} onClick={() => choose(c.id)} />
-                ))}
+                {useRarity ? (
+                  <>
+                    <div className="cp-group">推定レアリティ: {rarity}</div>
+                    {sameRarity.map((c) => (
+                      <CardOption key={c.id} card={c} onClick={() => choose(c.id)} />
+                    ))}
+                    <div className="cp-group">その他</div>
+                    {otherRarity.map((c) => (
+                      <CardOption key={c.id} card={c} onClick={() => choose(c.id)} />
+                    ))}
+                  </>
+                ) : (
+                  <>
+                    <div className="cp-group">全カード</div>
+                    {cards.map((c) => (
+                      <CardOption key={c.id} card={c} onClick={() => choose(c.id)} />
+                    ))}
+                  </>
+                )}
               </>
             ) : filtered.length === 0 ? (
               <div className="cp-empty">該当なし</div>

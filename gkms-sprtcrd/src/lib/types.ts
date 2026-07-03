@@ -63,6 +63,8 @@ export interface ParsedCell {
   limitBreak: number
   /** サムネから判定したタイプ。 */
   detectedType: CardType
+  /** サムネ最下端のレアリティ帯から判定したレアリティ（R=水色/SR=金/SSR=虹）。 */
+  detectedRarity: Rarity
   /** 「上限解放可能」表示の有無。 */
   canLimitBreak: boolean
   /** 距離昇順の照合候補（上位のみ）。 */
