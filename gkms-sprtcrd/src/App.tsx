@@ -666,17 +666,19 @@ function CardPicker({
       <button type="button" className="cardpicker-btn" onClick={() => setOpen((v) => !v)}>
         {selected ? (
           <>
-            <span
-              className="cp-type-mini"
-              style={{ background: TYPE_SHORT[selected.type].color }}
-            >
-              {TYPE_SHORT[selected.type].label}
+            <span className="cp-thumb-wrap">
+              {selected.imageUrl ? (
+                <img src={selected.imageUrl} alt="" className="cp-thumb" loading="lazy" />
+              ) : (
+                <span className="cp-thumb cp-noimg" />
+              )}
+              <span
+                className="cp-type-corner"
+                style={{ background: TYPE_SHORT[selected.type].color }}
+              >
+                {TYPE_SHORT[selected.type].label}
+              </span>
             </span>
-            {selected.imageUrl ? (
-              <img src={selected.imageUrl} alt="" className="cp-thumb" loading="lazy" />
-            ) : (
-              <span className="cp-thumb cp-noimg" />
-            )}
             <span className="cp-name">
               [{selected.rarity}] {selected.name}
             </span>
@@ -762,6 +764,9 @@ function CardOption({
       ) : (
         <span className="cp-thumb cp-noimg" />
       )}
+      <span className="cp-type-opt" style={{ background: TYPE_SHORT[card.type].color }}>
+        {TYPE_SHORT[card.type].label}
+      </span>
       <span className="cp-name">
         [{card.rarity}] {card.name}
       </span>

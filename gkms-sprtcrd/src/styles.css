@@ -209,12 +209,29 @@ input.lv {
   color: #999;
   flex: none;
 }
-/* 選択ボタン（タイトル）左上の極小タイプチップ（Vo/Da/Vi/As） */
-.cp-type-mini {
+/* 選択済み: サムネ右下のタイプチップ（ゲームの元サムネと同じ位置） */
+.cp-thumb-wrap {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+  line-height: 0;
+}
+.cp-type-corner {
   position: absolute;
-  top: 1px;
-  left: 1px;
-  z-index: 2;
+  right: 1px;
+  bottom: 1px;
+  padding: 0 3px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1.4;
+  color: #fff;
+}
+/* 各選択肢: カード名の左上に小さなタイプチップ */
+.cp-type-opt {
+  flex: none;
+  align-self: flex-start;
+  margin-top: 1px;
   padding: 0 3px;
   border-radius: 3px;
   font-size: 9px;
