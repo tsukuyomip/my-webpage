@@ -186,6 +186,53 @@ input.lv {
   text-align: center;
 }
 
+/* --- 警告チップ（1件ずつ解決） --- */
+.warnlist {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+.warnchip-wrap {
+  position: relative;
+  display: inline-flex;
+}
+.warnchip {
+  border: 1px solid #e6c98a;
+  background: #fff8ec;
+  color: #b06000;
+  font-size: 12px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+.warnchip:hover:not(:disabled) {
+  color: #b06000;
+  border-color: #d9a94e;
+}
+.warn-pop {
+  position: absolute;
+  top: calc(100% + 3px);
+  left: 0;
+  z-index: 25;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.15);
+  padding: 4px;
+}
+.warn-solve {
+  font-size: 12px;
+  padding: 3px 12px;
+  white-space: nowrap;
+  color: #1e7c33;
+  border-color: #bfe3c6;
+}
+.warn-solve:hover:not(:disabled) {
+  color: #1e7c33;
+  border-color: #1e9e5a;
+}
+
 /* --- カード選択コンボボックス（画像付き） --- */
 .cardpicker {
   position: relative;
@@ -287,7 +334,7 @@ input.lv {
   padding: 6px 8px;
   border: 1px solid var(--border);
   border-radius: 6px;
-  font-size: 13px;
+  font-size: 16px; /* iOS のフォーカス時ズームを防ぐため 16px 以上 */
   margin-bottom: 6px;
 }
 .cp-list {

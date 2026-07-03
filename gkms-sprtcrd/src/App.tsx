@@ -563,7 +563,14 @@ function ResultRow({
       </td>
       <td className="conf-cell" data-label="信頼度">
         <span className={`conf ${confClass}`}>{cell.confidence}</span>
-        {cell.warnings.length > 0 && <span className="warn"> ⚠ {cell.warnings.join('、')}</span>}
+        {cell.warnings.length > 0 && (
+          <WarningList
+            warnings={cell.warnings}
+            onSolve={(i) =>
+              onChange(cell.index, { warnings: cell.warnings.filter((_, j) => j !== i) })
+            }
+          />
+        )}
       </td>
       <td className="type-cell" data-label="タイプ">
         <span className="typebadge" style={{ color: ts.color, borderColor: ts.color }}>
@@ -592,6 +599,40 @@ const TYPE_SHORT: Record<CardType, { label: string; color: string; tint: string 
   visual: { label: 'Vi', color: '#c98a00', tint: '#fbf2dd' },
   assist: { label: 'As', color: '#1e9e5a', tint: '#e7f6ec' },
   unknown: { label: '—', color: '#bbb', tint: 'transparent' },
+}
+
+/** 警告を1件ずつ表示し、タップ→「解決する」でその警告だけ消せるリスト。 */
+function WarningList({ warnings, onSolve }: { warnings: string[]; onSolve: (i: number) => void }) {
+  const [openIdx, setOpenIdx] = useState<number | null>(null)
+  return (
+    <span className="warnlist">
+      {warnings.map((w, i) => (
+        <span key={i} className="warnchip-wrap">
+          <button
+            type="button"
+            className="warnchip"
+            onClick={() => setOpenIdx(openIdx === i ? null : i)}
+          >
+            ⚠ {w}
+          </button>
+          {openIdx === i && (
+            <span className="warn-pop">
+              <button
+                type="button"
+                className="warn-solve"
+                onClick={() => {
+                  onSolve(i)
+                  setOpenIdx(null)
+                }}
+              >
+                解決する
+              </button>
+            </span>
+          )}
+        </span>
+      ))}
+    </span>
+  )
 }
 
 /** プルダウンのグループ見出し（推定レアリティ×推定タイプの4段階）。 */
@@ -692,7 +733,6 @@ function CardPicker({
         <div className="cardpicker-pop">
           <input
             className="cp-search"
-            autoFocus
             placeholder="カード名で絞り込み…"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
