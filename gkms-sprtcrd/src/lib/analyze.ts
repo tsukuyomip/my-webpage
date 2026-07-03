@@ -76,15 +76,17 @@ export async function analyzeScreenshot(
     if (match.chosenCardId === null) warnings.push('一致するカードが見つからない')
     if (features.limitBreakAmbiguous) warnings.push('凸数の自動判定が曖昧')
     if (features.detectedType === 'unknown') warnings.push('タイプアイコンを読めない')
-    if (error) warnings.push(`Lv OCR 失敗: ${error}`)
-    else if (level === null) warnings.push('Lv を読めない（手動入力してください）')
+    // Lv が読めない場合は 1 を仮入れする（要確認の警告は残す）。
+    const filledLevel = level === null ? 1 : level
+    if (error) warnings.push(`Lv OCR 失敗のため仮に 1（要確認）: ${error}`)
+    else if (level === null) warnings.push('Lv を読めないため仮に 1 を入れました（要確認）')
     else if (level > 60) warnings.push(`Lv ${level} は範囲外の可能性`)
 
     cells.push({
       index: i,
       rect: { x: rect.x, y: rect.y, w: rect.w, h: rect.h },
       thumbDataUrl: cropToDataUrl(fullCanvas, rect),
-      level,
+      level: filledLevel,
       levelRaw: raw,
       limitBreak: features.limitBreak,
       detectedType: features.detectedType,
