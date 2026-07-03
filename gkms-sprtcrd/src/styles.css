@@ -165,6 +165,7 @@ input.lv {
   align-items: center;
   gap: 6px;
   width: 100%;
+  min-width: 0;
   padding: 3px 6px;
   text-align: left;
   font-size: 13px;
@@ -190,6 +191,9 @@ input.lv {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  /* 日本語名はスペースが無く1トークン扱いになるため、min-width:0 を通さないと
+     フレックスの最小幅が名前全幅になり折り返す。0 にして常に省略表示させる。 */
+  min-width: 0;
 }
 .cp-placeholder {
   color: #999;
@@ -325,9 +329,13 @@ a {
     border: none;
     padding: 0;
   }
-  /* 1段目: サムネ + カード名 / 2段目以降: Lv・凸・上限・信頼度・タイプ・削除 */
+  /* 1段目: サムネ + カード名（名前は右で切れてよい・常にサムネの右） /
+     2段目以降: Lv・凸・上限・信頼度・タイプ・削除。
+     name-cell は flex-basis:0 + grow で「サムネ以外の残り幅」を占め、min-width:0 で
+     長い名前でも縮んで下へ回り込まない。 */
   .name-cell {
-    flex: 1 1 55%;
+    flex: 1 1 0;
+    min-width: 0;
   }
   td[data-label]::before {
     content: attr(data-label) '：';
