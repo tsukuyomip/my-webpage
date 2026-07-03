@@ -34,6 +34,12 @@ export interface CardSignature {
   dhash: string
   /** 4x4 の RGB 平均色グリッド（長さ 48、0-255）。 */
   colorGrid: number[]
+  /**
+   * 上限解放帯が無いカード用の「上 2/3」領域のシグネチャ。
+   * 帯が無いときは中段まで絵柄が見えるので、より広い領域で照合できる。
+   * マスタ側は起動時に同梱画像から計算して埋める（baked JSON には元々無い）。
+   */
+  tall?: { dhash: string; colorGrid: number[] }
 }
 
 /** シグネチャ付きマスタカード（照合に使える状態）。 */

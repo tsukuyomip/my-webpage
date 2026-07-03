@@ -70,6 +70,13 @@ export const RARITY_BAND = { y0: 0.93, y1: 0.99, x0: 0.14, x1: 0.86 } as const
  */
 export const HASH_REGION = { x0: 14 / 351, x1: 337 / 351, y0: 10 / 195, y1: 100 / 195 } as const
 
+/**
+ * 「上限解放可能」帯が無いカード用の広め領域（上 2/3）。
+ * 帯（y≈103-135）が無ければ中段まで絵柄が見えるので、y1 を 130 まで下げて
+ * 判別材料を増やす。Lv/凸/タイプアイコン（y≈137-）には掛からない。
+ */
+export const HASH_REGION_TALL = { x0: 14 / 351, x1: 337 / 351, y0: 10 / 195, y1: 130 / 195 } as const
+
 export interface CellRect {
   x: number
   y: number

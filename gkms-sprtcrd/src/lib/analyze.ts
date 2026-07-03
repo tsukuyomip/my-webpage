@@ -9,7 +9,7 @@ import {
   extractLvRegionForOcr,
   type ImageDataLike,
 } from './screenshot'
-import type { CellRect } from './geometry'
+import { HASH_REGION_TALL, type CellRect } from './geometry'
 import type { IndexedCard, ParsedCell } from './types'
 
 // スクショ 1 枚 → ParsedCell[] のパイプライン（ブラウザ専用の糊）。
@@ -39,6 +39,7 @@ export async function analyzeScreenshot(
   imageData: ImageData,
   cards: IndexedCard[],
   onProgress: (p: AnalyzeProgress) => void,
+  useTall = false,
 ): Promise<{ cells: ParsedCell[]; rects: CellRect[] }> {
   onProgress({ stage: 'grid', done: 0, total: 1 })
   const img: ImageDataLike = imageData
@@ -70,7 +71,12 @@ export async function analyzeScreenshot(
     const digitHint = level === null ? null : level < 10 ? 1 : 2
     const features = analyzeCellFeatures(img, rect, digitHint)
     const sig = signatureFromImageData(toImageData(extractHashRegion(img, rect)))
-    const match = matchCell(sig, features.detectedType, features.detectedRarity, cards)
+    // 上限解放帯が無いセルは上 2/3 領域の署名も作り、tall 経路で照合する
+    const cellTall =
+      useTall && !features.canLimitBreak
+        ? signatureFromImageData(toImageData(extractHashRegion(img, rect, HASH_REGION_TALL)))
+        : null
+    const match = matchCell(sig, cellTall, features.detectedType, features.detectedRarity, cards)
 
     const warnings: string[] = []
     if (match.confidence === 'low') warnings.push('照合の信頼度が低い')

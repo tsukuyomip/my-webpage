@@ -20,15 +20,26 @@ export interface MatchResult {
 
 export function matchCell(
   cellSignature: CardSignature,
+  cellTall: CardSignature | null,
   detectedType: CardType,
   detectedRarity: Rarity,
   cards: IndexedCard[],
   topN = 5,
 ): MatchResult {
+  // 上限解放帯が無いセル（cellTall あり）は、マスタ側にも tall 署名がある限り
+  // 上 2/3 領域で照合する。距離のスケールを揃えるため、全候補が tall を持つ
+  // ときだけ tall 経路を使う（一部だけ tall だと順位比較が崩れるため）。
+  const useTall = cellTall != null && cards.every((c) => !c.signature || c.signature.tall)
   const scored: MatchCandidate[] = []
   for (const card of cards) {
     if (!card.signature) continue
-    let d = signatureDistance(cellSignature, card.signature)
+    let d =
+      useTall && card.signature.tall
+        ? signatureDistance(cellTall!, {
+            dhash: card.signature.tall.dhash,
+            colorGrid: card.signature.tall.colorGrid,
+          })
+        : signatureDistance(cellSignature, card.signature)
     if (detectedType !== 'unknown' && card.type !== 'unknown' && card.type !== detectedType) {
       d += TYPE_MISMATCH_PENALTY
     }

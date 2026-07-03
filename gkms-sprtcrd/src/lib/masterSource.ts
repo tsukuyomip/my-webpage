@@ -8,7 +8,7 @@ import {
   putResolvedImage,
   putSignature,
 } from './cache'
-import { HASH_REGION } from './geometry'
+import { HASH_REGION, HASH_REGION_TALL } from './geometry'
 import { signatureFromImageData } from './hash'
 import { createLimiter, decodeHtml, fetchViaProxy } from './proxy'
 import type { CardSignature, IndexedCard, MasterCard, MasterData } from './types'
@@ -251,14 +251,17 @@ async function fetchImageBytes(url: string, signal?: AbortSignal): Promise<Array
  * セル側は HASH_REGION（上部のみ）をハッシュ化している。wiki のカード画像は
  * 同じ構図のフルアートである前提で、同じ相対領域を切り出して揃える。
  */
-async function decodeImageToImageData(buffer: ArrayBuffer): Promise<ImageData> {
+async function decodeImageToImageData(
+  buffer: ArrayBuffer,
+  region: { x0: number; x1: number; y0: number; y1: number } = HASH_REGION,
+): Promise<ImageData> {
   const blob = new Blob([buffer])
   const bmp = await createImageBitmap(blob)
   try {
-    const sx = HASH_REGION.x0 * bmp.width
-    const sy = HASH_REGION.y0 * bmp.height
-    const sw = (HASH_REGION.x1 - HASH_REGION.x0) * bmp.width
-    const sh = (HASH_REGION.y1 - HASH_REGION.y0) * bmp.height
+    const sx = region.x0 * bmp.width
+    const sy = region.y0 * bmp.height
+    const sw = (region.x1 - region.x0) * bmp.width
+    const sh = (region.y1 - region.y0) * bmp.height
     // ハッシュ計算には大きな解像度は不要なので、幅 128 に縮小してから読む
     const w = Math.min(128, Math.max(1, Math.round(sw)))
     const h = Math.max(1, Math.round((sh * w) / sw))
@@ -271,6 +274,56 @@ async function decodeImageToImageData(buffer: ArrayBuffer): Promise<ImageData> {
   } finally {
     bmp.close()
   }
+}
+
+/**
+ * マスタ画像から「上 2/3」領域の署名 (signature.tall) を計算して埋める。
+ * 上限解放帯が無いカードの照合を上 2/3 で行うためのマスタ側データ。
+ * 同梱画像はローカルなのでネットワークには触れない。前回計算分は IndexedDB
+ * から復元し、未計算のカードだけデコードする（初回のみ〜1 秒程度）。
+ */
+export async function computeTallSignatures(
+  master: MasterData,
+  signatures: Map<string, CardSignature>,
+  onProgress?: (done: number, total: number) => void,
+): Promise<void> {
+  const targets = master.cards.filter(
+    (c) => c.imageUrl && signatures.get(c.imageUrl) && !signatures.get(c.imageUrl)!.tall,
+  )
+  if (targets.length === 0) return
+  let cached: Map<string, CardSignature> | null = null
+  try {
+    cached = await getAllSignatures()
+  } catch {
+    cached = null
+  }
+  let done = 0
+  const limiter = createLimiter(4, 0)
+  await Promise.all(
+    targets.map((card) =>
+      limiter(async () => {
+        const url = card.imageUrl!
+        const sig = signatures.get(url)
+        try {
+          if (!sig || sig.tall) return
+          const ct = cached?.get(url)?.tall
+          if (ct) {
+            sig.tall = ct
+          } else {
+            const buffer = await fetchImageBytes(url)
+            const t = signatureFromImageData(await decodeImageToImageData(buffer, HASH_REGION_TALL))
+            sig.tall = { dhash: t.dhash, colorGrid: t.colorGrid }
+            await putSignature(url, sig)
+          }
+        } catch {
+          /* このカードはスキップ（上半分照合にフォールバック） */
+        } finally {
+          done++
+          onProgress?.(done, targets.length)
+        }
+      }),
+    ),
+  )
 }
 
 export function toIndexedCards(
