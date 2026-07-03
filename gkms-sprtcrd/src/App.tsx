@@ -185,8 +185,17 @@ export default function App() {
         </p>
       </header>
 
-      <section className="panel">
-        <h2>① マスタ（wiki カード一覧）</h2>
+      <section className="panel advanced-panel">
+        <details className="advanced">
+          <summary>
+            マスタ管理・詳細設定（通常は開かなくて OK）
+            {masterState.phase === 'ready'
+              ? sigReadyCount < masterState.master.cards.length
+                ? ' ⚠ 画像シグネチャ未完'
+                : ''
+              : ' ⚠ マスタ未読込'}
+          </summary>
+          <div className="advanced-body">
         {masterState.phase === 'ready' && (
           <p>
             {masterState.master.cards.length} 枚のカードを読み込み済み（{masterState.note}）
@@ -369,9 +378,11 @@ export default function App() {
             <p className="hint">build: {__BUILD_INFO__}</p>
           </div>
         )}
+          </div>
+        </details>
       </section>
 
-      <section className="panel">
+      <section className="panel sec-shots">
         <h2>③ スクショを読み込む</h2>
         <div
           className="dropzone"
@@ -407,7 +418,7 @@ export default function App() {
         {error && <p className="error">{error}</p>}
       </section>
 
-      <section className="panel">
+      <section className="panel sec-results">
         <h2>
           ④ 結果（{cells.length} 件
           {cells.length > 0 &&

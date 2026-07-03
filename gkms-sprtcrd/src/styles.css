@@ -16,6 +16,40 @@ body {
   max-width: 1080px;
   margin: 0 auto;
   padding: 16px;
+  display: flex;
+  flex-direction: column;
+}
+/* 表示順: ヘッダ → ③スクショ → ④結果 → ①②マスタ管理(折りたたみ・最下部)。
+   通常操作でほぼ触らない①②を目立たせないための並べ替え。 */
+.sec-shots {
+  order: 1;
+}
+.sec-results {
+  order: 2;
+}
+.advanced-panel {
+  order: 3;
+  background: #fbfaf8;
+  border-style: dashed;
+}
+.advanced > summary {
+  cursor: pointer;
+  color: #888;
+  font-weight: 600;
+  font-size: 13px;
+  list-style: none;
+}
+.advanced > summary::-webkit-details-marker {
+  display: none;
+}
+.advanced > summary::before {
+  content: '▸ ';
+}
+.advanced[open] > summary::before {
+  content: '▾ ';
+}
+.advanced-body {
+  margin-top: 12px;
 }
 header h1 {
   margin: 8px 0 4px;
