@@ -5,11 +5,12 @@ import type { CardSignature, MasterData } from './types'
 //  2. 2 回目以降の起動を速くする
 //
 // stores:
-//  - kv:        masterHtml(=生 HTML + 取得時刻) / masterData(=パース済み)
-//  - signature: 画像 URL → CardSignature（画像自体は保存しない。軽量）
+//  - kv:        masterData(=パース済み) / resolvedImage:<cardId>(=詳細ページ解決URL)
+//  - signature: 画像 URL → CardSignature（軽量。照合に使うのはこれ）
+//  - image:     画像 URL → Blob（実バイト。ZIP エクスポート/腹持ち用。重い）
 
 const DB_NAME = 'gkms-sprtcrd'
-const DB_VERSION = 1
+const DB_VERSION = 2
 
 /** マスタ HTML の鮮度。これを超えたら再取得を促す（自動再取得はしない）。 */
 export const MASTER_TTL_MS = 24 * 60 * 60 * 1000
@@ -21,6 +22,7 @@ function openDb(): Promise<IDBDatabase> {
       const db = req.result
       if (!db.objectStoreNames.contains('kv')) db.createObjectStore('kv')
       if (!db.objectStoreNames.contains('signature')) db.createObjectStore('signature')
+      if (!db.objectStoreNames.contains('image')) db.createObjectStore('image')
     }
     req.onsuccess = () => resolve(req.result)
     req.onerror = () => reject(req.error)
@@ -76,6 +78,15 @@ export async function putCachedMaster(data: MasterData): Promise<void> {
   await idbPut('kv', 'masterData', data)
 }
 
+/** 詳細ページから解決したカード画像 URL（card.id → imageUrl）。永続。 */
+export async function getResolvedImage(cardId: string): Promise<string | undefined> {
+  return idbGet<string>('kv', `resolvedImage:${cardId}`)
+}
+
+export async function putResolvedImage(cardId: string, imageUrl: string): Promise<void> {
+  await idbPut('kv', `resolvedImage:${cardId}`, imageUrl)
+}
+
 export async function getSignature(imageUrl: string): Promise<CardSignature | undefined> {
   return idbGet<CardSignature>('signature', imageUrl)
 }
@@ -106,7 +117,49 @@ export async function getAllSignatures(): Promise<Map<string, CardSignature>> {
   }
 }
 
+// ---- 画像バイト（ZIP エクスポート / 腹持ち用） ----
+
+export async function putImageBlob(imageUrl: string, blob: Blob): Promise<void> {
+  await idbPut('image', imageUrl, blob)
+}
+
+export async function getAllImageBlobs(): Promise<Map<string, Blob>> {
+  const db = await openDb()
+  try {
+    return await new Promise((resolve, reject) => {
+      const map = new Map<string, Blob>()
+      const req = db.transaction('image', 'readonly').objectStore('image').openCursor()
+      req.onsuccess = () => {
+        const cur = req.result
+        if (cur) {
+          map.set(String(cur.key), cur.value as Blob)
+          cur.continue()
+        } else {
+          resolve(map)
+        }
+      }
+      req.onerror = () => reject(req.error)
+    })
+  } finally {
+    db.close()
+  }
+}
+
+export async function countImageBlobs(): Promise<number> {
+  const db = await openDb()
+  try {
+    return await new Promise((resolve, reject) => {
+      const req = db.transaction('image', 'readonly').objectStore('image').count()
+      req.onsuccess = () => resolve(req.result)
+      req.onerror = () => reject(req.error)
+    })
+  } finally {
+    db.close()
+  }
+}
+
 export async function clearAllCaches(): Promise<void> {
   await idbClear('kv')
   await idbClear('signature')
+  await idbClear('image')
 }

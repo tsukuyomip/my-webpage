@@ -96,6 +96,56 @@ function parseRow(
   }
 }
 
+/** Seesaa Wiki にユーザがアップロードした画像 URL か（カード画像の固定リンク）。
+ *  例: https://image01.seesaawiki.jp/g/u/gakumasu/4904a3033de08738.png */
+export function isSeesaaUploadedImage(url: string): boolean {
+  return /\/\/image\d*\.seesaawiki\.jp\/.+\.(png|jpe?g|gif|webp)(\?|$)/i.test(url)
+}
+
+/**
+ * カード詳細ページの HTML から、本体のカード画像 URL を 1 つ抽出する。
+ * 一覧表の画像が取得できない/サムネイルしか無い場合に、詳細ページ側の
+ * 固定リンク（image0N.seesaawiki.jp のアップロード画像）を使うためのもの。
+ * 詳細ページは冒頭にカードのフルアートを大きく載せる構成が多いので、
+ * 「アップロード画像で最初に現れるもの」を採用する。
+ */
+export function parseDetailImageUrl(html: string, baseUrl: string): string | null {
+  const doc = new DOMParser().parseFromString(html, 'text/html')
+  const candidates: string[] = []
+  for (const img of Array.from(doc.querySelectorAll('img'))) {
+    const raw =
+      img.getAttribute('data-original') ||
+      img.getAttribute('data-src') ||
+      img.getAttribute('data-lazy-src') ||
+      img.getAttribute('src')
+    if (!raw) continue
+    let abs: string
+    try {
+      abs = new URL(raw, baseUrl).toString()
+    } catch {
+      continue
+    }
+    // アイコン・絵文字・プロフィール画像・スペーサ等を除外
+    if (/emoji|icon_|spacer|blank|profile|banner|thumbnail|\/s\//i.test(abs)) continue
+    if (isSeesaaUploadedImage(abs)) candidates.push(abs)
+  }
+  // 本文（#article-body 等）に含まれるものを優先。無ければ最初の候補。
+  const body = doc.querySelector('#article-body, .article-body, .user-area, #content')
+  if (body) {
+    for (const img of Array.from(body.querySelectorAll('img'))) {
+      const raw = img.getAttribute('data-original') || img.getAttribute('src')
+      if (!raw) continue
+      try {
+        const abs = new URL(raw, baseUrl).toString()
+        if (isSeesaaUploadedImage(abs) && !/emoji|icon_|profile/i.test(abs)) return abs
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  return candidates[0] ?? null
+}
+
 /** img の src / lazy-load 属性から絶対 URL を得る。 */
 function resolveImageUrl(img: HTMLImageElement, baseUrl: string): string | null {
   const raw =

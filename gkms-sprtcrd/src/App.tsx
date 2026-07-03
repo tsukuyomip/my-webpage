@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { analyzeScreenshot, loadImageData, type AnalyzeProgress } from './lib/analyze'
 import { MASTER_TTL_MS, clearAllCaches } from './lib/cache'
-import { downloadText, toCsv, toJson, toTsv, toExportRows } from './lib/exporters'
+import { downloadBlob, downloadText, toCsv, toJson, toTsv, toExportRows } from './lib/exporters'
 import {
   buildSignatures,
   exportBaked,
+  exportImagesZip,
   fetchLiveMaster,
   importBaked,
   importMasterFromHtml,
@@ -12,6 +13,7 @@ import {
   toIndexedCards,
   WIKI_PAGE_URL,
   type MasterLoadResult,
+  type SignatureFailure,
   type SignatureProgress,
 } from './lib/masterSource'
 import { getCustomProxy, setCustomProxy } from './lib/proxy'
@@ -29,6 +31,7 @@ type MasterState =
 export default function App() {
   const [masterState, setMasterState] = useState<MasterState>({ phase: 'empty' })
   const [sigProgress, setSigProgress] = useState<SignatureProgress | null>(null)
+  const [sigFailures, setSigFailures] = useState<SignatureFailure[] | null>(null)
   const [analyzing, setAnalyzing] = useState<AnalyzeProgress | null>(null)
   const [cells, setCells] = useState<ParsedCell[]>([])
   const [error, setError] = useState<string>('')
@@ -63,11 +66,23 @@ export default function App() {
 
   const buildAllSignatures = useCallback(async () => {
     if (masterState.phase !== 'ready') return
-    setSigProgress({ done: 0, total: 1, failed: 0, currentUrl: '' })
+    setSigFailures(null)
+    setSigProgress({ done: 0, total: 1, failed: 0, currentCard: '' })
     try {
-      await buildSignatures(masterState.master, masterState.signatures, setSigProgress)
-      // Map は同一参照のまま増えるので state を作り直して再レンダリング
-      setMasterState({ ...masterState, signatures: new Map(masterState.signatures) })
+      const { failed } = await buildSignatures(
+        masterState.master,
+        masterState.signatures,
+        setSigProgress,
+      )
+      // Map / master.cards[].imageUrl は同一参照のまま更新されるので作り直す
+      setMasterState({
+        ...masterState,
+        master: { ...masterState.master, cards: [...masterState.master.cards] },
+        signatures: new Map(masterState.signatures),
+      })
+      setSigFailures(failed)
+    } catch (e) {
+      setError(`カード画像の取得に失敗: ${e instanceof Error ? e.message : String(e)}`)
     } finally {
       setSigProgress(null)
     }
@@ -197,9 +212,33 @@ export default function App() {
         </div>
         {sigProgress && (
           <p>
-            画像シグネチャ構築中… {sigProgress.done}/{sigProgress.total}
+            カード画像を取得中… {sigProgress.done}/{sigProgress.total}
             {sigProgress.failed > 0 && `（失敗 ${sigProgress.failed}）`}
+            <br />
+            <span className="hint">
+              一覧に画像が無いカードは詳細ページから取得します（初回のみ・低速）。{sigProgress.currentCard}
+            </span>
           </p>
+        )}
+        {sigFailures && sigFailures.length > 0 && (
+          <div className="warn">
+            ⚠ {sigFailures.length} 件のカード画像を取得できませんでした。プロキシ障害や wiki
+            側のブロックが原因のことがあります（時間をおいて再実行するか、カスタムプロキシを設定）。
+            <details>
+              <summary>失敗したカードと理由</summary>
+              <ul>
+                {sigFailures.slice(0, 40).map((f, i) => (
+                  <li key={i}>
+                    {f.card}: {f.reason}
+                  </li>
+                ))}
+                {sigFailures.length > 40 && <li>…他 {sigFailures.length - 40} 件</li>}
+              </ul>
+            </details>
+          </div>
+        )}
+        {sigFailures && sigFailures.length === 0 && (
+          <p className="hint">✅ 全カードの画像取得が完了しました。</p>
         )}
 
         {showDiag && (
@@ -243,6 +282,28 @@ export default function App() {
                 }}
               >
                 マスタJSONエクスポート
+              </button>
+              <button
+                disabled={masterState.phase !== 'ready'}
+                onClick={async () => {
+                  if (masterState.phase !== 'ready') return
+                  try {
+                    const { zip, withImage, sigOnly } = await exportImagesZip(
+                      masterState.master,
+                      masterState.signatures,
+                    )
+                    downloadBlob('gkms-sprtcrd-baked.zip', zip)
+                    setError('')
+                    setSigFailures(null)
+                    alert(
+                      `画像込みZIPを書き出しました。\n画像あり: ${withImage} 件 / シグネチャのみ: ${sigOnly} 件\n\n中身を gkms-sprtcrd/public/ に展開してコミットすると腹持ちになります（INSTALL.txt 参照）。`,
+                    )
+                  } catch (err) {
+                    setError(`ZIP出力に失敗: ${err instanceof Error ? err.message : String(err)}`)
+                  }
+                }}
+              >
+                画像込みZIPをエクスポート（腹持ち用）
               </button>
               <button onClick={() => bakedInputRef.current?.click()}>マスタJSONインポート</button>
               <input
