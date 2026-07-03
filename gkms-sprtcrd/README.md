@@ -65,7 +65,20 @@ src/lib/
   詳細ページの取得も一度きり
 - 画像・詳細ページの取得は同時 1 本 + 400ms 間隔に制限
 
-**基本セット（腹持ち）の作り方 A — スクレイパで一括生成（最推奨）:**
+**基本セット（腹持ち）の更新 A0 — GitHub Actions から（最推奨・手元不要）:**
+`.github/workflows/bake-gkms.yml` が、下の `scrape-wiki.mjs` を GitHub の
+ランナー上で実行して `public/baked-master.json` + `public/card-images/` を
+再生成し、変更があれば自動コミット → Pages デプロイを起動する。
+
+- **実行方法（②手動）**: GitHub の **Actions タブ → "Bake gkms-sprtcrd master
+  data" → "Run workflow"**。動作確認用に `limit` を入れて一部だけ取得も可能
+- ランナーは wiki に直接到達できるため、CORS プロキシ問題は起きない
+- 実質変化が無い回はコミットしない（fetchedAt だけの差分は無視）
+- **定期自動（①）へ移行**: ワークフロー内 `schedule:` の2行のコメントを外すだけ
+  （既定は毎週日曜 18:00 UTC）。ページ側にトークンは一切置かない
+  （Actions 内の `GITHUB_TOKEN` のみ使用）
+
+**基本セット（腹持ち）の作り方 A — スクレイパを手元で実行:**
 `scripts/scrape-wiki.mjs` は実ブラウザ（Playwright）で一覧ページを開き、
 **表のサムネイル画像だけ**を取得して baked セット
 （`public/baked-master.json` + `public/card-images/`）を直接生成する。
