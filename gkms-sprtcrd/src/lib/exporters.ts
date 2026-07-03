@@ -78,6 +78,43 @@ export function toJson(rows: ExportRow[]): string {
   )
 }
 
+/** エクスポートした JSON（toJson の形式）を読み戻すための中間表現。 */
+export interface ImportedResult {
+  name: string
+  rarity: string
+  type: string
+  level: number | null
+  limitBreak: number
+  canLimitBreak: boolean
+  confidence: string
+  warnings: string[]
+}
+
+/** toJson と同じフォーマット（日本語キーの配列）をパースする。 */
+export function parseResultsJson(text: string): ImportedResult[] {
+  const data = JSON.parse(text)
+  if (!Array.isArray(data)) {
+    throw new Error('エクスポートした JSON（配列）を指定してください')
+  }
+  return data.map((r: Record<string, unknown>) => {
+    const g = (k: string) => (r == null ? undefined : r[k])
+    const lv = g('Lv')
+    return {
+      name: String(g('カード名') ?? ''),
+      rarity: String(g('レアリティ') ?? ''),
+      type: String(g('タイプ') ?? ''),
+      level: lv === null || lv === undefined || lv === '' ? null : Number(lv),
+      limitBreak: Number(g('凸') ?? 0) || 0,
+      canLimitBreak: g('上限解放可能') === true || g('上限解放可能') === '可',
+      confidence: String(g('信頼度') ?? 'high'),
+      warnings: String(g('警告') ?? '')
+        .split(' / ')
+        .map((s) => s.trim())
+        .filter(Boolean),
+    }
+  })
+}
+
 export function downloadText(filename: string, text: string, mime: string): void {
   downloadBlob(filename, new Blob([text], { type: mime }))
 }
