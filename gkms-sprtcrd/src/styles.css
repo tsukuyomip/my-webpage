@@ -220,21 +220,20 @@ input.lv {
   position: absolute;
   right: 1px;
   bottom: 1px;
-  padding: 0 3px;
-  border-radius: 3px;
-  font-size: 9px;
+  padding: 0 2px;
+  border-radius: 2px;
+  font-size: 7px;
   font-weight: 700;
   line-height: 1.4;
   color: #fff;
 }
-/* 各選択肢: カード名の左上に小さなタイプチップ */
+/* 各選択肢: カード名の左・上下中央にごく小さなタイプチップ */
 .cp-type-opt {
   flex: none;
-  align-self: flex-start;
-  margin-top: 1px;
-  padding: 0 3px;
-  border-radius: 3px;
-  font-size: 9px;
+  align-self: center;
+  padding: 0 2px;
+  border-radius: 2px;
+  font-size: 7px;
   font-weight: 700;
   line-height: 1.4;
   color: #fff;
