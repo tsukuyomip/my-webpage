@@ -58,17 +58,54 @@ async function main() {
     ? { executablePath: process.env.PW_EXECUTABLE_PATH }
     : {}
   const browser = await chromium.launch(launchOpts)
-  const page = await browser.newPage({
+  const context = await browser.newContext({
     viewport: { width: 1280, height: 2000 },
+    locale: 'ja-JP',
+    timezoneId: 'Asia/Tokyo',
     userAgent:
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36',
+    // 通常ブラウザに近いヘッダを付ける（403 対策の一環）。
+    extraHTTPHeaders: {
+      'Accept-Language': 'ja,en-US;q=0.9,en;q=0.8',
+      Accept:
+        'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+      'Upgrade-Insecure-Requests': '1',
+    },
   })
+  const page = await context.newPage()
 
   console.log(`opening ${URL_ARG}`)
-  await page.goto(URL_ARG, { waitUntil: 'domcontentloaded', timeout: 60000 })
+  // 403 等が一時的なこともあるので数回リトライ
+  let resp = null
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    resp = await page.goto(URL_ARG, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => null)
+    const status = resp?.status()
+    if (status && status < 400) break
+    console.log(`attempt ${attempt}: HTTP ${status ?? 'error'} — retrying…`)
+    await sleep(2000 * attempt)
+  }
   await page.waitForLoadState('networkidle', { timeout: 60000 }).catch(() => {})
-  console.log(`landed on: ${page.url()}`)
-  console.log(`title: ${await page.title().catch(() => '(no title)')}`)
+  const status = resp?.status()
+  console.log(`landed on: ${page.url()} (HTTP ${status ?? '?'})`)
+  const pageTitle = await page.title().catch(() => '(no title)')
+  console.log(`title: ${pageTitle}`)
+  if ((status && status >= 400) || /403|forbidden|not found|error/i.test(pageTitle)) {
+    console.error(
+      [
+        '',
+        `⚠ wiki が HTTP ${status ?? '?'}（${pageTitle}）を返しました。`,
+        'Seesaa はデータセンター/クラウドの IP（GitHub Actions・Cloudflare 等）を',
+        'ボットとしてブロックする傾向があります。この経路での自動取得は困難です。',
+        '',
+        '→ 確実な方法: この scrape-wiki.mjs を「手元PC（住宅回線）」で実行してください:',
+        '   cd gkms-sprtcrd',
+        '   npm install && npm install -D playwright && npx playwright install chromium',
+        '   node scripts/scrape-wiki.mjs',
+        '   生成された public/baked-master.json と public/card-images/ をコミット',
+        '',
+      ].join('\n'),
+    )
+  }
 
   // 遅延ロード画像を強制ロード（data-* を src に流し込み、eager 化）してから
   // 末尾までスクロール。Seesaa はサムネを遅延ロードすることがある。
