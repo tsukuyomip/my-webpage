@@ -186,6 +186,12 @@ input.lv {
   text-align: center;
 }
 
+/* 警告に対応する要素の赤枠（レイアウトを崩さない box-shadow のリング） */
+.rf {
+  box-shadow: 0 0 0 2px #e0392b;
+  border-color: #e0392b !important;
+}
+
 /* --- 警告チップ（1件ずつ解決） --- */
 .warnlist {
   display: inline-flex;
