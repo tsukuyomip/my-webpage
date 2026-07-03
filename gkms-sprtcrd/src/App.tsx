@@ -543,12 +543,13 @@ function ResultRow({
       </td>
       <td className="lb-cell" data-label="凸">
         <select
+          className="lb-select"
           value={cell.limitBreak}
           onChange={(e) => onChange(cell.index, { limitBreak: Number(e.target.value) })}
         >
           {[0, 1, 2, 3, 4].map((n) => (
             <option key={n} value={n}>
-              {n}凸
+              {n}凸 {lbStars(n)}
             </option>
           ))}
         </select>
@@ -576,6 +577,12 @@ function ResultRow({
       </td>
     </tr>
   )
+}
+
+/** 凸数を「★（済）☆（未）」の4個並びで表す（例: 2凸 → ★★☆☆）。 */
+function lbStars(n: number): string {
+  const filled = Math.max(0, Math.min(4, n))
+  return '★'.repeat(filled) + '☆'.repeat(4 - filled)
 }
 
 /** タイプの短縮ラベルと表示色（Vo=赤, Da=青, Vi=アンバー, Sp=緑）。 */

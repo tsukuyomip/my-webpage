@@ -332,7 +332,11 @@ a {
   color: #d2691e;
 }
 
-/* --- モバイル: 結果テーブルを1件=2段のカード表示に --- */
+/* --- モバイル: 結果テーブルを1件=カード表示に ---
+   配置:
+     行1: 抽出サムネ ｜ タイプ ｜ 信頼度[警告]        （右端に✕削除）
+     行2: プルダウン（サムネ+カード名・全幅）
+     行3: レベル ｜ 凸数 ｜ 上限解放                     */
 @media (max-width: 680px) {
   .tablewrap {
     overflow-x: visible;
@@ -350,7 +354,7 @@ a {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 6px 12px;
+    gap: 6px 10px;
     border: 1px solid var(--border);
     border-radius: 10px;
     margin: 10px 0;
@@ -363,28 +367,40 @@ a {
     border: none;
     padding: 0;
   }
-  /* 1段目: サムネ + カード名（名前は右で切れてよい・常にサムネの右） /
-     2段目以降: Lv・凸・上限・信頼度・タイプ・削除。
-     name-cell は flex-basis:0 + grow で「サムネ以外の残り幅」を占め、min-width:0 で
-     長い名前でも縮んで下へ回り込まない。 */
-  .name-cell {
-    flex: 1 1 0;
-    min-width: 0;
+
+  /* 行1 */
+  .thumb-cell {
+    order: 1;
   }
-  td[data-label]::before {
-    content: attr(data-label) '：';
-    color: #999;
-    font-size: 11px;
-    margin-right: 2px;
-  }
-  .thumb-cell .thumb {
-    width: 64px;
+  .type-cell {
+    order: 2;
   }
   .conf-cell {
-    flex-basis: 100%;
+    order: 3;
+    flex: 1 1 auto; /* 余白を吸って✕を右端へ・警告は折り返す */
   }
   .act-cell {
-    margin-left: auto;
+    order: 4;
+  }
+  /* 行2: プルダウン全幅 */
+  .name-cell {
+    order: 5;
+    flex: 0 0 100%;
+    min-width: 0;
+  }
+  /* 行3 */
+  .lv-cell {
+    order: 6;
+  }
+  .lb-cell {
+    order: 7;
+  }
+  .cap-cell {
+    order: 8;
+  }
+
+  .thumb-cell .thumb {
+    width: 64px;
   }
   .cardpicker {
     min-width: 0;
@@ -393,5 +409,19 @@ a {
   select,
   input.lv {
     max-width: 100%;
+  }
+
+  /* 行3のみラベル（Lv/凸/上限解放）を出す。行1のタイプ・信頼度はラベル不要 */
+  .lv-cell[data-label]::before,
+  .lb-cell[data-label]::before,
+  .cap-cell[data-label]::before {
+    content: attr(data-label) '：';
+    color: #999;
+    font-size: 11px;
+    margin-right: 2px;
+  }
+  .type-cell::before,
+  .conf-cell::before {
+    content: none;
   }
 }
