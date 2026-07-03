@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { analyzeScreenshot, loadImageData, type AnalyzeProgress } from './lib/analyze'
 import { MASTER_TTL_MS, clearAllCaches } from './lib/cache'
 import { downloadBlob, downloadText, toCsv, toJson, toTsv, toExportRows } from './lib/exporters'
@@ -522,6 +522,7 @@ function ResultRow({
           candidates={cell.candidates}
           cardById={cardById}
           rarity={cell.detectedRarity}
+          detectedType={cell.detectedType}
           onSelect={selectCard}
         />
       </td>
@@ -584,23 +585,22 @@ function lbStars(n: number): string {
   return '★'.repeat(filled) + '☆'.repeat(4 - filled)
 }
 
-/** タイプの短縮ラベルと表示色（Vo=赤, Da=青, Vi=アンバー, As=緑）。 */
-const TYPE_SHORT: Record<CardType, { label: string; color: string }> = {
-  vocal: { label: 'Vo', color: '#e0245e' },
-  dance: { label: 'Da', color: '#2f6fed' },
-  visual: { label: 'Vi', color: '#c98a00' },
-  assist: { label: 'As', color: '#1e9e5a' },
-  unknown: { label: '—', color: '#bbb' },
+/** タイプの短縮ラベル・表示色・淡い背景色（Vo=赤, Da=青, Vi=アンバー, As=緑）。 */
+const TYPE_SHORT: Record<CardType, { label: string; color: string; tint: string }> = {
+  vocal: { label: 'Vo', color: '#e0245e', tint: '#fdeaf1' },
+  dance: { label: 'Da', color: '#2f6fed', tint: '#e9f0fe' },
+  visual: { label: 'Vi', color: '#c98a00', tint: '#fbf2dd' },
+  assist: { label: 'As', color: '#1e9e5a', tint: '#e7f6ec' },
+  unknown: { label: '—', color: '#bbb', tint: 'transparent' },
 }
 
-/** 色背景の小さなタイプチップ（プルダウンで一目でタイプが分かるように）。 */
-function TypeChip({ type }: { type: CardType }) {
-  const ts = TYPE_SHORT[type]
-  return (
-    <span className="cp-type" style={{ background: ts.color }}>
-      {ts.label}
-    </span>
-  )
+/** プルダウンのグループ見出し（推定レアリティ×推定タイプの4段階）。 */
+function groupLabel(bi: number, rarity: Rarity, type: CardType): string {
+  const t = TYPE_SHORT[type].label
+  if (bi === 3) return `レアリティ・タイプ一致（${rarity}・${t}）`
+  if (bi === 2) return `レアリティ一致（${rarity}）`
+  if (bi === 1) return `推定タイプ一致（${t}）`
+  return 'その他'
 }
 
 /**
@@ -614,6 +614,7 @@ function CardPicker({
   candidates,
   cardById,
   rarity,
+  detectedType,
   onSelect,
 }: {
   value: string | null
@@ -621,6 +622,7 @@ function CardPicker({
   candidates: MatchCandidate[]
   cardById: Map<string, IndexedCard>
   rarity: Rarity
+  detectedType: CardType
   onSelect: (id: string | null) => void
 }) {
   const [open, setOpen] = useState(false)
@@ -628,14 +630,18 @@ function CardPicker({
   const rootRef = useRef<HTMLDivElement>(null)
   const selected = value ? cardById.get(value) : undefined
   const useRarity = rarity !== 'unknown'
-  // 推定レアリティのカードを上に、その他を下に。
-  const [sameRarity, otherRarity] = useMemo(() => {
-    if (!useRarity) return [cards, [] as IndexedCard[]]
-    const same: IndexedCard[] = []
-    const other: IndexedCard[] = []
-    for (const c of cards) (c.rarity === rarity ? same : other).push(c)
-    return [same, other]
-  }, [cards, rarity, useRarity])
+  const useType = detectedType !== 'unknown'
+  // 推定レアリティ×推定タイプで4段階に分類（優先度の高い順）:
+  //   3: レアリティ一致&タイプ一致 / 2: レアリティ一致 / 1: タイプ一致 / 0: その他
+  const buckets = useMemo(() => {
+    const b: IndexedCard[][] = [[], [], [], []]
+    for (const c of cards) {
+      const r = useRarity && c.rarity === rarity ? 2 : 0
+      const t = useType && c.type === detectedType ? 1 : 0
+      b[r + t].push(c)
+    }
+    return b
+  }, [cards, rarity, detectedType, useRarity, useType])
 
   useEffect(() => {
     if (!open) return
@@ -660,7 +666,12 @@ function CardPicker({
       <button type="button" className="cardpicker-btn" onClick={() => setOpen((v) => !v)}>
         {selected ? (
           <>
-            <TypeChip type={selected.type} />
+            <span
+              className="cp-type-mini"
+              style={{ background: TYPE_SHORT[selected.type].color }}
+            >
+              {TYPE_SHORT[selected.type].label}
+            </span>
             {selected.imageUrl ? (
               <img src={selected.imageUrl} alt="" className="cp-thumb" loading="lazy" />
             ) : (
@@ -703,17 +714,17 @@ function CardPicker({
                     />
                   )
                 })}
-                {useRarity ? (
-                  <>
-                    <div className="cp-group">推定レアリティ: {rarity}</div>
-                    {sameRarity.map((c) => (
-                      <CardOption key={c.id} card={c} onClick={() => choose(c.id)} />
-                    ))}
-                    <div className="cp-group">その他</div>
-                    {otherRarity.map((c) => (
-                      <CardOption key={c.id} card={c} onClick={() => choose(c.id)} />
-                    ))}
-                  </>
+                {useRarity || useType ? (
+                  [3, 2, 1, 0].map((bi) =>
+                    buckets[bi].length === 0 ? null : (
+                      <Fragment key={bi}>
+                        <div className="cp-group">{groupLabel(bi, rarity, detectedType)}</div>
+                        {buckets[bi].map((c) => (
+                          <CardOption key={c.id} card={c} onClick={() => choose(c.id)} />
+                        ))}
+                      </Fragment>
+                    ),
+                  )
                 ) : (
                   <>
                     <div className="cp-group">全カード</div>
@@ -745,8 +756,7 @@ function CardOption({
   onClick: () => void
 }) {
   return (
-    <button type="button" className="cp-opt" onClick={onClick}>
-      <TypeChip type={card.type} />
+    <button type="button" className={`cp-opt type-${card.type}`} onClick={onClick}>
       {card.imageUrl ? (
         <img src={card.imageUrl} alt="" className="cp-thumb" loading="lazy" />
       ) : (

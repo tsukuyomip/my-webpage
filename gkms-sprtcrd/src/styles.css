@@ -209,16 +209,17 @@ input.lv {
   color: #999;
   flex: none;
 }
-/* プルダウン各項目・選択ボタン左端のタイプチップ（Vo/Da/Vi/As） */
-.cp-type {
-  flex: none;
-  min-width: 22px;
-  text-align: center;
-  padding: 1px 4px;
-  border-radius: 4px;
-  font-size: 10px;
+/* 選択ボタン（タイトル）左上の極小タイプチップ（Vo/Da/Vi/As） */
+.cp-type-mini {
+  position: absolute;
+  top: 1px;
+  left: 1px;
+  z-index: 2;
+  padding: 0 3px;
+  border-radius: 3px;
+  font-size: 9px;
   font-weight: 700;
-  line-height: 1.5;
+  line-height: 1.4;
   color: #fff;
 }
 .cp-thumb {
@@ -288,10 +289,23 @@ input.lv {
   text-align: left;
   font-size: 13px;
 }
+/* プルダウン選択肢のタイプ別・淡い背景 */
+.cp-opt.type-vocal {
+  background: #fdeaf1;
+}
+.cp-opt.type-dance {
+  background: #e9f0fe;
+}
+.cp-opt.type-visual {
+  background: #fbf2dd;
+}
+.cp-opt.type-assist {
+  background: #e7f6ec;
+}
 .cp-opt:hover {
-  background: #f3efe8;
   color: inherit;
   border-color: transparent;
+  filter: brightness(0.95); /* 淡い背景色を保ったままホバーを表現 */
 }
 .cp-clear {
   color: #888;
