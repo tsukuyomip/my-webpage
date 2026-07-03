@@ -14,8 +14,17 @@ const TYPE_WORDS: Array<[RegExp, CardType]> = [
   [/ボーカル|ヴォーカル|vocal/i, 'vocal'],
   [/ダンス|dance/i, 'dance'],
   [/ビジュアル|visual/i, 'visual'],
-  [/アシスト|assist|オール|\ball\b/i, 'assist'],
+  // アシストは一覧の「レッスンサポート」列で「すべてのレッスン/確率◯」と表記される
+  [/アシスト|assist|オール|\ball\b|すべての?レッスン|全レッスン/i, 'assist'],
 ]
+
+const TYPE_LABEL_JA: Record<CardType, string> = {
+  vocal: 'ボーカル',
+  dance: 'ダンス',
+  visual: 'ビジュアル',
+  assist: 'アシスト',
+  unknown: '',
+}
 
 /** HTML 文字列から MasterCard[] を抽出する。 */
 export function parseWikiHtml(html: string, baseUrl: string): MasterCard[] {
@@ -207,8 +216,7 @@ function detectTypeInRow(row: Element): CardType {
   return 'unknown'
 }
 
-/** wiki 側のタイプ表記をそのまま残す（見つからなければ空文字）。 */
+/** 行から判定したタイプの日本語ラベル（ボーカル/ダンス/ビジュアル/アシスト）。 */
 function typeLabelInRow(row: Element): string {
-  const m = (row.textContent ?? '').match(/ボーカル|ヴォーカル|ダンス|ビジュアル|アシスト|オール/)
-  return m ? m[0] : ''
+  return TYPE_LABEL_JA[detectTypeInRow(row)]
 }

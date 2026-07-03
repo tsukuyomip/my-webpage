@@ -148,6 +148,15 @@ async function main() {
     //   <td><a href="詳細">カード名</a><br>(WIKI_ID)…</td>
     const out = []
     const seen = new Set()
+    // レッスンサポート列（例:「ボーカルレッスン/確率大」「すべてのレッスン/確率中」）から型を判定
+    const typeOf = (text) => {
+      if (/ボーカル|ヴォーカル/.test(text)) return { type: 'vocal', label: 'ボーカル' }
+      if (/ダンス/.test(text)) return { type: 'dance', label: 'ダンス' }
+      if (/ビジュアル/.test(text)) return { type: 'visual', label: 'ビジュアル' }
+      if (/すべての?レッスン|全レッスン|アシスト|オール/.test(text))
+        return { type: 'assist', label: 'アシスト' }
+      return { type: 'unknown', label: '' }
+    }
     const allRows = Array.from(document.querySelectorAll('table tr'))
     let rowsWithId = 0
     let rowsWithImg = 0
@@ -182,6 +191,7 @@ async function main() {
       rowsWithImg++
       const imageUrl = new URL(rawSrc, location.href).toString()
       const rarity = (rowText.match(/\b(SSR|SR|R)\b/) || [])[1] || 'unknown'
+      const tinfo = typeOf(rowText)
 
       const key = wikiId || imageUrl
       if (seen.has(key)) continue
@@ -190,8 +200,8 @@ async function main() {
         id: wikiId || imageUrl,
         name,
         rarity,
-        type: 'unknown', // 一覧表に Vo/Da/Vi 列は無い。タイプはアプリ側でスクショから判定
-        typeLabel: '',
+        type: tinfo.type,
+        typeLabel: tinfo.label,
         imageUrl,
         detailUrl:
           nameLink && nameLink.getAttribute('href')
