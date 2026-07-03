@@ -74,56 +74,57 @@ async function main() {
   // 表の各行からカード名・レアリティ・タイプ・サムネURL・詳細URLを抽出。
   // 画像は描画後の currentSrc（実際に読み込まれた URL）を優先する。
   const cards = await page.evaluate(() => {
-    const TYPE_WORDS = [
-      [/ボーカル|ヴォーカル|vocal/i, 'vocal', 'ボーカル'],
-      [/ダンス|dance/i, 'dance', 'ダンス'],
-      [/ビジュアル|visual/i, 'visual', 'ビジュアル'],
-      [/アシスト|assist|オール|\ball\b/i, 'assist', 'アシスト'],
-    ]
-    const detectType = (text) => {
-      for (const [re, t, label] of TYPE_WORDS) if (re.test(text)) return [t, label]
-      return ['unknown', '']
-    }
+    // 実際の一覧表の行:
+    //   <td>SSR</td>
+    //   <td><a href="詳細"><img src="…-s.png"></a></td>
+    //   <td><a href="詳細">カード名</a><br>(WIKI_ID)…</td>
     const out = []
     const seen = new Set()
     for (const row of Array.from(document.querySelectorAll('table tr'))) {
       const img = row.querySelector('img')
       if (!img) continue
+      // 描画後の実URL（遅延ロード後）を優先
       const src = img.currentSrc || img.src || img.getAttribute('data-original') || ''
       if (!src) continue
       if (/emoji|icon_|spacer|blank|\.svg/i.test(src)) continue
 
+      const rowText = row.textContent || ''
+      const wikiId = (rowText.match(/\(([A-Za-z][A-Za-z0-9]*_[A-Za-z0-9_]+)\)/) || [])[1] || null
+
       const links = Array.from(row.querySelectorAll('a')).filter((a) => {
         const t = (a.textContent || '').trim()
-        return t.length >= 2 && !/^(編集|画像|top|↑|→)/i.test(t)
+        if (t.length < 1) return false
+        if (/^(編集|画像|top|↑|→)/i.test(t)) return false
+        if (a.querySelector('img')) return false // 画像リンクは除外
+        return true
       })
-      let nameLink =
+      const nameLink =
         links.find((a) => /【.+】/.test(a.textContent || '')) ||
+        links.find((a) => /\/d\//.test(a.getAttribute('href') || '')) ||
         links.sort((a, b) => (b.textContent || '').length - (a.textContent || '').length)[0] ||
         null
-      let name = nameLink ? (nameLink.textContent || '').trim() : ''
-      if (!name) {
-        const m = (row.textContent || '').match(/【[^【】]+】[^\s　、。|]*/)
-        name = m ? m[0].trim() : ''
-      }
-      if (!name || !/【.+】/.test(name)) continue
+      const name = nameLink ? (nameLink.textContent || '').trim() : ''
+      // カード行は画像 + (名前 か wiki用ID) を持つ。ヘッダ行等は除外
+      if (!name || (!wikiId && !/【.+】/.test(name))) continue
+      if (/^(画像|カード名|名前|レアリティ|タイプ|入手|レ$)/.test(name)) continue
 
-      const rowText = row.textContent || ''
       const rarity = (rowText.match(/\b(SSR|SR|R)\b/) || [])[1] || 'unknown'
-      const [type, typeLabel] = detectType(rowText)
+      const imageUrl = new URL(src, location.href).toString()
 
-      const key = src
+      const key = wikiId || imageUrl
       if (seen.has(key)) continue
       seen.add(key)
       out.push({
+        id: wikiId || imageUrl,
         name,
         rarity,
-        type,
-        typeLabel,
-        imageUrl: new URL(src, location.href).toString(),
-        detailUrl: nameLink && nameLink.getAttribute('href')
-          ? new URL(nameLink.getAttribute('href'), location.href).toString()
-          : null,
+        type: 'unknown', // 一覧表に Vo/Da/Vi 列は無い。タイプはアプリ側でスクショから判定
+        typeLabel: '',
+        imageUrl,
+        detailUrl:
+          nameLink && nameLink.getAttribute('href')
+            ? new URL(nameLink.getAttribute('href'), location.href).toString()
+            : null,
       })
     }
     return out
@@ -173,7 +174,7 @@ async function main() {
       const sig = await computeSignatureInPage(page, buf, mime, HASH_REGION)
 
       outCards.push({
-        id: localPath,
+        id: card.id, // wiki用ID（安定）。アプリのライブ取得と突き合わせ可能
         name: card.name,
         rarity: card.rarity,
         type: card.type,
