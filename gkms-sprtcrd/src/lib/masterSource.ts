@@ -199,7 +199,7 @@ export async function buildSignatures(
           if (!url) throw new Error('カード画像 URL を特定できませんでした（詳細ページに画像が見つからない）')
           card.imageUrl = url
           if (!signatures.has(url)) {
-            const { buffer } = await fetchViaProxy(url, signal)
+            const buffer = await fetchImageBytes(url, signal)
             const imageData = await decodeImageToImageData(buffer)
             const sig = signatureFromImageData(imageData)
             signatures.set(url, sig)
@@ -221,6 +221,28 @@ export async function buildSignatures(
   // 解決した imageUrl を永続化（次回起動時・ベイク出力に反映）
   await putCachedMaster(master)
   return { failed }
+}
+
+/**
+ * カード画像のバイト列を取得する。
+ *  1. まずブラウザから直取得（画像ホストが CORS を許可していれば成功）
+ *  2. 失敗したら公開 CORS プロキシ経由
+ * corsproxy.io の無料プランは画像 content-type を弾く（403）ため、
+ * 直取得が通ればそれが最良。proxy.ts のプロキシ順（allorigins 優先）も
+ * 画像を通しやすいものを先にしている。
+ */
+async function fetchImageBytes(url: string, signal?: AbortSignal): Promise<ArrayBuffer> {
+  try {
+    const res = await fetch(url, { signal, mode: 'cors' })
+    if (res.ok) {
+      const buf = await res.arrayBuffer()
+      if (buf.byteLength > 0) return buf
+    }
+  } catch {
+    // CORS 不許可 / ネットワーク不通 → プロキシにフォールバック
+  }
+  const { buffer } = await fetchViaProxy(url, signal)
+  return buffer
 }
 
 /**
