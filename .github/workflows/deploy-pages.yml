@@ -28,6 +28,7 @@ jobs:
           cache-dependency-path: |
             mixer/package-lock.json
             media-vault/package-lock.json
+            gkms-sprtcrd/package-lock.json
 
       - name: Build mixer
         working-directory: mixer
@@ -41,12 +42,19 @@ jobs:
           npm ci
           npm run build
 
-      - name: Assemble site (root static page + /mixer/ + /media-vault/)
+      - name: Build gkms-sprtcrd
+        working-directory: gkms-sprtcrd
         run: |
-          mkdir -p _site/mixer _site/media-vault
+          npm ci
+          npm run build
+
+      - name: Assemble site (root static page + /mixer/ + /media-vault/ + /gkms-sprtcrd/)
+        run: |
+          mkdir -p _site/mixer _site/media-vault _site/gkms-sprtcrd
           cp index.html style.css _site/
           cp -r mixer/dist/* _site/mixer/
           cp -r media-vault/dist/* _site/media-vault/
+          cp -r gkms-sprtcrd/dist/* _site/gkms-sprtcrd/
 
       - uses: actions/upload-pages-artifact@v3
         with:
