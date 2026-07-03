@@ -77,13 +77,16 @@ export async function analyzeScreenshot(
     if (match.chosenCardId === null) warnings.push('一致するカードが見つからない')
     if (features.limitBreakAmbiguous) warnings.push('凸数の自動判定が曖昧')
     if (features.detectedType === 'unknown') warnings.push('タイプアイコンを読めない')
-    // Lv が読めない場合は 1 を仮入れする（要確認の警告は残す）。
-    const filledLevel = level === null ? 1 : level
-    if (error) warnings.push(`Lv OCR 失敗のため仮に 1（要確認）: ${error}`)
-    else if (level === null) warnings.push('Lv を読めないため仮に 1 を入れました（要確認）')
+    // Lv が読めない場合は、レアリティ×凸から求めた上限レベルを仮入れする
+    // （上限が出せない＝レアリティ不明のときのみ 1 にフォールバック）。
+    const cap = levelCap(features.detectedRarity, features.limitBreak)
+    const filledLevel = level === null ? (cap ?? 1) : level
+    const capNote = cap !== null ? `上限 ${cap}` : '1'
+    if (error) warnings.push(`Lv OCR 失敗のため仮に ${capNote} を入れました（要確認）: ${error}`)
+    else if (level === null)
+      warnings.push(`Lv を読めないため仮に ${capNote} を入れました（要確認）`)
     else if (level > 60) warnings.push(`Lv ${level} は範囲外の可能性`)
     // レベル上限（レアリティ×凸）超過チェック
-    const cap = levelCap(features.detectedRarity, features.limitBreak)
     if (level !== null && cap !== null && level > cap) {
       warnings.push(
         `Lv ${level} は ${features.detectedRarity} ${features.limitBreak}凸 の上限 ${cap} を超過（凸/レアリティ/Lv のいずれか誤りかも）`,
