@@ -209,6 +209,18 @@ input.lv {
   color: #999;
   flex: none;
 }
+/* プルダウン各項目・選択ボタン左端のタイプチップ（Vo/Da/Vi/As） */
+.cp-type {
+  flex: none;
+  min-width: 22px;
+  text-align: center;
+  padding: 1px 4px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.5;
+  color: #fff;
+}
 .cp-thumb {
   width: 48px;
   height: auto;
