@@ -1,7 +1,7 @@
 import type { Rarity } from './types'
 
 // サポートカードのレベル上限 = 基準レベル + 凸数 × 5。
-//   R  : 20〜40（基準20）※wiki 未確認のため SR/SSR と同パターンで推定
+//   R  : 20〜40（基準20）
 //   SR : 30〜50（基準30）
 //   SSR: 40〜60（基準40）
 const BASE_LEVEL: Record<Rarity, number | null> = {

@@ -8,7 +8,7 @@ describe('levelCap', () => {
   it('SSR: 40..60 (base40 + 凸*5)', () => {
     expect([0, 1, 2, 3, 4].map((n) => levelCap('SSR', n))).toEqual([40, 45, 50, 55, 60])
   })
-  it('R: 20..40 (推定)', () => {
+  it('R: 20..40', () => {
     expect([0, 4].map((n) => levelCap('R', n))).toEqual([20, 40])
   })
   it('unknown レアリティは null', () => {
