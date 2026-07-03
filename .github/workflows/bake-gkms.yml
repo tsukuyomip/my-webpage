@@ -1,0 +1,102 @@
+name: Bake gkms-sprtcrd master data
+
+# 学マスwiki（サポートカード一覧）から baked セット
+# （gkms-sprtcrd/public/baked-master.json + card-images/）を再生成してコミットする。
+#
+# 現状は「手動実行のみ（②）」。GitHub の Actions タブ →
+# このワークフロー → 「Run workflow」で好きなときに更新できる。
+#
+# ★ 定期自動ベイク（①）へ移行するには、下の schedule の2行のコメントを外すだけ。
+on:
+  workflow_dispatch:
+    inputs:
+      limit:
+        description: "取得件数の上限（動作確認用。空欄=全件）"
+        required: false
+        default: ""
+  # schedule:
+  #   - cron: "0 18 * * 0"   # 毎週日曜 18:00 UTC (= 月曜 3:00 JST)
+
+# GITHUB_TOKEN の権限（ページには何も置かない。トークンは Actions 内でのみ使用）
+permissions:
+  contents: write # baked セットをコミットするため
+  actions: write # 反映用に deploy ワークフローを起動するため
+
+concurrency:
+  group: bake-gkms
+  cancel-in-progress: false
+
+jobs:
+  bake:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: gkms-sprtcrd/package-lock.json
+
+      - name: Install deps + Playwright (Chromium)
+        working-directory: gkms-sprtcrd
+        run: |
+          npm ci
+          # playwright はビルド/デプロイを重くしないため通常依存に入れていない。
+          # ベイク時だけここで用意する。
+          npm install --no-save playwright
+          npx playwright install --with-deps chromium
+
+      - name: Scrape wiki → baked set
+        working-directory: gkms-sprtcrd
+        run: |
+          if [ -n "${{ inputs.limit }}" ]; then
+            node scripts/scrape-wiki.mjs --limit "${{ inputs.limit }}"
+          else
+            node scripts/scrape-wiki.mjs
+          fi
+
+      - name: Drop no-op (timestamp-only) changes
+        run: |
+          # baked-master.json は毎回 fetchedAt(現在時刻) が変わる。カード・署名・
+          # 画像に実質変化が無いときは前回の JSON を保持して無駄なコミットを防ぐ。
+          python3 - <<'PY'
+          import json, subprocess
+          p = 'gkms-sprtcrd/public/baked-master.json'
+          cur = json.load(open(p, encoding='utf-8'))
+          try:
+              old = json.loads(subprocess.check_output(['git', 'show', 'HEAD:' + p]))
+          except Exception:
+              old = None
+          def key(b):
+              return json.dumps([b['master']['cards'], b['signatures']],
+                                sort_keys=True, ensure_ascii=False)
+          if old is not None and key(old) == key(cur):
+              json.dump(old, open(p, 'w', encoding='utf-8'), ensure_ascii=False)
+              print('no meaningful change; kept previous baked-master.json')
+          else:
+              print('baked master changed')
+          PY
+
+      - name: Commit if changed
+        id: commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add gkms-sprtcrd/public/baked-master.json gkms-sprtcrd/public/card-images
+          if git diff --cached --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "変更なし。コミットしません。"
+          else
+            git commit -m "chore(gkms-sprtcrd): refresh baked master data from wiki"
+            git push
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # GITHUB_TOKEN による push は on:push を発火しない仕様のため、
+      # 反映のため deploy ワークフローを明示的に起動する。
+      - name: Trigger Pages deploy
+        if: steps.commit.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run deploy-pages.yml --ref master
