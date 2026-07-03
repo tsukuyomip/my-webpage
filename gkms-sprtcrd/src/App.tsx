@@ -497,8 +497,7 @@ function ResultRow({
   const card = cell.chosenCardId ? cardById.get(cell.chosenCardId) : undefined
   const confClass =
     cell.confidence === 'high' ? 'conf-high' : cell.confidence === 'medium' ? 'conf-mid' : 'conf-low'
-  // タイプはマスタに値があればそれを、無ければスクショから検出した値を使う
-  // （現状の baked マスタはタイプ未収録のため、実質は検出値になる）。
+  // タイプはマスタ(wiki)に値があればそれを優先し、無ければスクショ検出値を使う。
   const type: CardType =
     card && card.type !== 'unknown' ? card.type : cell.detectedType
   const ts = TYPE_SHORT[type]
@@ -590,7 +589,7 @@ const TYPE_SHORT: Record<CardType, { label: string; color: string }> = {
   vocal: { label: 'Vo', color: '#e0245e' },
   dance: { label: 'Da', color: '#2f6fed' },
   visual: { label: 'Vi', color: '#c98a00' },
-  assist: { label: 'Sp', color: '#1e9e5a' },
+  assist: { label: 'As', color: '#1e9e5a' },
   unknown: { label: '—', color: '#bbb' },
 }
 
