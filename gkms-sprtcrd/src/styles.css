@@ -186,6 +186,11 @@ input.lv {
   text-align: center;
 }
 
+/* 警告に対応する要素の強調（ソリッド枠ではなく赤いぼかしのグロー） */
+.rf {
+  box-shadow: 0 0 7px 2px rgba(224, 57, 43, 0.6);
+}
+
 /* --- 警告チップ（1件ずつ解決） --- */
 .warnlist {
   display: inline-flex;

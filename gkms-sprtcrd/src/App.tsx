@@ -505,6 +505,12 @@ function ResultRow({
   // レベル上限判定用のレアリティ（採用カードがあればそのレアリティを優先）
   const capRarity: Rarity =
     card && card.rarity !== 'unknown' ? card.rarity : cell.detectedRarity
+  // 警告に対応する要素を赤枠にするためのフラグ
+  const w = cell.warnings
+  const rfMatch = w.some((x) => x.includes('照合') || x.includes('一致するカード'))
+  const rfLevel = w.some((x) => x.startsWith('Lv'))
+  const rfLB = w.some((x) => x.includes('凸数の自動判定'))
+  const rfType = w.some((x) => x.includes('タイプアイコン'))
   const selectCard = (id: string | null) =>
     onChange(cell.index, {
       chosenCardId: id,
@@ -517,7 +523,7 @@ function ResultRow({
   return (
     <tr className={cell.warnings.length > 0 ? 'has-warn' : ''}>
       <td className="thumb-cell">
-        <img src={cell.thumbDataUrl} alt="" className="thumb" />
+        <img src={cell.thumbDataUrl} alt="" className={`thumb${rfMatch ? ' rf' : ''}`} />
       </td>
       <td className="name-cell">
         <CardPicker
@@ -537,7 +543,7 @@ function ResultRow({
           max={capRarity !== 'unknown' ? (levelCap(capRarity, cell.limitBreak) ?? 60) : 60}
           value={cell.level ?? ''}
           placeholder="?"
-          className="lv"
+          className={`lv${rfLevel ? ' rf' : ''}`}
           onChange={(e) =>
             onChange(cell.index, {
               level: e.target.value === '' ? null : Number(e.target.value),
@@ -547,7 +553,7 @@ function ResultRow({
       </td>
       <td className="lb-cell" data-label="凸">
         <select
-          className="lb-select"
+          className={`lb-select${rfLB ? ' rf' : ''}`}
           value={cell.limitBreak}
           onChange={(e) => onChange(cell.index, { limitBreak: Number(e.target.value) })}
         >
@@ -577,7 +583,10 @@ function ResultRow({
         )}
       </td>
       <td className="type-cell" data-label="タイプ">
-        <span className="typebadge" style={{ color: ts.color, borderColor: ts.color }}>
+        <span
+          className={`typebadge${rfType ? ' rf' : ''}`}
+          style={{ color: ts.color, borderColor: ts.color }}
+        >
           {ts.label}
         </span>
       </td>
