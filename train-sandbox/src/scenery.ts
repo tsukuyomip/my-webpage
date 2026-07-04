@@ -199,9 +199,19 @@ function placeStation(net: Network, group: THREE.Group, rand: () => number): Occ
   const PLATFORM_LEN = 14
   const tanA = new THREE.Vector3()
   const tanB = new THREE.Vector3()
+  const posT = new THREE.Vector3()
   let bestD = -1
   let bestScore = -Infinity
   for (let d = 2; d + PLATFORM_LEN < edge.len - 2; d += 2) {
+    // 高架区間にはホームを建てない
+    let elevated = false
+    for (const dd of [d, d + PLATFORM_LEN / 2, d + PLATFORM_LEN]) {
+      if (edgePosAt(edge, dd, posT).y > 0.3) {
+        elevated = true
+        break
+      }
+    }
+    if (elevated) continue
     edgeTanAt(edge, d, tanA)
     edgeTanAt(edge, d + PLATFORM_LEN, tanB)
     const straightness = tanA.dot(tanB)

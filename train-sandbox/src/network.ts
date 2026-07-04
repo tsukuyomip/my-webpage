@@ -1,16 +1,22 @@
 // 線路ネットワーク:
 //   指で描いたストローク（折れ線）を平滑化し、交差点で分割して
 //   「エッジ（線路区間）＋ジャンクション（ポイント）」のグラフにする。
-//   線路の3Dメッシュ（バラスト・枕木・レール・信号機・車止め）もここで生成する。
+//   交差角が浅い交点は分岐器（ポイント）に、深い交点は立体交差（高架）になる。
+//   線路の3Dメッシュ（バラスト・枕木・レール・橋脚・信号機・車止め）もここで生成する。
 import * as THREE from 'three'
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js'
 
 /** 折れ線のサンプリング間隔（ワールド単位） */
 export const SPACING = 0.8
-/** レール踏面の高さ。列車はこの高さを走る */
+/** レール踏面の高さ。列車は「線路の基準高さ + これ」を走る */
 export const RAIL_TOP = 0.42
+/** 立体交差の高架の高さ */
+export const BRIDGE_H = 3.8
 /** 地面（プレイフィールド）の半径 */
 export const FIELD_RADIUS = 240
+
+/** 分岐可能とみなす交差角のしきい値（tangent 同士の |dot|）。約60° */
+const SWITCH_DOT = 0.5
 
 export interface EdgeEnd {
   edge: Edge
@@ -53,6 +59,22 @@ function chaikin(pts: THREE.Vector3[], iters: number): THREE.Vector3[] {
   return a
 }
 
+/** 閉曲線用の Chaikin 細分化（継ぎ目も含めて全体を丸める） */
+function chaikinClosed(pts: THREE.Vector3[], iters: number): THREE.Vector3[] {
+  let a = pts
+  if (a.length > 1 && a[0].distanceTo(a[a.length - 1]) < 1e-6) a = a.slice(0, -1)
+  for (let it = 0; it < iters; it++) {
+    const out: THREE.Vector3[] = []
+    for (let i = 0; i < a.length; i++) {
+      const p = a[i]
+      const q = a[(i + 1) % a.length]
+      out.push(p.clone().lerp(q, 0.25), p.clone().lerp(q, 0.75))
+    }
+    a = out
+  }
+  return a
+}
+
 /** 折れ線を等間隔に再サンプリング */
 function resample(pts: THREE.Vector3[], spacing: number): THREE.Vector3[] {
   const out = [pts[0].clone()]
@@ -65,8 +87,6 @@ function resample(pts: THREE.Vector3[], spacing: number): THREE.Vector3[] {
       out.push(prev.clone())
       segLen = prev.distanceTo(cur)
     }
-    // 残り segLen (< spacing) は次のセグメントへ持ち越さず prev を維持
-    // （誤差は spacing 未満で、見た目に影響しない）
     if (segLen > 1e-6 && i === pts.length - 1) {
       const last = pts[pts.length - 1]
       if (out[out.length - 1].distanceTo(last) > spacing * 0.4) out.push(last.clone())
@@ -75,10 +95,33 @@ function resample(pts: THREE.Vector3[], spacing: number): THREE.Vector3[] {
   return out
 }
 
-/** 生ストローク → なめらかな線路用折れ線。短すぎるときは null */
+/** ストロークが閉じたリング（環状線）かどうか。始点==終点で表現する */
+export function isRingStroke(pts: THREE.Vector3[]): boolean {
+  return pts.length > 2 && pts[0].distanceTo(pts[pts.length - 1]) < 1e-4
+}
+
+/**
+ * 生ストローク → なめらかな線路用折れ線。短すぎるときは null。
+ * 始点と終点が近い場合は自動で閉じて環状線になる。
+ */
 export function smoothStroke(raw: THREE.Vector3[]): THREE.Vector3[] | null {
   if (raw.length < 2) return null
-  const pts = resample(chaikin(raw, 3), SPACING)
+  let rawLen = 0
+  for (let i = 1; i < raw.length; i++) rawLen += raw[i - 1].distanceTo(raw[i])
+  const gap = raw[0].distanceTo(raw[raw.length - 1])
+  const closed = rawLen > 25 && gap < Math.min(7, rawLen * 0.25)
+
+  let pts: THREE.Vector3[]
+  if (closed) {
+    const ring = chaikinClosed(raw, 3)
+    ring.push(ring[0].clone())
+    pts = resample(ring, SPACING)
+    // 継ぎ目を厳密に一致させる（環状線の判定に使う）
+    if (pts[pts.length - 1].distanceTo(pts[0]) > 1e-6) pts.push(pts[0].clone())
+    else pts[pts.length - 1].copy(pts[0])
+  } else {
+    pts = resample(chaikin(raw, 3), SPACING)
+  }
   if (pts.length < 8) return null // ざっくり 5.6 ユニット未満は無効
   return pts
 }
@@ -86,7 +129,7 @@ export function smoothStroke(raw: THREE.Vector3[]): THREE.Vector3[] | null {
 /**
  * ストロークの両端が既存の線路（or 自分自身の反対側）の近くなら、
  * そこまで延長して確実に交差させる。→ 交差判定でジャンクションになり
- * 「描いた線が線路につながる」体験になる。
+ * 「描いた線が線路につながる」体験になる。環状線には適用しないこと。
  */
 export function snapStrokeEnds(pts: THREE.Vector3[], strokes: THREE.Vector3[][]): THREE.Vector3[] {
   const SNAP = 3.2
@@ -178,11 +221,32 @@ function segX(
 
 const MIN_EDGE = 1.6
 
+interface Bump {
+  d: number // ストローク上の位置（弧長）
+  h: number // 高架の高さ
+}
+
 export function buildNetwork(strokes: THREE.Vector3[][]): Network {
   const cums = strokes.map(cumOf)
+  const rings = strokes.map(isRingStroke)
   const cuts: number[][] = strokes.map(() => [])
+  const bumps: Bump[][] = strokes.map(() => [])
+
+  /** ストローク s の位置 d の高架高さ（プラトー3 + ランプ12） */
+  const elevAt = (s: number, d: number): number => {
+    let y = 0
+    for (const b of bumps[s]) {
+      const x = Math.abs(d - b.d)
+      if (x >= 15) continue
+      const t = Math.min(1, (15 - x) / 12)
+      y = Math.max(y, b.h * t * t * (3 - 2 * t))
+    }
+    return y
+  }
 
   // 全セグメントペアの交差を検出（同一ストローク内の自己交差も含む）
+  const tanA = new THREE.Vector2()
+  const tanB = new THREE.Vector2()
   for (let a = 0; a < strokes.length; a++) {
     for (let b = a; b < strokes.length; b++) {
       const A = strokes[a]
@@ -190,12 +254,42 @@ export function buildNetwork(strokes: THREE.Vector3[][]): Network {
       for (let i = 0; i < A.length - 1; i++) {
         const jStart = a === b ? i + 2 : 0
         for (let j = jStart; j < B.length - 1; j++) {
+          // 環状線の継ぎ目（最初と最後のセグメントは点を共有している）は交差ではない
+          if (a === b && rings[a] && i === 0 && j === B.length - 2) continue
           const hit = segX(A[i], A[i + 1], B[j], B[j + 1])
           if (!hit) continue
-          cuts[a].push(cums[a][i] + hit.t * A[i].distanceTo(A[i + 1]))
-          cuts[b].push(cums[b][j] + hit.u * B[j].distanceTo(B[j + 1]))
+          const dA = cums[a][i] + hit.t * A[i].distanceTo(A[i + 1])
+          const dB = cums[b][j] + hit.u * B[j].distanceTo(B[j + 1])
+          // 交差角で 分岐器（浅い）か 立体交差（深い）かを決める
+          tanA.set(A[i + 1].x - A[i].x, A[i + 1].z - A[i].z).normalize()
+          tanB.set(B[j + 1].x - B[j].x, B[j + 1].z - B[j].z).normalize()
+          const c = Math.abs(tanA.dot(tanB))
+          if (c > SWITCH_DOT) {
+            cuts[a].push(dA)
+            cuts[b].push(dB)
+          } else {
+            // 後から描いた方（自己交差なら後方の位置）が上を跨ぐ。
+            // 既に高架の上を跨ぐならさらに一段高く（二重高架）。
+            bumps[b].push({ d: dB, h: elevAt(a, dA) + BRIDGE_H })
+          }
         }
       }
+    }
+  }
+
+  // 高さプロファイルを適用（分岐点・線路端では地上に戻す）。
+  // ストロークごとの微小オフセットは平面交差時の Z-fighting 防止。
+  for (let s = 0; s < strokes.length; s++) {
+    const pts = strokes[s]
+    const cum = cums[s]
+    const len = cum[cum.length - 1]
+    const eps = (s % 4) * 0.012
+    for (let i = 0; i < pts.length; i++) {
+      const d = cum[i]
+      let y = elevAt(s, d)
+      for (const dc of cuts[s]) y *= Math.min(1, Math.max(0, (Math.abs(d - dc) - 4) / 8))
+      if (!rings[s]) y *= Math.min(1, Math.max(0, Math.min(d, len - d) / 12))
+      pts[i].y = y + eps
     }
   }
 
@@ -207,7 +301,7 @@ export function buildNetwork(strokes: THREE.Vector3[][]): Network {
     for (const j of junctions) {
       if (Math.hypot(j.pos.x - p.x, j.pos.z - p.z) < 1.2) return j
     }
-    const j: Junction = { id: junctions.length, pos: p.clone().setY(0), ends: [] }
+    const j: Junction = { id: junctions.length, pos: p.clone(), ends: [] }
     junctions.push(j)
     return j
   }
@@ -289,13 +383,91 @@ export function outgoingTangent(end: EdgeEnd, out: THREE.Vector3): THREE.Vector3
   return out.lengthSq() > 1e-12 ? out.normalize() : out.set(0, 0, 1)
 }
 
+/** ジャンクションで進める端のうち、進行方向にいちばん近いものを選ぶ（決定的） */
+export function pickStraightest(
+  node: Junction,
+  fromEdge: Edge,
+  fromEnd: 0 | 1,
+  heading: THREE.Vector3,
+): EdgeEnd | null {
+  const tan = new THREE.Vector3()
+  let best: EdgeEnd | null = null
+  let bestScore = 0.45
+  for (const end of node.ends) {
+    if (end.edge === fromEdge && end.end === fromEnd) continue
+    outgoingTangent(end, tan)
+    const score = heading.x * tan.x + heading.z * tan.z
+    if (score > bestScore) {
+      bestScore = score
+      best = end
+    }
+  }
+  return best
+}
+
+/**
+ * (edge, d, dir) から線路グラフに沿って distance だけ進み、step ごとに位置を
+ * emit する。ジャンクションでは最も直進に近い進路を選ぶ。行き止まりに達したら
+ * そこで打ち切り、実際に歩いた距離を返す。
+ */
+export function walkPath(
+  edge: Edge,
+  d: number,
+  dir: 1 | -1,
+  distance: number,
+  step: number,
+  emit: (p: THREE.Vector3) => void,
+): number {
+  let e = edge
+  let dd = d
+  let di: 1 | -1 = dir
+  let walked = 0
+  const pos = new THREE.Vector3()
+  const tan = new THREE.Vector3()
+  let guard = 0
+  while (walked + step <= distance && guard++ < 5000) {
+    let rem = step
+    let deadEnd = false
+    for (let hop = 0; hop < 8; hop++) {
+      const ahead = di > 0 ? e.len - dd : dd
+      if (rem <= ahead) {
+        dd += di * rem
+        rem = 0
+        break
+      }
+      rem -= ahead
+      dd = di > 0 ? e.len : 0
+      const endIdx: 0 | 1 = di > 0 ? 1 : 0
+      const node = e.nodes[endIdx]
+      edgeTanAt(e, dd, tan).multiplyScalar(di)
+      const next = pickStraightest(node, e, endIdx, tan)
+      if (!next) {
+        deadEnd = true
+        break
+      }
+      e = next.edge
+      di = next.end === 0 ? 1 : -1
+      dd = next.end === 0 ? 0 : e.len
+    }
+    if (deadEnd || rem > 0) break
+    walked += step
+    edgePosAt(e, dd, pos)
+    emit(pos)
+  }
+  return walked
+}
+
 export interface Projection {
   edge: Edge
   d: number
   distSq: number
 }
 
-/** ワールド座標の点をネットワーク上の最寄り位置に射影する */
+/**
+ * ワールド座標の点をネットワーク上の最寄り位置に射影する。
+ * p.y には線路の基準高さ（RAIL_TOP を含まない値）を渡すこと。
+ * 高さの違いを重めに評価するので、立体交差では正しい側の線路に乗る。
+ */
 export function projectToNetwork(net: Network, p: THREE.Vector3): Projection | null {
   let best: Projection | null = null
   const v = new THREE.Vector3()
@@ -304,12 +476,15 @@ export function projectToNetwork(net: Network, p: THREE.Vector3): Projection | n
       const a = e.pts[i]
       const b = e.pts[i + 1]
       v.subVectors(b, a)
+      v.y = 0
       const segLenSq = v.lengthSq()
       let t = segLenSq > 1e-12 ? ((p.x - a.x) * v.x + (p.z - a.z) * v.z) / segLenSq : 0
       t = Math.max(0, Math.min(1, t))
       const px = a.x + v.x * t
       const pz = a.z + v.z * t
-      const distSq = (p.x - px) ** 2 + (p.z - pz) ** 2
+      const py = a.y + (b.y - a.y) * t
+      const dy = py - p.y
+      const distSq = (p.x - px) ** 2 + (p.z - pz) ** 2 + dy * dy * 4
       if (!best || distSq < best.distSq) {
         best = { edge: e, d: e.cum[i] + Math.sqrt(segLenSq) * t, distSq }
       }
@@ -327,6 +502,7 @@ const MAT = {
   ballast: std({ color: 0x8a7e6d, roughness: 1 }),
   sleeper: std({ color: 0x6e4c33, roughness: 0.9 }),
   rail: std({ color: 0xb9c0c7, roughness: 0.35, metalness: 0.85 }),
+  pier: std({ color: 0x9aa0a4, roughness: 0.85 }),
   gadget: std({ color: 0x4a5058, roughness: 0.7 }),
   signalGreen: std({ color: 0x22c55e, emissive: 0x16a34a, emissiveIntensity: 1.2 }),
   bufferRed: std({ color: 0xc0392b, roughness: 0.6 }),
@@ -334,6 +510,7 @@ const MAT = {
 
 /**
  * 折れ線に沿って断面（x=横, y=高さ）をスイープした形状を作る。
+ * 断面の y は各点の pts[i].y（線路の基準高さ）に加算される。
  * 断面は「左下→左上→右上→右下」の順で並べると法線が外向きになる。
  */
 function sweep(pts: THREE.Vector3[], cross: [number, number][]): THREE.BufferGeometry {
@@ -351,7 +528,7 @@ function sweep(pts: THREE.Vector3[], cross: [number, number][]): THREE.BufferGeo
     for (let j = 0; j < m; j++) {
       const k = (i * m + j) * 3
       pos[k] = pts[i].x + side.x * cross[j][0]
-      pos[k + 1] = cross[j][1]
+      pos[k + 1] = pts[i].y + cross[j][1]
       pos[k + 2] = pts[i].z + side.z * cross[j][0]
     }
   }
@@ -398,6 +575,7 @@ export function buildTrackGroup(net: Network): THREE.Group {
 
   const ballast = new THREE.Mesh(mergeGeometries(ballastGeos), MAT.ballast)
   ballast.receiveShadow = true
+  ballast.castShadow = true // 高架が地面に影を落とす
   const rails = new THREE.Mesh(mergeGeometries(railGeos), MAT.rail)
   rails.castShadow = true
   group.add(ballast, rails)
@@ -415,13 +593,42 @@ export function buildTrackGroup(net: Network): THREE.Group {
       edgePosAt(e, d, pos)
       edgeTanAt(e, d, tan)
       m4.makeRotationY(Math.atan2(tan.x, tan.z))
-      m4.setPosition(pos.x, 0.29, pos.z)
+      m4.setPosition(pos.x, pos.y + 0.29, pos.z)
       sleepers.setMatrixAt(si++, m4)
     }
   }
   sleepers.count = si
   sleepers.castShadow = true
   group.add(sleepers)
+
+  // 高架の橋脚（インスタンシング）
+  const pierAt: { pos: THREE.Vector3; yaw: number; h: number }[] = []
+  for (const e of net.edges) {
+    for (let d = 2.5; d < e.len; d += 5) {
+      edgePosAt(e, d, pos)
+      if (pos.y > 0.9) {
+        edgeTanAt(e, d, tan)
+        pierAt.push({ pos: pos.clone(), yaw: Math.atan2(tan.x, tan.z), h: pos.y })
+      }
+    }
+  }
+  if (pierAt.length > 0) {
+    const pierGeo = new THREE.BoxGeometry(1, 1, 1)
+    const piers = new THREE.InstancedMesh(pierGeo, MAT.pier, pierAt.length)
+    const q = new THREE.Quaternion()
+    const sc = new THREE.Vector3()
+    const pp = new THREE.Vector3()
+    for (let i = 0; i < pierAt.length; i++) {
+      const it = pierAt[i]
+      q.setFromAxisAngle(new THREE.Vector3(0, 1, 0), it.yaw)
+      sc.set(1.9, it.h + 0.1, 0.9)
+      pp.set(it.pos.x, it.h / 2, it.pos.z)
+      m4.compose(pp, q, sc)
+      piers.setMatrixAt(i, m4)
+    }
+    piers.castShadow = true
+    group.add(piers)
+  }
 
   // ジャンクション（分岐器）: 転てつ機の箱 + 信号機
   const t2 = new THREE.Vector3()
