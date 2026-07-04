@@ -1,7 +1,10 @@
 // 列車: 新幹線 / 通勤電車 / 蒸気機関車（SL）
 //   - プリミティブ組み合わせのローポリモデル
 //   - 先頭車の「軌跡（trail）」を記録し、後続車は軌跡上を距離指定で追従する
-//     → ポイント通過・線路の描き直し・行き止まり折り返しに自然に対応できる
+//     → ポイント通過・折り返しに自然に対応できる
+//   - スポーン・折り返し・線路の描き直し時は、軌跡を線路グラフに沿って
+//     逆走査して作り直す（直線ショートカットによる「ドリフト」を防ぐ）
+//   - 前方の線路上に他の列車がいるときは減速して待機する（簡易閉塞）
 import * as THREE from 'three'
 import {
   Edge,
@@ -13,6 +16,7 @@ import {
   edgeTanAt,
   outgoingTangent,
   projectToNetwork,
+  walkPath,
 } from './network'
 
 export type TrainKind = 'shinkansen' | 'commuter' | 'steam'
@@ -258,14 +262,19 @@ interface TrailPoint {
 }
 
 const GAP = 0.45
+const TRAIL_STEP = 0.4
 
 export class Train {
   kind: TrainKind
   group = new THREE.Group()
   headPos = new THREE.Vector3()
+  /** 待機（閉塞）で止められている累計秒数 */
+  blockedTime = 0
   private cars: Car[] = []
   private offsets: number[] = []
   private speed: number
+  private speedFactor = 1
+  private targetFactor = 1
   private edge!: Edge
   private d = 0
   private dir: 1 | -1 = 1
@@ -326,28 +335,43 @@ export class Train {
     // 端に寄りすぎない範囲でランダムな位置に出現（重なり防止）
     this.d = edge.len * (0.2 + Math.random() * 0.6)
     this.dir = Math.random() < 0.5 ? 1 : -1
-
-    // 軌跡を事前充填: エッジに沿って後方へ、足りなければ直線で延長
-    const need = this.span() + 6
-    this.trail = []
     this.headDist = 0
-    edgePosAt(edge, this.d, TMP_A).setY(RAIL_TOP)
-    const headP = TMP_A.clone()
-    edgeTanAt(edge, this.d, TMP_B).multiplyScalar(this.dir)
-    const headTan = TMP_B.clone()
-    for (let x = need; x >= 0; x -= 0.4) {
-      const back = this.d - this.dir * x
-      const p = new THREE.Vector3()
-      if (back >= 0 && back <= edge.len) {
-        edgePosAt(edge, back, p)
-      } else {
-        p.copy(headP).addScaledVector(headTan, -x)
-      }
-      p.y = RAIL_TOP
-      this.trail.push({ p, d: -x })
-    }
-    this.headPos.copy(headP)
+    this.rebuildTrail()
     this.placeCars()
+  }
+
+  /**
+   * 軌跡を線路グラフに沿って逆走査して作り直す。
+   * スポーン・折り返し・線路の描き直しの直後に呼ぶことで、
+   * 後続車が線路外を直線でショートカットする「ドリフト」を防ぐ。
+   */
+  private rebuildTrail() {
+    const need = this.span() + 6
+    edgePosAt(this.edge, this.d, TMP_A)
+    TMP_A.y += RAIL_TOP
+    const head = TMP_A.clone()
+    const back: THREE.Vector3[] = []
+    walkPath(this.edge, this.d, this.dir === 1 ? -1 : 1, need, TRAIL_STEP, (p) => {
+      back.push(new THREE.Vector3(p.x, p.y + RAIL_TOP, p.z))
+    })
+    // 行き止まり等で足りない分は直線で延長（すぐに走行で上書きされる）
+    while (back.length * TRAIL_STEP < need) {
+      const last = back.length >= 1 ? back[back.length - 1] : head
+      const prev = back.length >= 2 ? back[back.length - 2] : head
+      TMP_B.subVectors(last, prev)
+      if (TMP_B.lengthSq() < 1e-10) {
+        edgeTanAt(this.edge, this.d, TMP_B).multiplyScalar(-this.dir)
+      } else {
+        TMP_B.normalize()
+      }
+      back.push(last.clone().addScaledVector(TMP_B, TRAIL_STEP))
+    }
+    this.trail = []
+    for (let k = back.length - 1; k >= 0; k--) {
+      this.trail.push({ p: back[k], d: this.headDist - (k + 1) * TRAIL_STEP })
+    }
+    this.trail.push({ p: head, d: this.headDist })
+    this.headPos.copy(head)
   }
 
   /** 軌跡上で「先頭から distBehind 後方」の位置 */
@@ -367,9 +391,44 @@ export class Train {
     return out.copy(a.p).lerp(b.p, t)
   }
 
+  /** 閉塞制御からの指示。blocked の間は減速して待機する */
+  setBlocked(blocked: boolean, dt: number) {
+    this.targetFactor = blocked ? 0 : 1
+    this.blockedTime = blocked ? this.blockedTime + dt : 0
+  }
+
+  /** にらみ合い解消用の強制折り返し */
+  forceReverse(net: Network) {
+    this.reverse(net)
+  }
+
+  /** 前方の経路サンプル（衝突チェック用）。y はレール高さ込み */
+  pathAhead(out: THREE.Vector3[]): THREE.Vector3[] {
+    out.length = 0
+    const dist = this.speed * this.speedFactor * 1.2 + 4.5
+    walkPath(this.edge, this.d, this.dir, dist, 1.5, (p) => {
+      out.push(new THREE.Vector3(p.x, p.y + RAIL_TOP, p.z))
+    })
+    return out
+  }
+
+  /** 車体を表す点列（衝突チェック用）。y はレール高さ込み */
+  bodyPoints(out: THREE.Vector3[]): THREE.Vector3[] {
+    out.length = 0
+    for (let i = 0; i < this.cars.length; i++) {
+      const off = this.offsets[i]
+      const half = this.cars[i].len * 0.3
+      out.push(this.positionAt(off - half, TMP_A).clone())
+      out.push(this.positionAt(off + half, TMP_A).clone())
+    }
+    return out
+  }
+
   update(dt: number, net: Network) {
     if (net.edges.length === 0) return
-    const step = this.speed * dt
+    this.speedFactor += (this.targetFactor - this.speedFactor) * Math.min(1, dt * 2.2)
+    if (this.speedFactor < 0.02 && this.targetFactor === 0) this.speedFactor = 0
+    const step = this.speed * this.speedFactor * dt
     let rem = step
     for (let iter = 0; iter < 8 && rem > 1e-6; iter++) {
       const ahead = this.dir > 0 ? this.edge.len - this.d : this.d
@@ -395,7 +454,8 @@ export class Train {
     }
     const moved = step - rem
     this.headDist += moved
-    edgePosAt(this.edge, this.d, this.headPos).setY(RAIL_TOP)
+    edgePosAt(this.edge, this.d, this.headPos)
+    this.headPos.y += RAIL_TOP
     this.appendTrail()
     this.placeCars()
 
@@ -432,66 +492,52 @@ export class Train {
       this.positionAt(off + 1.3, TMP_B) // 後方
       this.positionAt(Math.max(off - 1.3, 0), TMP_C) // 前方
       TMP_D.subVectors(TMP_C, TMP_B)
-      TMP_D.y = 0
-      if (TMP_D.lengthSq() < 1e-8) edgeTanAt(this.edge, this.d, TMP_D).multiplyScalar(this.dir)
+      if (TMP_D.lengthSq() < 1e-8) {
+        edgeTanAt(this.edge, this.d, TMP_D).multiplyScalar(this.dir)
+      }
       car.g.position.copy(TMP_A)
       const f = car.flip ? -1 : 1
-      car.g.lookAt(TMP_A.x + TMP_D.x * f, TMP_A.y, TMP_A.z + TMP_D.z * f)
+      // y 成分も含めて向けることで、高架のスロープでは自然にピッチする
+      car.g.lookAt(TMP_A.x + TMP_D.x * f, TMP_A.y + TMP_D.y * f, TMP_A.z + TMP_D.z * f)
     }
   }
 
   /**
-   * 行き止まりでの折り返し。
-   * 「最後尾が新しい先頭」になるよう軌跡とオフセットを反転すると、
-   * 全車両のワールド位置を保ったまま進行方向だけ反転できる。
+   * 折り返し。「最後尾が新しい先頭」になるようオフセットを反転すると、
+   * 全車両のワールド位置をほぼ保ったまま進行方向だけ反転できる。
    */
   private reverse(net: Network) {
     const L = this.span()
-    const margin = 5
-    const oldHead = this.positionAt(0, TMP_A).clone()
-    const oldHeadDir = TMP_B.subVectors(oldHead, this.positionAt(1.5, TMP_C)).setY(0)
-    if (oldHeadDir.lengthSq() < 1e-8) oldHeadDir.set(0, 0, 1)
-    oldHeadDir.normalize()
-
-    const newTrail: TrailPoint[] = []
-    for (let x = L + margin; x >= -0.001; x -= 0.4) {
-      const p = new THREE.Vector3()
-      if (x > L) {
-        // 旧先頭より先は直線で延長（新しい軌跡の最後方部分）
-        p.copy(oldHead).addScaledVector(oldHeadDir, x - L)
-      } else {
-        this.positionAt(L - x, p)
-      }
-      p.y = RAIL_TOP
-      newTrail.push({ p, d: L - x })
-    }
-    this.trail = newTrail
-    this.headDist = L
+    const rear = this.positionAt(L, TMP_A).clone()
+    const heading = TMP_B.subVectors(rear, this.positionAt(Math.max(L - 1.5, 0), TMP_C)).setY(0)
     this.offsets = this.offsets.map((o) => L - o)
     for (const c of this.cars) c.flip = !c.flip
-
-    // 新しい先頭位置をネットワークに射影し直す
-    const headP = this.positionAt(0, TMP_A)
-    const heading = TMP_B.subVectors(headP, this.positionAt(1.5, TMP_C)).setY(0)
-    const pr = projectToNetwork(net, headP)
+    rear.y -= RAIL_TOP
+    const pr = projectToNetwork(net, rear)
     if (pr) {
       this.edge = pr.edge
       this.d = pr.d
       edgeTanAt(pr.edge, pr.d, TMP_C)
       this.dir = heading.dot(TMP_C) >= 0 ? 1 : -1
     }
+    this.blockedTime = 0
+    this.rebuildTrail()
+    this.placeCars()
   }
 
   /** 線路を描き直したあと、現在位置から最寄りの線路に乗せ直す */
   reproject(net: Network) {
-    const headP = this.positionAt(0, TMP_A)
+    const headP = this.positionAt(0, TMP_A).clone()
     const heading = TMP_B.subVectors(headP, this.positionAt(1.5, TMP_C)).setY(0)
+    headP.y -= RAIL_TOP
     const pr = projectToNetwork(net, headP)
     if (!pr) return
     this.edge = pr.edge
     this.d = pr.d
     edgeTanAt(pr.edge, pr.d, TMP_C)
     this.dir = heading.dot(TMP_C) >= 0 ? 1 : -1
+    this.rebuildTrail()
+    this.placeCars()
   }
 
   dispose() {
@@ -526,4 +572,54 @@ function pickNext(
     if (r <= 0) return v.end
   }
   return viable[viable.length - 1].end
+}
+
+// ------------------------------------------------------------ 閉塞制御
+
+const pathBuf: THREE.Vector3[][] = []
+const bodyBuf: THREE.Vector3[][] = []
+
+/**
+ * 簡易閉塞: 各列車の前方経路に他列車の車体があれば待機させる。
+ * にらみ合い（お互いに待機）や長時間の立ち往生は折り返しで解消する。
+ */
+export function updateBlocking(trains: Train[], dt: number, net: Network) {
+  if (trains.length < 2) {
+    for (const t of trains) t.setBlocked(false, dt)
+    return
+  }
+  while (pathBuf.length < trains.length) {
+    pathBuf.push([])
+    bodyBuf.push([])
+  }
+  for (let i = 0; i < trains.length; i++) {
+    trains[i].pathAhead(pathBuf[i])
+    trains[i].bodyPoints(bodyBuf[i])
+  }
+  const blockedBy: number[] = trains.map((_, i) => {
+    for (let j = 0; j < trains.length; j++) {
+      if (j === i) continue
+      for (const s of pathBuf[i]) {
+        for (const q of bodyBuf[j]) {
+          // 高さが違う（立体交差の上下）なら衝突しない
+          if (Math.abs(s.y - q.y) > 2.5) continue
+          if (Math.hypot(s.x - q.x, s.z - q.z) < 2.2) return j
+        }
+      }
+    }
+    return -1
+  })
+  for (let i = 0; i < trains.length; i++) {
+    const j = blockedBy[i]
+    if (j < 0) {
+      trains[i].setBlocked(false, dt)
+      continue
+    }
+    trains[i].setBlocked(true, dt)
+    const mutual = blockedBy[j] === i
+    const t = trains[i]
+    // にらみ合いは番号の大きい方が 3 秒で折り返す。
+    // それ以外でも 6 秒待たされたら折り返して迂回する。
+    if ((mutual && i > j && t.blockedTime > 3) || t.blockedTime > 6) t.forceReverse(net)
+  }
 }

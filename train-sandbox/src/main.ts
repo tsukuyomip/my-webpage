@@ -8,10 +8,11 @@ import {
   Network,
   buildNetwork,
   buildTrackGroup,
+  isRingStroke,
   smoothStroke,
   snapStrokeEnds,
 } from './network'
-import { SmokePool, Train, TrainKind } from './trains'
+import { SmokePool, Train, TrainKind, updateBlocking } from './trains'
 import { buildScenery } from './scenery'
 import { createUI } from './ui'
 
@@ -109,9 +110,12 @@ function finishStroke(raw: THREE.Vector3[] | null) {
     if (len > 1.5) ui.toast('もう少し長く描いてね ✏️')
     return
   }
-  strokes.push(snapStrokeEnds(smoothed, strokes))
+  // 始点と終点が近いストロークは閉じて環状線に。それ以外は既存線路へ吸着
+  const ring = isRingStroke(smoothed)
+  strokes.push(ring ? smoothed : snapStrokeEnds(smoothed, strokes))
   rebuild()
   ui.hideIntro()
+  if (ring) ui.toast('環状線ができた！ 🚆')
   if (trains.length === 0) spawnTrain('commuter', true)
   save()
 }
@@ -208,9 +212,16 @@ function load() {
 load()
 console.info(`train-sandbox build ${__BUILD_INFO__}`)
 
+// 動作検証用の覗き窓（E2E テストが列車の動きを観測するために使う）
+;(window as unknown as { __debug: unknown }).__debug = {
+  trainPositions: () => trains.map((t) => [t.headPos.x, t.headPos.y, t.headPos.z]),
+  trainStates: () => trains.map((t) => ({ kind: t.kind, blocked: t.blockedTime })),
+}
+
 const clock = new THREE.Clock()
 function frame() {
   const dt = Math.min(clock.getDelta(), 0.05)
+  updateBlocking(trains, dt, network)
   for (const t of trains) t.update(dt, network)
   smoke.update(dt)
   rig.update(dt)
