@@ -15,6 +15,7 @@ import {
   edgePosAt,
   edgeTanAt,
   outgoingTangent,
+  pickStraightest,
   projectToNetwork,
   walkPath,
 } from './network'
@@ -255,6 +256,7 @@ const TMP_A = new THREE.Vector3()
 const TMP_B = new THREE.Vector3()
 const TMP_C = new THREE.Vector3()
 const TMP_D = new THREE.Vector3()
+const TMP_E = new THREE.Vector3()
 
 interface TrailPoint {
   p: THREE.Vector3
@@ -263,6 +265,8 @@ interface TrailPoint {
 
 const GAP = 0.45
 const TRAIL_STEP = 0.4
+/** 車両モデル全体の縮尺。線路（描いたストローク）に対して大きすぎないように */
+const S = 0.75
 
 export class Train {
   kind: TrainKind
@@ -270,6 +274,8 @@ export class Train {
   headPos = new THREE.Vector3()
   /** 待機（閉塞）で止められている累計秒数 */
   blockedTime = 0
+  /** 出現位置が確保できたか。false のときは呼び出し側が破棄すること */
+  spawnOk = true
   private cars: Car[] = []
   private offsets: number[] = []
   private speed: number
@@ -284,26 +290,34 @@ export class Train {
   private drivers: THREE.Mesh[] = []
   private smokeTimer = 0
   private smoke: SmokePool
+  // 次のノードでの進路。接近時に一度だけ抽選する（planKey = edgeId*2 + end）
+  private plan: EdgeEnd | null = null
+  private planKey = -1
 
-  constructor(kind: TrainKind, net: Network, smoke: SmokePool) {
+  constructor(kind: TrainKind, net: Network, smoke: SmokePool, others: Train[] = []) {
     this.kind = kind
     this.smoke = smoke
     if (kind === 'shinkansen') {
-      this.speed = 15
+      this.speed = 14
       const tail = shinkansenCar(true)
       tail.flip = true
       this.cars = [shinkansenCar(true), shinkansenCar(false), tail]
     } else if (kind === 'commuter') {
-      this.speed = 9
+      this.speed = 8.5
       const tail = commuterCar(true)
       tail.flip = true
       this.cars = [commuterCar(true), commuterCar(false), tail]
     } else {
-      this.speed = 6
+      this.speed = 5.5
       const engine = steamEngine()
       this.chimney = engine.chimney
       this.drivers = engine.drivers
       this.cars = [engine.car, tenderCar(), coachCar(), coachCar()]
+    }
+    // モデルを縮小（len は追従・衝突計算に使うので一緒にスケールする）
+    for (const car of this.cars) {
+      car.g.scale.setScalar(S)
+      car.len *= S
     }
     // 各車両中心の「先頭からの距離」
     let off = this.cars[0].len / 2
@@ -312,29 +326,81 @@ export class Train {
       this.offsets.push(off)
       this.group.add(this.cars[i].g)
     }
-    this.spawnOn(net)
+    this.spawnOn(net, others)
   }
 
   private span(): number {
     return Math.max(...this.offsets)
   }
 
-  private spawnOn(net: Network) {
-    // 長さで重み付けしてエッジを選ぶ
+  /**
+   * 出現位置を選ぶ。「後方に編成ぶんの線路があるか」（ないと車両が
+   * 線路外にはみ出す）と「他の列車から十分離れているか」でリトライする。
+   */
+  private spawnOn(net: Network, others: Train[]) {
+    const need = this.span() + 5
     const total = net.edges.reduce((s, e) => s + e.len, 0)
-    let r = Math.random() * total
-    let edge = net.edges[0]
-    for (const e of net.edges) {
-      r -= e.len
-      if (r <= 0) {
-        edge = e
+    interface Cand {
+      edge: Edge
+      d: number
+      dir: 1 | -1
+      score: number
+      backAvail: number
+      minDist: number
+    }
+    let best: Cand | null = null
+    // bodyPoints() が TMP_A を内部で使うので、候補位置は専用のベクトルに持つ
+    const candPos = new THREE.Vector3()
+    for (let attempt = 0; attempt < 24; attempt++) {
+      // 長さで重み付けしてエッジを選ぶ
+      let r = Math.random() * total
+      let edge = net.edges[0]
+      for (const e of net.edges) {
+        r -= e.len
+        if (r <= 0) {
+          edge = e
+          break
+        }
+      }
+      const d = edge.len * (0.15 + Math.random() * 0.7)
+      const dir: 1 | -1 = Math.random() < 0.5 ? 1 : -1
+      // 編成が占有する予定の区間全体をサンプリングして、他列車との距離を測る
+      const bodySamples: THREE.Vector3[] = []
+      const backAvail = walkPath(edge, d, dir === 1 ? -1 : 1, need, 2, (p) =>
+        bodySamples.push(p.clone()),
+      )
+      edgePosAt(edge, d, candPos)
+      bodySamples.push(candPos.clone())
+      let minDist = Infinity
+      for (const o of others) {
+        o.bodyPoints(spawnBodyBuf)
+        for (const q of spawnBodyBuf) {
+          for (const s of bodySamples) {
+            // 高さが違う（立体交差の上下）なら干渉しない
+            if (Math.abs(s.y + RAIL_TOP - q.y) > 2.5) continue
+            minDist = Math.min(minDist, Math.hypot(q.x - s.x, q.z - s.z))
+          }
+        }
+      }
+      // 車両が線路外にはみ出さないこと（backAvail）を最優先
+      const score = Math.min(backAvail / need, 1) * 20 + Math.min(minDist, 40) / 4
+      const cand: Cand = { edge, d, dir, score, backAvail, minDist }
+      if (backAvail >= need - 2 && minDist > 10) {
+        best = cand
         break
       }
+      if (!best || score > best.score) best = cand
     }
-    this.edge = edge
-    // 端に寄りすぎない範囲でランダムな位置に出現（重なり防止）
-    this.d = edge.len * (0.2 + Math.random() * 0.6)
-    this.dir = Math.random() < 0.5 ? 1 : -1
+    const b = best!
+    this.spawnOk = b.backAvail >= need - 2 && b.minDist > 4
+    if (!this.spawnOk) {
+      console.info(
+        `spawn NG: need=${need.toFixed(1)} backAvail=${b.backAvail.toFixed(1)} minDist=${b.minDist.toFixed(1)}`,
+      )
+    }
+    this.edge = b.edge
+    this.d = b.d
+    this.dir = b.dir
     this.headDist = 0
     this.rebuildTrail()
     this.placeCars()
@@ -391,6 +457,22 @@ export class Train {
     return out.copy(a.p).lerp(b.p, t)
   }
 
+  /**
+   * 現在のエッジの前方ノードでの進路を（未抽選なら）抽選して返す。
+   * 走行と経路予測（pathAhead）の両方がこれを使うことで、
+   * 「予測は直進なのに実際はカーブ」という食い違いを防ぐ。
+   */
+  private ensurePlan(): EdgeEnd | null {
+    const endIdx: 0 | 1 = this.dir > 0 ? 1 : 0
+    const key = this.edge.id * 2 + endIdx
+    if (this.planKey !== key) {
+      edgeTanAt(this.edge, this.dir > 0 ? this.edge.len : 0, TMP_E).multiplyScalar(this.dir)
+      this.plan = pickNext(this.edge.nodes[endIdx], this.edge, endIdx, TMP_E)
+      this.planKey = key
+    }
+    return this.plan
+  }
+
   /** 閉塞制御からの指示。blocked の間は減速して待機する */
   setBlocked(blocked: boolean, dt: number) {
     this.targetFactor = blocked ? 0 : 1
@@ -402,13 +484,56 @@ export class Train {
     this.reverse(net)
   }
 
-  /** 前方の経路サンプル（衝突チェック用）。y はレール高さ込み */
+  /**
+   * 前方の経路サンプル（衝突チェック用）。y はレール高さ込み。
+   * 直近のノードは抽選済みの進路（plan）に従い、その先は直進優先で見る。
+   */
   pathAhead(out: THREE.Vector3[]): THREE.Vector3[] {
     out.length = 0
-    const dist = this.speed * this.speedFactor * 1.2 + 4.5
-    walkPath(this.edge, this.d, this.dir, dist, 1.5, (p) => {
-      out.push(new THREE.Vector3(p.x, p.y + RAIL_TOP, p.z))
-    })
+    this.ensurePlan() // 直近ノードの進路をここで確定させ、予測と実走行を一致させる
+    // 先頭アンカーは車両中心なので、最低でも鼻先+α を見る
+    const dist = this.speed * this.speedFactor * 1.2 + this.cars[0].len / 2 + 3.5
+    const step = 1.5
+    let e = this.edge
+    let dd = this.d
+    let di: 1 | -1 = this.dir
+    let planKey = this.planKey
+    let walked = 0
+    while (walked + step <= dist) {
+      let rem = step
+      let dead = false
+      for (let hop = 0; hop < 8; hop++) {
+        const ahead = di > 0 ? e.len - dd : dd
+        if (rem <= ahead) {
+          dd += di * rem
+          rem = 0
+          break
+        }
+        rem -= ahead
+        dd = di > 0 ? e.len : 0
+        const endIdx: 0 | 1 = di > 0 ? 1 : 0
+        const node = e.nodes[endIdx]
+        let next: EdgeEnd | null
+        if (planKey === e.id * 2 + endIdx) {
+          next = this.plan
+        } else {
+          edgeTanAt(e, dd, TMP_A).multiplyScalar(di)
+          next = pickStraightest(node, e, endIdx, TMP_A)
+        }
+        planKey = -1 // plan が効くのは直近のノードだけ
+        if (!next) {
+          dead = true
+          break
+        }
+        e = next.edge
+        di = next.end === 0 ? 1 : -1
+        dd = next.end === 0 ? 0 : e.len
+      }
+      if (dead || rem > 0) break
+      walked += step
+      edgePosAt(e, dd, TMP_A)
+      out.push(new THREE.Vector3(TMP_A.x, TMP_A.y + RAIL_TOP, TMP_A.z))
+    }
     return out
   }
 
@@ -426,31 +551,43 @@ export class Train {
 
   update(dt: number, net: Network) {
     if (net.edges.length === 0) return
-    this.speedFactor += (this.targetFactor - this.speedFactor) * Math.min(1, dt * 2.2)
+    // ブレーキは強め、加速はゆっくり
+    const easeRate = this.targetFactor < this.speedFactor ? 4.5 : 1.8
+    this.speedFactor += (this.targetFactor - this.speedFactor) * Math.min(1, dt * easeRate)
     if (this.speedFactor < 0.02 && this.targetFactor === 0) this.speedFactor = 0
     const step = this.speed * this.speedFactor * dt
+    // 先頭アンカーは先頭車両の中心なので、鼻先ぶんの余裕を持って行き止まりに止まる
+    const noseMargin = this.cars[0].len / 2 + 0.4
     let rem = step
     for (let iter = 0; iter < 8 && rem > 1e-6; iter++) {
       const ahead = this.dir > 0 ? this.edge.len - this.d : this.d
+      // 端に近づいたら進路を確定（未抽選なら抽選）する
+      const next = rem >= ahead - noseMargin ? this.ensurePlan() : undefined
+      if (next === null) {
+        // 行き止まり: 車止めの手前で折り返す
+        const stopAt = Math.max(ahead - noseMargin, 0)
+        if (rem < stopAt) {
+          this.d += this.dir * rem
+        } else {
+          this.d += this.dir * stopAt
+          this.reverse(net)
+        }
+        rem = 0
+        break
+      }
       if (rem < ahead) {
         this.d += this.dir * rem
         rem = 0
         break
       }
+      // ノードを通過
       rem -= ahead
-      this.d = this.dir > 0 ? this.edge.len : 0
-      const endIdx: 0 | 1 = this.dir > 0 ? 1 : 0
-      const node = this.edge.nodes[endIdx]
-      edgeTanAt(this.edge, this.d, TMP_A).multiplyScalar(this.dir)
-      const next = pickNext(node, this.edge, endIdx, TMP_A)
-      if (!next) {
-        this.reverse(net)
-        rem = 0
-        break
-      }
-      this.edge = next.edge
-      this.dir = next.end === 0 ? 1 : -1
-      this.d = next.end === 0 ? 0 : next.edge.len
+      const n = next as EdgeEnd
+      this.plan = null
+      this.planKey = -1
+      this.edge = n.edge
+      this.dir = n.end === 0 ? 1 : -1
+      this.d = n.end === 0 ? 0 : n.edge.len
     }
     const moved = step - rem
     this.headDist += moved
@@ -468,7 +605,7 @@ export class Train {
         TMP_A.y += 0.5
         this.smoke.emit(TMP_A)
       }
-      for (const w of this.drivers) w.rotation.y += moved / 0.62
+      for (const w of this.drivers) w.rotation.y += moved / (0.62 * S)
     }
   }
 
@@ -504,12 +641,29 @@ export class Train {
 
   /**
    * 折り返し。「最後尾が新しい先頭」になるようオフセットを反転すると、
-   * 全車両のワールド位置をほぼ保ったまま進行方向だけ反転できる。
+   * 全車両のワールド位置を保ったまま進行方向だけ反転できる。
+   * 新しい軌跡には「列車がいま占有している実経路の逆順」を使う。
+   * （直進優先の逆走査だと、分岐にまたがった折り返しで尻尾が
+   *   実際と違う枝に載ってしまうことがある）
    */
   private reverse(net: Network) {
     const L = this.span()
+    const oldHead = this.positionAt(0, TMP_A).clone()
+    const oldHeadDir = TMP_B.subVectors(oldHead, this.positionAt(1.5, TMP_C)).clone()
+    if (oldHeadDir.lengthSq() < 1e-10) oldHeadDir.set(0, 0, 1)
+    else oldHeadDir.normalize()
+    const newTrail: TrailPoint[] = []
+    for (let x = L + 3; x >= -1e-3; x -= TRAIL_STEP) {
+      const p = new THREE.Vector3()
+      if (x > L) p.copy(oldHead).addScaledVector(oldHeadDir, x - L)
+      else this.positionAt(L - x, p)
+      newTrail.push({ p, d: this.headDist - x })
+    }
     const rear = this.positionAt(L, TMP_A).clone()
     const heading = TMP_B.subVectors(rear, this.positionAt(Math.max(L - 1.5, 0), TMP_C)).setY(0)
+
+    this.trail = newTrail
+    this.headPos.copy(newTrail[newTrail.length - 1].p)
     this.offsets = this.offsets.map((o) => L - o)
     for (const c of this.cars) c.flip = !c.flip
     rear.y -= RAIL_TOP
@@ -521,7 +675,8 @@ export class Train {
       this.dir = heading.dot(TMP_C) >= 0 ? 1 : -1
     }
     this.blockedTime = 0
-    this.rebuildTrail()
+    this.plan = null
+    this.planKey = -1
     this.placeCars()
   }
 
@@ -536,8 +691,41 @@ export class Train {
     this.d = pr.d
     edgeTanAt(pr.edge, pr.d, TMP_C)
     this.dir = heading.dot(TMP_C) >= 0 ? 1 : -1
+    this.plan = null
+    this.planKey = -1
     this.rebuildTrail()
     this.placeCars()
+  }
+
+  /** 検証用: 内部状態のスナップショット */
+  debugState() {
+    return {
+      kind: this.kind,
+      edge: this.edge.id,
+      d: Math.round(this.d * 10) / 10,
+      dir: this.dir,
+      sf: Math.round(this.speedFactor * 100) / 100,
+      blocked: Math.round(this.blockedTime * 10) / 10,
+      trailLen: this.trail.length,
+      trailSpan: Math.round((this.headDist - this.trail[0].d) * 10) / 10,
+    }
+  }
+
+  /**
+   * 検証用: 車両中心が最寄りの線路中心からどれだけ外れているか（XZ・最悪値）。
+   * カーブでは台車間の弦のぶん 0.5 程度までは正常。
+   */
+  offTrackMetric(net: Network): number {
+    let worst = 0
+    for (const car of this.cars) {
+      const p = car.g.position
+      TMP_A.set(p.x, p.y - RAIL_TOP, p.z)
+      const pr = projectToNetwork(net, TMP_A)
+      if (!pr) continue
+      edgePosAt(pr.edge, pr.d, TMP_B)
+      worst = Math.max(worst, Math.hypot(TMP_B.x - p.x, TMP_B.z - p.z))
+    }
+    return worst
   }
 
   dispose() {
@@ -574,13 +762,22 @@ function pickNext(
   return viable[viable.length - 1].end
 }
 
+/** この編成が快適に走るのに必要なおおよその線路長 */
+export function minTrackLenFor(kind: TrainKind): number {
+  return kind === 'steam' ? 22 : 24
+}
+
 // ------------------------------------------------------------ 閉塞制御
 
+const spawnBodyBuf: THREE.Vector3[] = []
 const pathBuf: THREE.Vector3[][] = []
 const bodyBuf: THREE.Vector3[][] = []
 
 /**
- * 簡易閉塞: 各列車の前方経路に他列車の車体があれば待機させる。
+ * 簡易閉塞:
+ *  (1) 前方経路に他列車の車体があれば待機（追突・正面衝突の防止）
+ *  (2) 2列車の前方経路同士が交わるなら、交点から遠い方が待機
+ *      （平面交差・合流への同時進入の防止）
  * にらみ合い（お互いに待機）や長時間の立ち往生は折り返しで解消する。
  */
 export function updateBlocking(trains: Train[], dt: number, net: Network) {
@@ -596,6 +793,7 @@ export function updateBlocking(trains: Train[], dt: number, net: Network) {
     trains[i].pathAhead(pathBuf[i])
     trains[i].bodyPoints(bodyBuf[i])
   }
+  // (1) 経路 × 車体
   const blockedBy: number[] = trains.map((_, i) => {
     for (let j = 0; j < trains.length; j++) {
       if (j === i) continue
@@ -609,6 +807,31 @@ export function updateBlocking(trains: Train[], dt: number, net: Network) {
     }
     return -1
   })
+  // (2) 経路 × 経路（交差・合流の予約）: 競合点まで遠い方（同程度なら番号の
+  // 大きい方）が待つ。近い方は先に通り抜けて競合を解消する。
+  for (let i = 0; i < trains.length; i++) {
+    for (let j = i + 1; j < trains.length; j++) {
+      let di = Infinity
+      let dj = Infinity
+      for (let a = 0; a < pathBuf[i].length; a++) {
+        for (let b = 0; b < pathBuf[j].length; b++) {
+          const s = pathBuf[i][a]
+          const q = pathBuf[j][b]
+          if (Math.abs(s.y - q.y) > 2.5) continue
+          if (Math.hypot(s.x - q.x, s.z - q.z) < 2.6) {
+            di = Math.min(di, a)
+            dj = Math.min(dj, b)
+          }
+        }
+      }
+      if (di === Infinity) continue
+      let waiter: number
+      if (di > dj + 2) waiter = i
+      else if (dj > di + 2) waiter = j
+      else waiter = j // 同程度なら番号の大きい方が譲る
+      if (blockedBy[waiter] < 0) blockedBy[waiter] = waiter === i ? j : i
+    }
+  }
   for (let i = 0; i < trains.length; i++) {
     const j = blockedBy[i]
     if (j < 0) {

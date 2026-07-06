@@ -12,7 +12,7 @@ import {
   smoothStroke,
   snapStrokeEnds,
 } from './network'
-import { SmokePool, Train, TrainKind, updateBlocking } from './trains'
+import { SmokePool, Train, TrainKind, minTrackLenFor, updateBlocking } from './trains'
 import { buildScenery } from './scenery'
 import { createUI } from './ui'
 
@@ -151,11 +151,21 @@ function spawnTrain(kind: TrainKind, announce: boolean) {
     ui.toast('先に線路を描いてね ✏️')
     return
   }
+  const totalLen = network.edges.reduce((s, e) => s + e.len, 0)
+  if (totalLen < minTrackLenFor(kind)) {
+    ui.toast('線路が短いよ！もう少し長く描いてね ✏️')
+    return
+  }
   if (trains.length >= MAX_TRAINS) {
     ui.toast('車両基地が満員です 🈵')
     return
   }
-  const t = new Train(kind, network, smoke)
+  const t = new Train(kind, network, smoke, trains)
+  if (!t.spawnOk) {
+    t.dispose()
+    ui.toast('線路が混んでいて入線できないよ 🚦')
+    return
+  }
   trains.push(t)
   world.scene.add(t.group)
   if (announce) ui.toast(SPAWN_MSG[kind])
@@ -213,9 +223,34 @@ load()
 console.info(`train-sandbox build ${__BUILD_INFO__}`)
 
 // 動作検証用の覗き窓（E2E テストが列車の動きを観測するために使う）
+const bodyBufA: THREE.Vector3[] = []
+const bodyBufB: THREE.Vector3[] = []
 ;(window as unknown as { __debug: unknown }).__debug = {
   trainPositions: () => trains.map((t) => [t.headPos.x, t.headPos.y, t.headPos.z]),
-  trainStates: () => trains.map((t) => ({ kind: t.kind, blocked: t.blockedTime })),
+  trainStates: () => trains.map((t) => t.debugState()),
+  // 車両が線路からどれだけ外れているか（脱線検知）
+  offTrack: () => trains.map((t) => Math.round(t.offTrackMetric(network) * 100) / 100),
+  // 列車ペアの最接近距離（すれ違い・衝突検知）。高さ差2.5超は立体交差なので除外
+  minPairDist: () => {
+    let min = Infinity
+    for (let i = 0; i < trains.length; i++) {
+      trains[i].bodyPoints(bodyBufA)
+      for (let j = i + 1; j < trains.length; j++) {
+        trains[j].bodyPoints(bodyBufB)
+        for (const a of bodyBufA) {
+          for (const b of bodyBufB) {
+            if (Math.abs(a.y - b.y) > 2.5) continue
+            min = Math.min(min, Math.hypot(a.x - b.x, a.z - b.z))
+          }
+        }
+      }
+    }
+    return min === Infinity ? null : Math.round(min * 100) / 100
+  },
+  edgeCount: () => network.edges.length,
+  junctionEnds: () => network.junctions.map((j) => j.ends.length),
+  maxTrackY: () =>
+    Math.max(0, ...network.edges.map((e) => Math.max(...e.pts.map((p) => p.y)))),
 }
 
 const clock = new THREE.Clock()

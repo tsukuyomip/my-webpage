@@ -114,13 +114,16 @@ export function buildScenery(net: Network): THREE.Group {
   const roofs = [MAT.roofRed, MAT.roofBlue, MAT.roofGray]
   let placedHouses = 0
   for (let tries = 0; tries < houseCount * 8 && placedHouses < houseCount; tries++) {
-    const p = pickSpot(4.5, 17)
+    // 高いビルは線路から離す（高架の橋やカーブに食い込まないように）
+    const isBuilding = rand() < 0.22
+    const nearLimit = isBuilding ? 9 : 5
+    const p = pickSpot(nearLimit + 0.5, 18)
     if (!p) continue
-    if (grid.nearest(p.x, p.z, 4.4) < 4.4) continue
+    if (grid.nearest(p.x, p.z, nearLimit) < nearLimit) continue
     if (!isFree(p.x, p.z, 3.6)) continue
 
     const g = new THREE.Group()
-    if (rand() < 0.22) {
+    if (isBuilding) {
       // ビル
       const w = 3 + rand() * 2.5
       const h = 6 + rand() * 9

@@ -18,7 +18,7 @@ export class CameraRig {
   target = new THREE.Vector3(0, 0, 0)
   yaw = 0.5
   pitch = 1.1
-  dist = 62
+  dist = 80
   mode: Mode = 'draw'
   onDraw: DrawHandler | null = null
   /** 追尾対象の現在位置を返す。null なら追尾しない */
@@ -77,21 +77,24 @@ export class CameraRig {
       this.pitch += (this.pitchGoal - this.pitch) * Math.min(1, dt * 6)
       if (Math.abs(this.pitchGoal - this.pitch) < 0.01) this.pitchGoal = null
     }
+    let targetY = 0
     if (this.followGetter) {
       const p = this.followGetter()
       if (p) {
         this.target.x += (p.x - this.target.x) * Math.min(1, dt * 4)
         this.target.z += (p.z - this.target.z) * Math.min(1, dt * 4)
+        targetY = p.y * 0.7 // 高架を走る列車もフレームに収める
       }
     }
+    this.target.y += (targetY - this.target.y) * Math.min(1, dt * 4)
     const cp = Math.cos(this.pitch)
     const sp = Math.sin(this.pitch)
     this.camera.position.set(
       this.target.x + Math.sin(this.yaw) * cp * this.dist,
-      sp * this.dist,
+      this.target.y + sp * this.dist,
       this.target.z + Math.cos(this.yaw) * cp * this.dist,
     )
-    this.camera.lookAt(this.target.x, 0, this.target.z)
+    this.camera.lookAt(this.target)
   }
 
   private cancelDraw() {

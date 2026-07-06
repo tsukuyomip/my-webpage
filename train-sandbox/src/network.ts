@@ -601,12 +601,20 @@ export function buildTrackGroup(net: Network): THREE.Group {
   sleepers.castShadow = true
   group.add(sleepers)
 
-  // 高架の橋脚（インスタンシング）
+  // 高架の橋脚（インスタンシング）。下をくぐる線路の真上には立てない
+  const clearBelow = (p: THREE.Vector3): boolean => {
+    for (const e of net.edges) {
+      for (const q of e.pts) {
+        if (p.y - q.y > 1.5 && Math.hypot(q.x - p.x, q.z - p.z) < 2.4) return false
+      }
+    }
+    return true
+  }
   const pierAt: { pos: THREE.Vector3; yaw: number; h: number }[] = []
   for (const e of net.edges) {
     for (let d = 2.5; d < e.len; d += 5) {
       edgePosAt(e, d, pos)
-      if (pos.y > 0.9) {
+      if (pos.y > 0.9 && clearBelow(pos)) {
         edgeTanAt(e, d, tan)
         pierAt.push({ pos: pos.clone(), yaw: Math.atan2(tan.x, tan.z), h: pos.y })
       }
