@@ -609,15 +609,22 @@ export class Train {
     }
   }
 
+  /**
+   * 軌跡の末尾は常に先頭に追従する「浮動点」。ひとつ手前の確定点から
+   * 十分離れたら新しい浮動点を積んで、いまの点を確定させる。
+   * 注意: 「前フレームからの移動量」で判定してはいけない。60fps では
+   * 1フレームの移動が閾値未満になり続け、末尾セグメントが際限なく
+   * 伸びて後続車がカーブを直線でショートカットしてしまう。
+   */
   private appendTrail() {
-    const last = this.trail[this.trail.length - 1]
-    if (this.headDist - last.d >= 0.2) {
+    const n = this.trail.length
+    const last = this.trail[n - 1]
+    last.p.copy(this.headPos)
+    last.d = this.headDist
+    if (n < 2 || last.d - this.trail[n - 2].d >= 0.25) {
       this.trail.push({ p: this.headPos.clone(), d: this.headDist })
       const keep = this.span() + 10
       while (this.trail.length > 2 && this.headDist - this.trail[1].d > keep) this.trail.shift()
-    } else {
-      last.p.copy(this.headPos)
-      last.d = this.headDist
     }
   }
 
@@ -708,7 +715,17 @@ export class Train {
       blocked: Math.round(this.blockedTime * 10) / 10,
       trailLen: this.trail.length,
       trailSpan: Math.round((this.headDist - this.trail[0].d) * 10) / 10,
+      trailMaxSeg: Math.round(this.trailMaxSeg() * 100) / 100,
     }
+  }
+
+  /** 検証用: 軌跡の隣接点間の最大距離。大きいとカーブをショートカットする */
+  private trailMaxSeg(): number {
+    let max = 0
+    for (let i = 1; i < this.trail.length; i++) {
+      max = Math.max(max, this.trail[i].d - this.trail[i - 1].d)
+    }
+    return max
   }
 
   /**
