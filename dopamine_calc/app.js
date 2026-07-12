@@ -237,6 +237,8 @@ const RARITY = {
   UR:  { color: '#ff4dd2', dp: 1000, level: 4 },
 };
 const GACHA_COST = 100;
+const GACHA_COST_10 = 900;   // 10連は1割引
+const GACHA_COST_50 = 4000;  // 50連は2割引
 
 // ---------------- persistent state ----------------
 const SAVE_KEY = 'dopamine_calc_v1';
@@ -630,7 +632,22 @@ function dismissable(ms, el) {
 
 // ---------------- skin gacha ----------------
 const modal = $('#gachaModal'), capsule = $('#capsule'), gcard = $('#gcard');
+const gmulti = $('#gmulti'), gsummary = $('#gsummary');
 let gachaBusy = false;
+
+// 演出ステージを初期状態（カプセルのみ）に戻す
+function clearStage() {
+  gcard.classList.add('hidden');
+  gmulti.classList.add('hidden');
+  gsummary.classList.add('hidden');
+  capsule.classList.remove('hidden');
+}
+async function capsuleRattle(ms) {
+  capsule.classList.add('rattle');
+  for (let i = 0; i < Math.floor(ms / 130); i++) noise({ dur: 0.03, vol: 0.12, from: 3000, to: 1200, delay: i * 0.13 });
+  await sleep(ms);
+  capsule.classList.remove('rattle');
+}
 
 $('#gachaBtn').addEventListener('click', () => {
   if (busy) return;
@@ -647,7 +664,9 @@ function swatchCss(t) {
 }
 function renderGacha() {
   renderDp();
-  $('#grollBtn').disabled = save.dp < GACHA_COST;
+  $('#grollBtn').disabled = gachaBusy || save.dp < GACHA_COST;
+  $('#groll10').disabled = gachaBusy || save.dp < GACHA_COST_10;
+  $('#groll50').disabled = gachaBusy || save.dp < GACHA_COST_50;
   const col = $('#gcollection');
   col.innerHTML = '';
   for (const t of THEMES) {
@@ -688,19 +707,13 @@ $('#grollBtn').addEventListener('click', async () => {
   renderDp();
 
   try {
-    gcard.classList.add('hidden');
-    capsule.classList.remove('hidden');
+    clearStage();
 
     const theme = rollSkin();
     const lv = RARITY[theme.r].level;
     const isNew = !save.owned.includes(theme.id);
 
-    // カプセルがガタガタ震える
-    capsule.classList.add('rattle');
-    for (let i = 0; i < 9; i++) { noise({ dur: 0.03, vol: 0.12, from: 3000, to: 1200, delay: i * 0.13 }); }
-    await sleep(1200);
-    capsule.classList.remove('rattle');
-
+    await capsuleRattle(1200);
     if (lv >= 3) await pchunEffect();
 
     // 開封!!
@@ -736,10 +749,107 @@ $('#grollBtn').addEventListener('click', async () => {
     gcard.classList.remove('hidden');
   } finally {
     // 演出中に何が起きてもモーダルが固まらないようにする
-    renderGacha();
     gachaBusy = false;
+    renderGacha();
   }
 });
+
+// ---- 多連ガチャ ----
+async function multiRoll(n, cost) {
+  if (gachaBusy || save.dp < cost) return;
+  gachaBusy = true;
+  renderGacha();
+  addDp(-cost, false);
+  renderDp();
+
+  try {
+    clearStage();
+
+    // 先に全結果を確定してから開封演出する
+    const ownedSet = new Set(save.owned);
+    const results = [];
+    const counts = { UR: 0, SSR: 0, SR: 0, R: 0, N: 0 };
+    let best = null, refund = 0, newCount = 0;
+    for (let i = 0; i < n; i++) {
+      const t = rollSkin();
+      const isNew = !ownedSet.has(t.id);
+      if (isNew) { ownedSet.add(t.id); newCount++; } else refund += Math.floor(GACHA_COST / 2);
+      counts[t.r]++;
+      results.push({ t, isNew });
+      if (!best || RARITY[t.r].level > RARITY[best.r].level) best = t;
+    }
+    const maxLv = RARITY[best.r].level;
+
+    await capsuleRattle(n >= 50 ? 1500 : 1200);
+    if (maxLv >= 3) await pchunEffect();
+    capsule.classList.add('hidden');
+
+    // タイルを並べて1枚ずつ開封
+    gmulti.innerHTML = '';
+    gmulti.classList.toggle('dense', n > 10);
+    gmulti.classList.remove('hidden');
+    const tiles = results.map(({ t, isNew }) => {
+      const d = document.createElement('div');
+      d.className = 'gtile' + (RARITY[t.r].level >= 3 ? ' hi' : '');
+      d.style.setProperty('--gc', RARITY[t.r].color);
+      d.style.background = `linear-gradient(rgba(0,0,0,.45), rgba(0,0,0,.45)), ${swatchCss(t)}`;
+      d.textContent = t.r;
+      if (isNew) d.insertAdjacentHTML('beforeend', '<i class="newdot"></i>');
+      gmulti.appendChild(d);
+      return d;
+    });
+    const baseDelay = n > 10 ? 70 : 160;
+    for (let i = 0; i < n; i++) {
+      const { t } = results[i], lv = RARITY[t.r].level, tile = tiles[i];
+      if (lv >= 3) await sleep(260); // レア前の溜め
+      tile.classList.add('show');
+      const rc = tile.getBoundingClientRect();
+      const cx = rc.left + rc.width / 2, cy = rc.top + rc.height / 2;
+      if (lv >= 4) {
+        sExplosion(); sFanfare(3); flash('#fff', 0.7, 300); shake('shake-l');
+        sparkBurst(cx, cy, 60, RAINBOW, 9); ring(cx, cy, '#ffffff', 260); vibrate([40, 60, 120]);
+        await sleep(700);
+      } else if (lv === 3) {
+        sExplosion(); flash(RARITY.SSR.color, 0.35, 240); shake('shake-m');
+        sparkBurst(cx, cy, 36, RAINBOW, 7); ring(cx, cy, RARITY.SSR.color, 180); vibrate(60);
+        await sleep(420);
+      } else if (lv === 2) {
+        sChime(); sparkBurst(cx, cy, 14, themeColors(), 5); vibrate(20);
+        await sleep(baseDelay + 90);
+      } else {
+        sTick(i % 16);
+        await sleep(baseDelay);
+      }
+    }
+
+    // 戦果反映
+    save.owned = [...ownedSet];
+    const newBest = results.filter((r) => r.isNew).map((r) => r.t)
+      .sort((a, b) => RARITY[b.r].level - RARITY[a.r].level)[0];
+    if (newBest) { save.equipped = newBest.id; applyTheme(); }
+    if (refund) addDp(refund);
+    persist();
+
+    const countStr = ['UR', 'SSR', 'SR', 'R', 'N'].filter((r) => counts[r])
+      .map((r) => `<span class="rr" style="color:${RARITY[r].color}">${r}×${counts[r]}</span>`).join('　');
+    gsummary.innerHTML =
+      `<div class="best">最高レア <span class="rr" style="color:${RARITY[best.r].color}">${best.r}</span>「${best.name}」</div>` +
+      `<div>${countStr}</div>` +
+      `<div>${newBest ? `✨ NEW ${newCount}件 →「${newBest.name}」を装備` : 'NEWなし…'}` +
+      `${refund ? ` ／ かぶり返却 +${refund} DP` : ''}</div>`;
+    gsummary.classList.remove('hidden');
+
+    // 〆の花火
+    if (maxLv >= 4) { confettiRain(220, RAINBOW); fireworksBarrage(12, RAINBOW, 2600); sFanfare(3); }
+    else if (maxLv === 3) { confettiRain(140, RAINBOW); fireworksBarrage(6, RAINBOW, 1800); sFanfare(2); }
+    else { confettiRain(50, themeColors()); sFanfare(1); }
+  } finally {
+    gachaBusy = false;
+    renderGacha();
+  }
+}
+$('#groll10').addEventListener('click', () => multiRoll(10, GACHA_COST_10));
+$('#groll50').addEventListener('click', () => multiRoll(50, GACHA_COST_50));
 
 // ---------------- init ----------------
 renderScreen();

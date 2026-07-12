@@ -63,9 +63,10 @@
     <div class="gpanel">
       <button class="gclose" id="gachaClose" type="button">✕</button>
       <h2>🎰 スキンガチャ</h2>
-      <div class="gbalance">所持: <b id="gdp">0</b> DP ／ 1回 <b>100</b> DP</div>
+      <div class="gbalance">所持: <b id="gdp">0</b> DP</div>
       <div class="gstage" id="gstage">
         <div class="capsule" id="capsule">🥚</div>
+        <div class="gmulti hidden" id="gmulti"></div>
         <div class="gcard hidden" id="gcard">
           <div class="gcard-rarity" id="gcardRarity">SR</div>
           <div class="gcard-swatch" id="gcardSwatch"></div>
@@ -73,7 +74,12 @@
           <div class="gcard-note" id="gcardNote"></div>
         </div>
       </div>
-      <button class="grollBtn" id="grollBtn" type="button">1回まわす！</button>
+      <div class="gsummary hidden" id="gsummary"></div>
+      <div class="grollRow">
+        <button class="grollBtn" id="grollBtn" type="button">1回<small>100 DP</small></button>
+        <button class="grollBtn" id="groll10" type="button">10連<small>900 DP</small></button>
+        <button class="grollBtn" id="groll50" type="button">50連<small>4,000 DP</small></button>
+      </div>
       <h3>コレクション</h3>
       <div class="gcollection" id="gcollection"></div>
     </div>
