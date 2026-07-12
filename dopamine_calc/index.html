@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>DOPAMINE CALC ⚡</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎰</text></svg>">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <div id="app">
+    <header class="topbar">
+      <a class="home" href="../" title="トップへ">←</a>
+      <div class="brand">DOPAMINE&nbsp;CALC<span class="bolt">⚡</span></div>
+      <div class="wallet" id="wallet"><span id="dp">0</span><small>DP</small></div>
+      <button id="gachaBtn" type="button">🎰 ガチャ</button>
+    </header>
+
+    <div class="calc" id="calcBody">
+      <div class="screen">
+        <div id="expr">&nbsp;</div>
+        <div id="result">0</div>
+        <div class="combo">
+          <div class="combo-bar"><div id="comboFill"></div></div>
+          <span id="comboLabel"></span>
+        </div>
+      </div>
+
+      <div class="keys" id="keys">
+        <button class="key fn"  data-k="C">C</button>
+        <button class="key fn"  data-k="BS">⌫</button>
+        <button class="key fn"  data-k="%">%</button>
+        <button class="key op"  data-k="/">÷</button>
+
+        <button class="key num" data-k="7">7</button>
+        <button class="key num" data-k="8">8</button>
+        <button class="key num" data-k="9">9</button>
+        <button class="key op"  data-k="*">×</button>
+
+        <button class="key num" data-k="4">4</button>
+        <button class="key num" data-k="5">5</button>
+        <button class="key num" data-k="6">6</button>
+        <button class="key op"  data-k="-">−</button>
+
+        <button class="key num" data-k="1">1</button>
+        <button class="key num" data-k="2">2</button>
+        <button class="key num" data-k="3">3</button>
+        <button class="key op"  data-k="+">+</button>
+
+        <button class="key num" data-k="+/-">±</button>
+        <button class="key num" data-k="0">0</button>
+        <button class="key num" data-k=".">.</button>
+        <button class="key eq"  data-k="=">=</button>
+      </div>
+    </div>
+
+    <footer class="hint">= を押すたびレアリティ抽選 ── SSR以上で「プチュン」</footer>
+  </div>
+
+  <!-- ガチャモーダル -->
+  <div id="gachaModal" class="hidden">
+    <div class="gpanel">
+      <button class="gclose" id="gachaClose" type="button">✕</button>
+      <h2>🎰 スキンガチャ</h2>
+      <div class="gbalance">所持: <b id="gdp">0</b> DP ／ 1回 <b>100</b> DP</div>
+      <div class="gstage" id="gstage">
+        <div class="capsule" id="capsule">🥚</div>
+        <div class="gcard hidden" id="gcard">
+          <div class="gcard-rarity" id="gcardRarity">SR</div>
+          <div class="gcard-swatch" id="gcardSwatch"></div>
+          <div class="gcard-name" id="gcardName"></div>
+          <div class="gcard-note" id="gcardNote"></div>
+        </div>
+      </div>
+      <button class="grollBtn" id="grollBtn" type="button">1回まわす！</button>
+      <h3>コレクション</h3>
+      <div class="gcollection" id="gcollection"></div>
+    </div>
+  </div>
+
+  <!-- SSR/UR 大演出オーバーレイ -->
+  <div id="banner" class="hidden">
+    <div class="rays" id="bRays"></div>
+    <div class="b-inner">
+      <div class="b-rarity" id="bRarity">SSR</div>
+      <div class="b-num" id="bNum"></div>
+      <div class="b-sub" id="bSub">TAP TO CONTINUE</div>
+    </div>
+  </div>
+
+  <!-- プチュン -->
+  <div id="pchun" class="hidden"><div class="beam" id="pchunBeam"></div></div>
+
+  <!-- フラッシュ & パーティクル -->
+  <div id="flash"></div>
+  <canvas id="fx"></canvas>
+
+  <script src="app.js"></script>
+</body>
+</html>
