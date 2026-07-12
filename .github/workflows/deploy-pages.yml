@@ -55,14 +55,16 @@ jobs:
           npm ci
           npm run build
 
-      - name: Assemble site (root static page + /mixer/ + /media-vault/ + /gkms-sprtcrd/ + /train-sandbox/)
+      - name: Assemble site (root static page + /mixer/ + /media-vault/ + /gkms-sprtcrd/ + /train-sandbox/ + /dopamine_calc/)
         run: |
-          mkdir -p _site/mixer _site/media-vault _site/gkms-sprtcrd _site/train-sandbox
+          mkdir -p _site/mixer _site/media-vault _site/gkms-sprtcrd _site/train-sandbox _site/dopamine_calc
           cp index.html style.css _site/
           cp -r mixer/dist/* _site/mixer/
           cp -r media-vault/dist/* _site/media-vault/
           cp -r gkms-sprtcrd/dist/* _site/gkms-sprtcrd/
           cp -r train-sandbox/dist/* _site/train-sandbox/
+          # dopamine_calc はビルド不要の静的アプリなのでそのままコピー
+          cp dopamine_calc/index.html dopamine_calc/style.css dopamine_calc/app.js _site/dopamine_calc/
 
       - uses: actions/upload-pages-artifact@v3
         with:
