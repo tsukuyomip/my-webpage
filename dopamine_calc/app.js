@@ -110,7 +110,7 @@ window.addEventListener('resize', resize);
 resize();
 
 const parts = [];
-const MAX_PARTS = 900;
+const MAX_PARTS = 1600;
 function push(p) { if (parts.length < MAX_PARTS) parts.push(p); }
 
 function sparkBurst(x, y, n, colors, speed = 6) {
@@ -217,17 +217,35 @@ function shake(cls) {
 
 // ---------------- themes / gacha data ----------------
 const THEMES = [
+  // ---- N (6) ----
   { id: 'neon',     name: 'ネオン・パルス',     r: 'N',   vars: { '--bg1': '#0a0e1f', '--bg2': '#170b2b', '--ac1': '#00e5ff', '--ac2': '#ff2d95', '--key': '#141a2e', '--keyop': '#232b4a', '--txt': '#eaf6ff' } },
   { id: 'citrus',   name: '電光シトラス',       r: 'N',   vars: { '--bg1': '#101a0a', '--bg2': '#0a2415', '--ac1': '#aaff00', '--ac2': '#ffb300', '--key': '#16240f', '--keyop': '#243c18', '--txt': '#f2ffe0' } },
   { id: 'crt',      name: 'ブラウン管レトロ',   r: 'N',   vars: { '--bg1': '#0d0d0d', '--bg2': '#1a1206', '--ac1': '#33ff66', '--ac2': '#ffcc33', '--key': '#161616', '--keyop': '#242416', '--txt': '#d9ffe6' } },
+  { id: 'mono',     name: 'モノクローム',       r: 'N',   vars: { '--bg1': '#0e0e12', '--bg2': '#17171d', '--ac1': '#e8e8f0', '--ac2': '#9aa0b4', '--key': '#1a1a22', '--keyop': '#26262f', '--txt': '#f2f2f7' } },
+  { id: 'soda',     name: 'クリームソーダ',     r: 'N',   vars: { '--bg1': '#06231d', '--bg2': '#0b3328', '--ac1': '#7dffc4', '--ac2': '#fff3b0', '--key': '#0c2f26', '--keyop': '#14453a', '--txt': '#eafff5' } },
+  { id: 'sunset',   name: 'たそがれ',           r: 'N',   vars: { '--bg1': '#211033', '--bg2': '#3a1226', '--ac1': '#ff9e5e', '--ac2': '#c86bff', '--key': '#2b1638', '--keyop': '#3f2050', '--txt': '#ffeede' } },
+  // ---- R (6) ----
   { id: 'sakura',   name: '夜桜',               r: 'R',   vars: { '--bg1': '#1a0b18', '--bg2': '#2b0f24', '--ac1': '#ff8ad8', '--ac2': '#ffd6f2', '--key': '#251223', '--keyop': '#3a1c34', '--txt': '#fff0fa' } },
   { id: 'deepsea',  name: '深海プリズム',       r: 'R',   vars: { '--bg1': '#041225', '--bg2': '#062a3a', '--ac1': '#35d0ff', '--ac2': '#7dffd4', '--key': '#08203a', '--keyop': '#0d3352', '--txt': '#e2f8ff' } },
   { id: 'vapor',    name: 'ヴェイパーウェイヴ', r: 'R',   vars: { '--bg1': '#17092e', '--bg2': '#2b0b3a', '--ac1': '#01cdfe', '--ac2': '#ff71ce', '--key': '#221240', '--keyop': '#341b58', '--txt': '#f4eaff' } },
+  { id: 'matcha',   name: '抹茶ラテ',           r: 'R',   vars: { '--bg1': '#17200d', '--bg2': '#25301a', '--ac1': '#b7e26b', '--ac2': '#f5e6c8', '--key': '#202c12', '--keyop': '#2f401c', '--txt': '#f4ffe4' } },
+  { id: 'aurora',   name: 'オーロラ',           r: 'R',   vars: { '--bg1': '#04101f', '--bg2': '#0a1f33', '--ac1': '#5effc3', '--ac2': '#7f8cff', '--key': '#08182b', '--keyop': '#0f2540', '--txt': '#e6fbff' } },
+  { id: 'candy',    name: 'キャンディポップ',   r: 'R',   vars: { '--bg1': '#240f1e', '--bg2': '#1a1030', '--ac1': '#ff9ad5', '--ac2': '#8ad9ff', '--key': '#2f1530', '--keyop': '#43204a', '--txt': '#ffeefa' } },
+  // ---- SR (5) ----
   { id: 'gold',     name: '黄金郷',             r: 'SR',  vars: { '--bg1': '#1a1204', '--bg2': '#000000', '--ac1': '#ffd700', '--ac2': '#ff9500', '--key': '#241a08', '--keyop': '#3a2a0c', '--txt': '#fff6d5' } },
   { id: 'cyber',    name: '電脳歌舞伎町',       r: 'SR',  vars: { '--bg1': '#12001a', '--bg2': '#001a2e', '--ac1': '#f7ff00', '--ac2': '#ff003c', '--key': '#1c0828', '--keyop': '#2c0f3e', '--txt': '#fdfaff' } },
+  { id: 'oni',      name: '鬼灯',               r: 'SR',  vars: { '--bg1': '#1a0505', '--bg2': '#2e0b06', '--ac1': '#ff4d2e', '--ac2': '#ffb347', '--key': '#260a08', '--keyop': '#3b120c', '--txt': '#ffe9dd' } },
+  { id: 'pixel',    name: '8bitアーケード',     r: 'SR',  vars: { '--bg1': '#000000', '--bg2': '#101010', '--ac1': '#00ff41', '--ac2': '#ff00a8', '--key': '#101a10', '--keyop': '#1c281c', '--txt': '#d8ffd8' } },
+  { id: 'ninja',    name: '月夜ノ忍',           r: 'SR',  vars: { '--bg1': '#0b0e1a', '--bg2': '#141a30', '--ac1': '#aab8ff', '--ac2': '#e6e9f5', '--key': '#121627', '--keyop': '#1c2340', '--txt': '#eef1ff' } },
+  // ---- SSR (4) ----
   { id: 'galaxy',   name: '銀河の果て',         r: 'SSR', vars: { '--bg1': '#050514', '--bg2': '#120a33', '--ac1': '#8f7bff', '--ac2': '#59f3ff', '--key': '#0d0d26', '--keyop': '#1a1642', '--txt': '#eeeaff' } },
   { id: 'inferno',  name: '獄炎',               r: 'SSR', vars: { '--bg1': '#1c0400', '--bg2': '#330a00', '--ac1': '#ff5a00', '--ac2': '#ffd24d', '--key': '#2a0d04', '--keyop': '#421407', '--txt': '#fff1e0' } },
+  { id: 'prism',    name: 'プリズムコア',       r: 'SSR', vars: { '--bg1': '#101018', '--bg2': '#181826', '--ac1': '#7bffea', '--ac2': '#ff7bd5', '--key': '#181828', '--keyop': '#242438', '--txt': '#f4ffff' } },
+  { id: 'ryu',      name: '龍脈',               r: 'SSR', vars: { '--bg1': '#041508', '--bg2': '#0a2410', '--ac1': '#4dffa1', '--ac2': '#ffd700', '--key': '#082010', '--keyop': '#0f321c', '--txt': '#e8ffee' } },
+  // ---- UR (3) ----
   { id: 'divine',   name: '神域',               r: 'UR',  vars: { '--bg1': '#fff8dc', '--bg2': '#ffe9a8', '--ac1': '#ffb300', '--ac2': '#ff4dd2', '--key': '#fff3c4', '--keyop': '#ffe08a', '--txt': '#4a3000', '--screen': 'rgba(255, 255, 255, 0.55)' } },
+  { id: 'zero',     name: '虚無零式',           r: 'UR',  vars: { '--bg1': '#000000', '--bg2': '#0a0a0c', '--ac1': '#ff0033', '--ac2': '#ffffff', '--key': '#0d0d10', '--keyop': '#16161c', '--txt': '#f5f5f7' } },
+  { id: 'matsuri',  name: '祭・大勝利',         r: 'UR',  vars: { '--bg1': '#2a0505', '--bg2': '#3d0f00', '--ac1': '#ffd700', '--ac2': '#ff3d3d', '--key': '#331008', '--keyop': '#4a1a0a', '--txt': '#fff3d6' } },
 ];
 const RARITY = {
   N:   { color: '#9aa5b1', dp: 25,   level: 0 },
@@ -242,21 +260,57 @@ const GACHA_COST_50 = 4000;  // 50連は2割引
 
 // ---------------- persistent state ----------------
 const SAVE_KEY = 'dopamine_calc_v1';
-let save = { dp: 150, owned: ['neon'], equipped: 'neon' };
+let save = { dp: 150, owned: ['neon'], equipped: 'neon', lv: {} };
 try {
   const raw = localStorage.getItem(SAVE_KEY);
   if (raw) save = Object.assign(save, JSON.parse(raw));
 } catch (_) {}
+if (!save.lv) save.lv = {}; // 旧セーブデータ対応
 function persist() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch (_) {} }
 
 function curTheme() { return THEMES.find((t) => t.id === save.equipped) || THEMES[0]; }
 function themeColor(n) { return curTheme().vars[`--ac${n}`]; }
 function themeColors() { return [themeColor(1), themeColor(2), '#ffffff']; }
+// ---- スキン成長（被り蓄積 Lv）----
+// 被り1回で装備スキンとは無関係にそのスキンの Lv が +1。最大 1000（極）。
+// 装備中スキンの Lv が高いほど演出が派手になる:
+//  - パーティクル量とグローが連続的に成長（Lv1000 で約4倍）
+//  - Lv 10/50/100/500/1000 でティア解放（火の粉→脈動→光線→極）
+const LV_MAX = 1000;
+const FX_TIERS = [10, 50, 100, 500, 1000];
+function lvOf(id) { return save.lv[id] || 0; }
+function bumpLv(id) { const v = Math.min(LV_MAX, lvOf(id) + 1); save.lv[id] = v; return v; }
+function fxTier(L) { let t = 0; for (const th of FX_TIERS) if (L >= th) t++; return t; }
+// 装備スキンのパーティクル倍率: Lv0=1倍, Lv10≈2倍, Lv100=3倍, Lv1000=4倍
+function fxMult() { return 1 + Math.log10(1 + lvOf(save.equipped)); }
+
+let emberTimer = null;
+function updateEmbers(tier) {
+  clearInterval(emberTimer);
+  emberTimer = null;
+  if (tier < 2) return;
+  const period = [0, 0, 420, 260, 150, 80][tier]; // ティアが上がるほど火の粉が濃くなる
+  emberTimer = setInterval(() => {
+    if (document.hidden) return;
+    push({ t: 'spark', x: rand(0, W), y: H + 6, vx: rand(-0.4, 0.4), vy: rand(-2.6, -1.2), g: -0.01, life: 1, dec: rand(0.006, 0.012), size: rand(1.2, 2.6), color: pick(themeColors()) });
+  }, period);
+}
+function renderLvBadge() {
+  const L = lvOf(save.equipped);
+  $('#lvBadge').textContent = L ? `⚡Lv.${L}${L >= LV_MAX ? ' 極' : ''}` : '';
+}
+
 const THEME_DEFAULTS = { '--screen': 'rgba(0, 0, 0, 0.35)' };
 function applyTheme() {
   // テーマが持たない変数はデフォルトに戻してから上書き（切替時の残留防止）
   for (const [k, v] of Object.entries(THEME_DEFAULTS)) document.documentElement.style.setProperty(k, v);
   for (const [k, v] of Object.entries(curTheme().vars)) document.documentElement.style.setProperty(k, v);
+  // 装備スキンの成長を反映
+  const L = lvOf(save.equipped), tier = fxTier(L);
+  document.documentElement.style.setProperty('--glowpx', `${10 + Math.round(20 * Math.log10(1 + L) / 3)}px`);
+  for (let i = 1; i <= 5; i++) document.body.classList.toggle('fx-t' + i, tier >= i);
+  updateEmbers(tier);
+  renderLvBadge();
 }
 applyTheme();
 
@@ -349,7 +403,7 @@ function renderCombo() {
 function keyFxAt(btn) {
   if (!btn) return;
   const r = btn.getBoundingClientRect();
-  sparkBurst(r.left + r.width / 2, r.top + r.height / 2, 8, themeColors(), 4);
+  sparkBurst(r.left + r.width / 2, r.top + r.height / 2, Math.round(8 * fxMult()), themeColors(), 4);
 }
 function onKey(k, btn) {
   if (busy) return;
@@ -519,13 +573,13 @@ async function celebrateSmall(rarity, valueStr, wasFake) {
     shake('shake-s');
     return;
   }
-  sparkBurst(cx, cy, 20 + lv * 25, colors, 5 + lv * 2);
+  sparkBurst(cx, cy, Math.round((20 + lv * 25) * fxMult()), colors, 5 + lv * 2);
   ring(cx, cy, colors[0]);
   shake(lv >= 2 ? 'shake-m' : 'shake-s');
   flash(themeColor(1), 0.15 + lv * 0.12, 200);
   sCoin();
   if (lv >= 1) sFanfare(1);
-  if (lv >= 2) { confettiRain(70, colors); sFanfare(2); fountain(cx, cy, colors); }
+  if (lv >= 2) { confettiRain(Math.round(70 * fxMult()), colors); sFanfare(2); fountain(cx, cy, colors); }
   vibrate(20 + lv * 20);
 }
 function randomDigits(model) {
@@ -543,7 +597,7 @@ async function celebrateBig(rarity, valueStr) {
   shake('shake-l');
   vibrate([40, 60, 40, 60, 120]);
   ring(W / 2, H / 2, '#ffffff', 400);
-  sparkBurst(W / 2, H / 2, 90, colors, 11);
+  sparkBurst(W / 2, H / 2, Math.round(90 * fxMult()), colors, 11);
 
   $('#bRarity').textContent = isUR && valueStr === '777' ? '🎰 JACKPOT' : rarity + '!!';
   $('#bRarity').classList.toggle('rainbow', isUR);
@@ -572,8 +626,8 @@ async function celebrateBig(rarity, valueStr) {
   if (isUR) document.body.classList.add('ur-mode');
 
   sFanfare(isUR ? 3 : 2);
-  confettiRain(isUR ? 220 : 140, colors);
-  fireworksBarrage(isUR ? 14 : 6, colors, isUR ? 3200 : 1600);
+  confettiRain(Math.round((isUR ? 220 : 140) * fxMult()), colors);
+  fireworksBarrage((isUR ? 14 : 6) + Math.round(3 * (fxMult() - 1)), colors, isUR ? 3200 : 1600);
   for (let i = 0; i < (isUR ? 10 : 5); i++) sCoin(0.5 + i * 0.12);
   fountain(W * 0.2, H, colors, 30);
   fountain(W * 0.8, H, colors, 30);
@@ -675,8 +729,10 @@ function renderGacha() {
     b.type = 'button';
     b.className = 'gitem' + (owned ? '' : ' locked') + (t.id === save.equipped ? ' equipped' : '');
     b.style.setProperty('--gc', RARITY[t.r].color);
+    const L = lvOf(t.id);
     b.innerHTML = `<div class="sw" style="background:${owned ? swatchCss(t) : '#333'}"></div>` +
-      `<span class="nm">${owned ? t.name : '？？？'}</span><span class="rr">${t.r}</span>`;
+      `<span class="nm">${owned ? t.name : '？？？'}</span><span class="rr">${t.r}</span>` +
+      (owned && L ? `<span class="lv">⚡Lv.${L}${L >= LV_MAX ? ' 極' : ''}</span>` : '');
     if (owned) b.addEventListener('click', () => {
       save.equipped = t.id; persist(); applyTheme(); renderGacha();
       sChime();
@@ -739,12 +795,15 @@ $('#grollBtn').addEventListener('click', async () => {
       save.owned.push(theme.id);
       save.equipped = theme.id;
       $('#gcardNote').textContent = '✨ NEW! 装備しました';
-      applyTheme();
     } else {
-      const refund = Math.floor(GACHA_COST / 2);
-      addDp(refund);
-      $('#gcardNote').textContent = `かぶった… +${refund} DP 返却`;
+      const before = lvOf(theme.id);
+      const after = bumpLv(theme.id);
+      const tierUp = fxTier(after) > fxTier(before);
+      $('#gcardNote').textContent =
+        `かぶり → 熱量 Lv.${after}${after >= LV_MAX ? '（極）' : ''} に成長！${tierUp ? ' 🔥TIER UP!' : ''}`;
+      if (tierUp) { sFanfare(2); confettiRain(80, RAINBOW); flash(RARITY[theme.r].color, 0.3, 250); vibrate([30, 40, 60]); }
     }
+    applyTheme(); // 装備スキンの成長/変更をバッジ・オーラに反映
     persist();
     gcard.classList.remove('hidden');
   } finally {
@@ -769,11 +828,16 @@ async function multiRoll(n, cost) {
     const ownedSet = new Set(save.owned);
     const results = [];
     const counts = { UR: 0, SSR: 0, SR: 0, R: 0, N: 0 };
-    let best = null, refund = 0, newCount = 0;
+    let best = null, dupCount = 0, tierUps = 0, newCount = 0;
     for (let i = 0; i < n; i++) {
       const t = rollSkin();
       const isNew = !ownedSet.has(t.id);
-      if (isNew) { ownedSet.add(t.id); newCount++; } else refund += Math.floor(GACHA_COST / 2);
+      if (isNew) { ownedSet.add(t.id); newCount++; }
+      else {
+        dupCount++;
+        const before = lvOf(t.id);
+        if (fxTier(bumpLv(t.id)) > fxTier(before)) tierUps++;
+      }
       counts[t.r]++;
       results.push({ t, isNew });
       if (!best || RARITY[t.r].level > RARITY[best.r].level) best = t;
@@ -826,8 +890,8 @@ async function multiRoll(n, cost) {
     save.owned = [...ownedSet];
     const newBest = results.filter((r) => r.isNew).map((r) => r.t)
       .sort((a, b) => RARITY[b.r].level - RARITY[a.r].level)[0];
-    if (newBest) { save.equipped = newBest.id; applyTheme(); }
-    if (refund) addDp(refund);
+    if (newBest) save.equipped = newBest.id;
+    applyTheme(); // 装備変更/成長を反映
     persist();
 
     const countStr = ['UR', 'SSR', 'SR', 'R', 'N'].filter((r) => counts[r])
@@ -836,8 +900,10 @@ async function multiRoll(n, cost) {
       `<div class="best">最高レア <span class="rr" style="color:${RARITY[best.r].color}">${best.r}</span>「${best.name}」</div>` +
       `<div>${countStr}</div>` +
       `<div>${newBest ? `✨ NEW ${newCount}件 →「${newBest.name}」を装備` : 'NEWなし…'}` +
-      `${refund ? ` ／ かぶり返却 +${refund} DP` : ''}</div>`;
+      `${dupCount ? ` ／ かぶり${dupCount}件 → 成長 +${dupCount}Lv` : ''}` +
+      `${tierUps ? ` <span class="rr" style="color:#ffe45c">🔥TIER UP×${tierUps}</span>` : ''}</div>`;
     gsummary.classList.remove('hidden');
+    if (tierUps) { sFanfare(2); vibrate([30, 40, 60]); }
 
     // 〆の花火
     if (maxLv >= 4) { confettiRain(220, RAINBOW); fireworksBarrage(12, RAINBOW, 2600); sFanfare(3); }
