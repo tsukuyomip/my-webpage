@@ -81,7 +81,8 @@ const sCoin = (delay = 0) => { tone({ freq: 1174.7, dur: 0.06, type: 'square', v
 const sChime = () => { [0, 4, 7].forEach((st, i) => tone({ freq: 880 * Math.pow(2, st / 12), dur: 0.3, type: 'sine', vol: 0.12, delay: i * 0.03 })); };
 const sZen = () => { tone({ freq: 220, dur: 2.0, type: 'sine', vol: 0.2, attack: 0.4 }); tone({ freq: 331, dur: 2.0, type: 'sine', vol: 0.08, attack: 0.5 }); };
 const sError = () => { tone({ freq: 190, end: 60, dur: 0.4, type: 'sawtooth', vol: 0.2 }); tone({ freq: 197, end: 55, dur: 0.4, type: 'sawtooth', vol: 0.2 }); };
-function sFanfare(level) { // 1..3
+function sFanfare(rawLevel) {
+  const level = Math.min(3, Math.max(1, rawLevel)); // 楽譜は 1..3（UR などレベル4以上は 3 を使う）
   const base = 523.25;
   const seqs = {
     1: [[0, 0], [4, 0.09], [7, 0.18], [12, 0.28]],
@@ -669,7 +670,8 @@ function renderGacha() {
 
 function rollSkin() {
   const r = Math.random();
-  const rarity = r < 0.03 ? 'UR' : r < 0.15 ? 'SSR' : r < 0.40 ? 'SR' : 'R';
+  // UR 3% / SSR 12% / SR 25% / R 30% / N 30%
+  const rarity = r < 0.03 ? 'UR' : r < 0.15 ? 'SSR' : r < 0.40 ? 'SR' : r < 0.70 ? 'R' : 'N';
   // その希少度のプールから抽選（空なら1段下げる）
   const order = ['UR', 'SSR', 'SR', 'R', 'N'];
   let i = order.indexOf(rarity);
@@ -685,54 +687,58 @@ $('#grollBtn').addEventListener('click', async () => {
   addDp(-GACHA_COST, false);
   renderDp();
 
-  gcard.classList.add('hidden');
-  capsule.classList.remove('hidden');
+  try {
+    gcard.classList.add('hidden');
+    capsule.classList.remove('hidden');
 
-  const theme = rollSkin();
-  const lv = RARITY[theme.r].level;
-  const isNew = !save.owned.includes(theme.id);
+    const theme = rollSkin();
+    const lv = RARITY[theme.r].level;
+    const isNew = !save.owned.includes(theme.id);
 
-  // カプセルがガタガタ震える
-  capsule.classList.add('rattle');
-  for (let i = 0; i < 9; i++) { noise({ dur: 0.03, vol: 0.12, from: 3000, to: 1200, delay: i * 0.13 }); }
-  await sleep(1200);
-  capsule.classList.remove('rattle');
+    // カプセルがガタガタ震える
+    capsule.classList.add('rattle');
+    for (let i = 0; i < 9; i++) { noise({ dur: 0.03, vol: 0.12, from: 3000, to: 1200, delay: i * 0.13 }); }
+    await sleep(1200);
+    capsule.classList.remove('rattle');
 
-  if (lv >= 3) await pchunEffect();
+    if (lv >= 3) await pchunEffect();
 
-  // 開封!!
-  capsule.classList.add('hidden');
-  const rc = $('#gstage').getBoundingClientRect();
-  const cx = rc.left + rc.width / 2, cy = rc.top + rc.height / 2;
-  const colors = lv >= 3 ? RAINBOW : themeColors();
-  sparkBurst(cx, cy, 40 + lv * 30, colors, 7 + lv * 2);
-  ring(cx, cy, RARITY[theme.r].color);
-  flash(lv >= 3 ? '#fff' : RARITY[theme.r].color, 0.3 + lv * 0.18, 300);
-  shake(lv >= 3 ? 'shake-l' : 'shake-m');
-  vibrate(lv >= 3 ? [40, 60, 40, 120] : 40);
-  sFanfare(Math.max(1, lv));
-  if (lv >= 3) { confettiRain(150, RAINBOW); fireworksBarrage(lv >= 4 ? 8 : 4, RAINBOW); sExplosion(); }
+    // 開封!!
+    capsule.classList.add('hidden');
+    const rc = $('#gstage').getBoundingClientRect();
+    const cx = rc.left + rc.width / 2, cy = rc.top + rc.height / 2;
+    const colors = lv >= 3 ? RAINBOW : themeColors();
+    sparkBurst(cx, cy, 40 + lv * 30, colors, 7 + lv * 2);
+    ring(cx, cy, RARITY[theme.r].color);
+    flash(lv >= 3 ? '#fff' : RARITY[theme.r].color, 0.3 + lv * 0.18, 300);
+    shake(lv >= 3 ? 'shake-l' : 'shake-m');
+    vibrate(lv >= 3 ? [40, 60, 40, 120] : 40);
+    sFanfare(lv);
+    if (lv >= 3) { confettiRain(150, RAINBOW); fireworksBarrage(lv >= 4 ? 8 : 4, RAINBOW); sExplosion(); }
 
-  gcard.style.setProperty('--gc', RARITY[theme.r].color);
-  $('#gcardRarity').textContent = theme.r;
-  $('#gcardRarity').classList.toggle('rainbow', theme.r === 'UR');
-  $('#gcardSwatch').style.background = swatchCss(theme);
-  $('#gcardName').textContent = theme.name;
+    gcard.style.setProperty('--gc', RARITY[theme.r].color);
+    $('#gcardRarity').textContent = theme.r;
+    $('#gcardRarity').classList.toggle('rainbow', theme.r === 'UR');
+    $('#gcardSwatch').style.background = swatchCss(theme);
+    $('#gcardName').textContent = theme.name;
 
-  if (isNew) {
-    save.owned.push(theme.id);
-    save.equipped = theme.id;
-    $('#gcardNote').textContent = '✨ NEW! 装備しました';
-    applyTheme();
-  } else {
-    const refund = Math.floor(GACHA_COST / 2);
-    addDp(refund);
-    $('#gcardNote').textContent = `かぶった… +${refund} DP 返却`;
+    if (isNew) {
+      save.owned.push(theme.id);
+      save.equipped = theme.id;
+      $('#gcardNote').textContent = '✨ NEW! 装備しました';
+      applyTheme();
+    } else {
+      const refund = Math.floor(GACHA_COST / 2);
+      addDp(refund);
+      $('#gcardNote').textContent = `かぶった… +${refund} DP 返却`;
+    }
+    persist();
+    gcard.classList.remove('hidden');
+  } finally {
+    // 演出中に何が起きてもモーダルが固まらないようにする
+    renderGacha();
+    gachaBusy = false;
   }
-  persist();
-  gcard.classList.remove('hidden');
-  renderGacha();
-  gachaBusy = false;
 });
 
 // ---------------- init ----------------

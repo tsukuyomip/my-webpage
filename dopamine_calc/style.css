@@ -305,6 +305,7 @@ body.ur-mode::after {
   align-items: center;
   justify-content: center;
   background: rgba(0, 0, 0, 0.78);
+  color: #fff; /* 背景が常に暗いのでテーマ(--txt)に依存しない */
   cursor: pointer;
   overflow: hidden;
 }
@@ -459,6 +460,7 @@ body.ur-mode::after {
   border-radius: 18px;
   border: 2px solid var(--gc, #888);
   background: rgba(0, 0, 0, 0.4);
+  color: #fff; /* 背景が常に暗いのでテーマ(--txt)に依存しない */
   box-shadow: 0 0 30px var(--gc, #888);
   animation: rarityIn 0.4s cubic-bezier(0.2, 2.2, 0.4, 1);
 }
