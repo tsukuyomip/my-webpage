@@ -184,7 +184,10 @@ export default function App() {
         <label className="dropzone">
           <input
             type="file"
-            accept="audio/*"
+            // Some environments grey out mp3/m4a when only the "audio/*" MIME
+            // wildcard is given (incomplete OS MIME registry), so list common
+            // extensions explicitly as well.
+            accept="audio/*,.mp3,.m4a,.wav,.aac,.ogg,.oga,.opus,.flac,.weba,.webm"
             multiple
             onChange={(e) => {
               void onFiles(e.target.files)
