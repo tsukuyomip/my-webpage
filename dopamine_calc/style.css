@@ -25,9 +25,22 @@ body {
   user-select: none;
   -webkit-user-select: none;
   touch-action: manipulation;
+  background: var(--bg1);
+}
+/* 動く背景は transform ドリフト（GPU合成）で。
+   background-position アニメは毎フレーム全画面再描画になり発熱するため使わない */
+body::before {
+  content: "";
+  position: fixed;
+  inset: -60%;
+  z-index: -1;
   background: linear-gradient(135deg, var(--bg1), var(--bg2), var(--bg1), var(--bg2));
-  background-size: 400% 400%;
-  animation: bgflow 14s ease infinite;
+  animation: bgdrift 14s ease-in-out infinite alternate;
+  will-change: transform;
+}
+@keyframes bgdrift {
+  from { transform: translate3d(-7%, -7%, 0); }
+  to { transform: translate3d(7%, 7%, 0); }
 }
 @keyframes bgflow {
   0%   { background-position: 0% 50%; }

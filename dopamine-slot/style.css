@@ -21,9 +21,22 @@ body {
   user-select: none;
   -webkit-user-select: none;
   touch-action: manipulation;
+  background: var(--bg1);
+}
+/* 動く背景は transform ドリフト（GPU合成）で。
+   background-position アニメは毎フレーム全画面再描画になり発熱するため使わない */
+body::before {
+  content: "";
+  position: fixed;
+  inset: -60%;
+  z-index: -1;
   background: linear-gradient(135deg, var(--bg1), var(--bg2), var(--bg1), var(--bg2));
-  background-size: 400% 400%;
-  animation: bgflow 14s ease infinite;
+  animation: bgdrift 14s ease-in-out infinite alternate;
+  will-change: transform;
+}
+@keyframes bgdrift {
+  from { transform: translate3d(-7%, -7%, 0); }
+  to { transform: translate3d(7%, 7%, 0); }
 }
 @keyframes bgflow {
   0% { background-position: 0% 50%; }
@@ -180,7 +193,7 @@ body.jackpot-mode::after {
 .reel.spinning .strip { animation: stripjig 0.09s linear infinite; filter: blur(1.3px); }
 @keyframes stripjig { 0% { transform: translateY(-5px); } 100% { transform: translateY(5px); } }
 /* 回転中: 全体が生きて光る */
-body.spinmode { animation-duration: 4s; }
+body.spinmode::before { animation-duration: 4s; }
 body.spinmode .slotbox { animation: boxlive 0.5s ease-in-out infinite; }
 @keyframes boxlive {
   50% {
@@ -295,11 +308,12 @@ body.spinmode .reel.spinning .window {
   border-radius: 18px;
   background: linear-gradient(135deg, var(--pink), var(--gold));
   cursor: pointer;
-  box-shadow: 0 0 24px color-mix(in srgb, var(--pink) 60%, transparent);
-  animation: spinpulse 1.4s ease-in-out infinite;
+  box-shadow: 0 0 30px color-mix(in srgb, var(--pink) 75%, transparent);
   transition: transform 0.06s;
 }
-@keyframes spinpulse { 50% { box-shadow: 0 0 44px color-mix(in srgb, var(--pink) 95%, transparent); } }
+/* 鼓動は transform（GPU合成）で。box-shadow アニメは常時再描画になり発熱する */
+#spinBtn span { display: inline-block; animation: spinpulse 1.4s ease-in-out infinite; }
+@keyframes spinpulse { 50% { transform: scale(1.06); } }
 #spinBtn:active { transform: scale(0.95); }
 #spinBtn:disabled { filter: grayscale(0.7); opacity: 0.6; cursor: wait; animation: none; }
 

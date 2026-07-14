@@ -162,7 +162,14 @@ resize();
 
 const parts = [];
 const MAX_PARTS = 1600;
-function push(p) { if (parts.length < MAX_PARTS) parts.push(p); }
+// 省電力: 粒子ゼロの間は描画ループを完全停止し、粒子が湧いたら再開する
+let fxActive = false;
+function ensureFx() {
+  if (!fxActive) { fxActive = true; requestAnimationFrame(frame); }
+}
+function push(p) {
+  if (parts.length < MAX_PARTS) { parts.push(p); ensureFx(); }
+}
 function sparkBurst(x, y, n, colors, speed = 6) {
   for (let i = 0; i < n; i++) {
     const a = rand(0, Math.PI * 2), v = rand(speed * 0.3, speed);
@@ -243,9 +250,9 @@ function frame() {
   }
   ctx.globalAlpha = 1;
   ctx.globalCompositeOperation = 'source-over';
+  if (parts.length === 0) { fxActive = false; return; } // 空になったら停止（push で再開）
   requestAnimationFrame(frame);
 }
-requestAnimationFrame(frame);
 
 // カーソル軌跡キラキラ
 let lastTrail = 0;
@@ -375,8 +382,14 @@ function newSeed() {
 // ---------------- reels ----------------
 const reelsEl = $('#reels');
 let reelEls = [];
-function slotMaxLen(s) {
-  return isChoice(s) ? Math.max(...s.map((v) => v.length)) : String(s).length;
+// 表示幅の見積もり: 全角文字は半角の約2倍幅（「中吉」= 4単位）
+function dispUnits(str) {
+  let u = 0;
+  for (const ch of String(str)) u += ch.charCodeAt(0) > 0xff ? 2 : 1;
+  return u;
+}
+function slotMaxUnits(s) {
+  return isChoice(s) ? Math.max(...s.map(dispUnits)) : dispUnits(String(s));
 }
 function buildReels() {
   reelsEl.innerHTML = '';
@@ -388,9 +401,9 @@ function buildReels() {
       '<div class="cell side">-</div><div class="cell cur">-</div><div class="cell side">-</div>' +
       '</div></div>' +
       `<div class="dlab">${isChoice(s) ? `${s.length}択` : `d${s}`}</div>`;
-    // 長い選択肢はリール窓を広げる
-    const len = slotMaxLen(s);
-    if (len > 3) reel.querySelector('.window').style.width = `${Math.min(170, 64 + len * 10)}px`;
+    // 全角/長い選択肢はリール窓を広げる（vw依存をやめて実幅で確保）
+    const u = slotMaxUnits(s);
+    if (u > 2) reel.querySelector('.window').style.width = `${Math.min(176, 38 + u * 13)}px`;
     reelsEl.appendChild(reel);
     return reel;
   });
@@ -401,8 +414,8 @@ function buildReels() {
   $('#detail').innerHTML = '&nbsp;';
 }
 function fontFor(text) {
-  const L = String(text).length;
-  return L <= 2 ? '38px' : L <= 3 ? '26px' : L <= 5 ? '19px' : L <= 8 ? '15px' : '12px';
+  const u = dispUnits(text);
+  return u <= 2 ? '38px' : u <= 4 ? '28px' : u <= 6 ? '21px' : u <= 10 ? '16px' : u <= 14 ? '13px' : '11px';
 }
 function setReel(i, slot, idx) {
   const m = slotSize(slot);

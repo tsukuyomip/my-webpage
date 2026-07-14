@@ -111,7 +111,14 @@ resize();
 
 const parts = [];
 const MAX_PARTS = 1600;
-function push(p) { if (parts.length < MAX_PARTS) parts.push(p); }
+// 省電力: 粒子ゼロの間は描画ループを完全停止し、粒子が湧いたら再開する
+let fxActive = false;
+function ensureFx() {
+  if (!fxActive) { fxActive = true; requestAnimationFrame(frame); }
+}
+function push(p) {
+  if (parts.length < MAX_PARTS) { parts.push(p); ensureFx(); }
+}
 
 function sparkBurst(x, y, n, colors, speed = 6) {
   for (let i = 0; i < n; i++) {
@@ -189,9 +196,9 @@ function frame() {
   }
   ctx.globalAlpha = 1;
   ctx.globalCompositeOperation = 'source-over';
+  if (parts.length === 0) { fxActive = false; return; } // 空になったら停止（push で再開）
   requestAnimationFrame(frame);
 }
-requestAnimationFrame(frame);
 
 // カーソル / タッチの軌跡にキラキラ
 let lastTrail = 0;
