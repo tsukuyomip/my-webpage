@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { decodeFile, toMono } from './audio/decode.ts'
 import { analyzeBuffer } from './audio/analyze.ts'
 import { buildMedley, type MedleyResult } from './audio/medley.ts'
@@ -525,19 +525,13 @@ function TrackCard({
           {playing && playMode === 'segment' ? '⏹' : '▶️'} 使用区間
         </button>
         <BeatPulse active={playing} bpm={tempo.bpm} offset={tempo.beatOffset} position={position} />
+        <TapTempo onEstimate={(bpm) => onTempo(track.id, bpm)} />
         <span className="bpm-editor">
           <label>BPM</label>
           <button onClick={() => onTempo(track.id, tempo.bpm / 2)} title="半分">
             ½
           </button>
-          <input
-            type="number"
-            min={40}
-            max={260}
-            step={0.1}
-            value={Math.round(tempo.bpm * 10) / 10}
-            onChange={(e) => onTempo(track.id, Number(e.target.value))}
-          />
+          <BpmInput value={tempo.bpm} onCommit={(n) => onTempo(track.id, n)} />
           <button onClick={() => onTempo(track.id, tempo.bpm * 2)} title="2倍">
             ×2
           </button>
@@ -601,6 +595,101 @@ function ZoomBar({
       />
       <span className="zoom-label">×{(duration / view.viewDur).toFixed(1)}</span>
     </div>
+  )
+}
+
+/**
+ * BPM field that only commits on blur / Enter, so validation (clamping) does
+ * not fight the user mid-typing. It resyncs to the external value whenever that
+ * changes from elsewhere (½ / ×2 / tap tempo).
+ */
+function BpmInput({ value, onCommit }: { value: number; onCommit: (n: number) => void }) {
+  const display = () => String(Math.round(value * 10) / 10)
+  const [text, setText] = useState(display)
+  useEffect(() => {
+    setText(String(Math.round(value * 10) / 10))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value])
+
+  const commit = () => {
+    const n = Number(text)
+    if (isFinite(n) && n > 0) onCommit(n)
+    else setText(display()) // revert invalid input
+  }
+
+  return (
+    <input
+      type="number"
+      inputMode="decimal"
+      min={40}
+      max={260}
+      step={0.1}
+      value={text}
+      onChange={(e) => setText(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') (e.target as HTMLInputElement).blur()
+      }}
+    />
+  )
+}
+
+/**
+ * Tap-tempo estimator. BPM is derived from the intervals between taps; a single
+ * missed tap is rejected as an outlier (median filter), and a pause longer than
+ * RESET_GAP starts a fresh measurement. A reset button clears it manually.
+ */
+function TapTempo({ onEstimate }: { onEstimate: (bpm: number) => void }) {
+  const RESET_GAP = 2500 // ms; a longer pause is treated as a new measurement
+  const tapsRef = useRef<number[]>([])
+  const [info, setInfo] = useState<{ bpm: number; count: number } | null>(null)
+
+  const tap = () => {
+    const now = performance.now()
+    const taps = tapsRef.current
+    if (taps.length && now - taps[taps.length - 1] > RESET_GAP) taps.length = 0
+    taps.push(now)
+
+    if (taps.length >= 3) {
+      const intervals: number[] = []
+      for (let i = 1; i < taps.length; i++) intervals.push(taps[i] - taps[i - 1])
+      const sorted = [...intervals].sort((a, b) => a - b)
+      const med = sorted[Math.floor(sorted.length / 2)]
+      // Keep only intervals near the median so a forgotten tap (≈2× interval)
+      // does not drag the estimate.
+      const good = intervals.filter((iv) => Math.abs(iv - med) <= med * 0.4)
+      const avg = good.reduce((a, b) => a + b, 0) / good.length
+      const bpm = 60000 / avg
+      if (isFinite(bpm) && bpm > 0) {
+        setInfo({ bpm, count: taps.length })
+        onEstimate(bpm)
+      }
+    } else {
+      setInfo({ bpm: 0, count: taps.length })
+    }
+  }
+
+  const reset = () => {
+    tapsRef.current = []
+    setInfo(null)
+  }
+
+  return (
+    <span className="tap-tempo">
+      <button className="tap-btn" onClick={tap} title="曲に合わせてタップ">
+        TAP
+      </button>
+      <button className="tap-reset" onClick={reset} title="タップをリセット">
+        ↺
+      </button>
+      <span className="tap-info">
+        {info == null
+          ? 'タップで計測'
+          : info.count < 3
+            ? `${info.count} tap…`
+            : `${info.bpm.toFixed(1)} BPM`}
+      </span>
+    </span>
   )
 }
 

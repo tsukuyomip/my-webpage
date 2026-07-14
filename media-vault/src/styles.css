@@ -436,3 +436,9 @@ footer {
   main { padding: 1rem; }
   .grid { grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); }
 }
+
+/* スマホのダブルタップによるズームを無効化（ピンチズームは維持） */
+html,
+body {
+  touch-action: manipulation;
+}

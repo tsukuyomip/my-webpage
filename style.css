@@ -192,3 +192,9 @@ footer {
   color: var(--muted);
   font-size: 0.85rem;
 }
+
+/* スマホのダブルタップによるズームを無効化（ピンチズームは維持） */
+html,
+body {
+  touch-action: manipulation;
+}

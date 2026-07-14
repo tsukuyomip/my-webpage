@@ -290,6 +290,45 @@ h2 {
   text-align: center;
 }
 
+.tap-tempo {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tap-btn {
+  border: 1px solid var(--accent-2);
+  background: var(--panel-2);
+  color: var(--accent-2);
+  border-radius: 8px;
+  padding: 7px 14px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  cursor: pointer;
+}
+
+.tap-btn:active {
+  background: var(--accent-2);
+  color: #06121a;
+}
+
+.tap-reset {
+  border: 1px solid #2e3a4d;
+  background: var(--panel-2);
+  color: var(--text);
+  border-radius: 6px;
+  width: 30px;
+  height: 30px;
+  cursor: pointer;
+}
+
+.tap-info {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  min-width: 66px;
+}
+
 .controls {
   background: var(--panel);
   border: 1px solid #263041;
@@ -449,4 +488,10 @@ h2 {
   text-align: center;
   color: #4a5568;
   font-size: 0.72rem;
+}
+
+/* スマホのダブルタップによるズームを無効化（ピンチズームは維持） */
+html,
+body {
+  touch-action: manipulation;
 }

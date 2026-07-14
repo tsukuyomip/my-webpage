@@ -550,3 +550,9 @@ a {
     content: none;
   }
 }
+
+/* スマホのダブルタップによるズームを無効化（ピンチズームは維持） */
+html,
+body {
+  touch-action: manipulation;
+}
