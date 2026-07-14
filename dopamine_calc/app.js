@@ -685,8 +685,9 @@ async function celebrateZen() {
 function dismissable(ms, el) {
   return new Promise((resolve) => {
     let done = false;
-    const finish = () => { if (!done) { done = true; el.removeEventListener('pointerdown', finish); resolve(); } };
-    el.addEventListener('pointerdown', finish);
+    const finish = () => { if (!done) { done = true; el.removeEventListener('click', finish); resolve(); } };
+    // pointerdown で閉じると iOS の合成 click が下のボタンに貫通するため click で閉じる
+    el.addEventListener('click', finish);
     setTimeout(finish, ms);
   });
 }

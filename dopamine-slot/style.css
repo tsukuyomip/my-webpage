@@ -431,8 +431,10 @@ body.spinmode .reel.spinning .window {
   -webkit-text-fill-color: transparent;
   animation: slam 0.32s cubic-bezier(0.15, 2.0, 0.3, 1) forwards, bgflow 2s linear infinite;
 }
+/* 開始スケールは控えめに。大きすぎると演出直後の重い瞬間に
+   フリーズしたとき「1文字目だけ巨大」に見えてしまう */
 @keyframes slam {
-  0% { transform: scale(6) rotate(14deg); opacity: 0; }
+  0% { transform: scale(2.4) rotate(10deg); opacity: 0; }
   60% { opacity: 1; }
   100% { transform: scale(1) rotate(0); opacity: 1; }
 }
