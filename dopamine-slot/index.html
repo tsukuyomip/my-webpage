@@ -33,7 +33,7 @@
       <button id="shareSetup" type="button">📤 設定を共有</button>
     </div>
 
-    <footer class="hint">ゾロ目でJACKPOT ── 全部最大値なら「天元突破」</footer>
+    <footer class="hint">ゾロ目でJACKPOT ── プチュンが来たらFEVER ── 全部最大値なら「天元突破」</footer>
   </div>
 
   <!-- 設定モーダル -->
@@ -63,6 +63,20 @@
         <button data-p='[["行く","行かない"]]' type="button">🔮 二択</button>
         <button data-p='[["大吉","中吉","小吉","吉","末吉","凶","大凶"]]' type="button">⛩ おみくじ</button>
       </div>
+      <div class="crow">
+        <span>停止モード</span>
+        <div class="seg">
+          <button id="modeAuto" type="button" class="on">自動</button>
+          <button id="modeManual" type="button">手動</button>
+        </div>
+      </div>
+      <div class="crow modehint"><small>手動: 回転中にリールをタップ（またはSTOPボタン）で1つずつ停止</small></div>
+      <div class="crow">
+        <span>プチュン率</span>
+        <span><b id="pchunVal">33</b>%</span>
+      </div>
+      <input type="range" id="pchunRange" class="wide" min="0" max="100" step="1" value="33">
+      <div class="crow modehint"><small>最後のリール停止時に暗転→超豪華演出。ゾロ目などの大当たりは確定</small></div>
       <label class="crow quickrow">
         <span>クイックモード（演出オフ・普通のサイコロ）</span>
         <input type="checkbox" id="quickChk">

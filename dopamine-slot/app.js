@@ -331,7 +331,9 @@ async function showBanner({ title, num, sub, cls = '', dur = 4000, rainbowTitle 
 
 // ---------------- state ----------------
 // スロット定義: number = n面ダイス（出目 1..n） / string[] = 選択肢リスト
-const conf = { dice: [6, 6, 6], quick: false };
+// mode: 'auto'(1.5s回転→1s毎に停止→最後1.5s溜め) / 'manual'(リールをタップで停止)
+// pchun: プチュン発動率(%)。ゾロ目/天元突破などの大当たりは率に関係なく確定
+const conf = { dice: [6, 6, 6], quick: false, mode: 'auto', pchun: 33 };
 let busy = false;
 let lastRoll = null;   // { d:[...], q:0|1, x:seed } 直前のロール（共有・再演用スナップショット）
 let pendingSeed = null;
@@ -438,23 +440,35 @@ function landReel(i, slot, idx, { strong = true } = {}) {
   reelEls[i].classList.add('landed');
   if (strong) {
     sThunk();
+    sCoin(0.04);
     shake('shake-s');
     vibrate(15);
     const [cx, cy] = reelCenter(i);
-    sparkBurst(cx, cy, 14, THEME, 5);
+    sparkBurst(cx, cy, 26, THEME, 6);
+    ring(cx, cy, THEME[i % 3], 110);
+    flash(THEME[i % 3], 0.1, 130);
   }
 }
 
-async function spin(seed) {
+// チカチカ用: 色を替えながら連続フラッシュ
+function strobe(colors, times = 4, interval = 90, peak = 0.3) {
+  for (let i = 0; i < times; i++) {
+    setTimeout(() => flash(colors[i % colors.length], peak, interval * 0.9), i * interval);
+  }
+}
+
+let manualStopNext = null; // 手動モード中: SPINボタン/スペースで次のリールを止める
+
+async function spin(seed, { forceAuto = false } = {}) {
   if (busy) return;
   busy = true;
   ac();
-  $('#spinBtn').disabled = true;
   $('#shareResult').disabled = true;
   $('#replayBtn').disabled = true;
 
   const dice = [...conf.dice];
   const quick = conf.quick;
+  const manual = conf.mode === 'manual' && !quick && !forceAuto; // 再生は常に自動で再現
   const n = dice.length;
 
   // ---- 結果と演出分岐をシードから決定論的に導出 ----
@@ -464,18 +478,81 @@ async function spin(seed) {
   const idxs = dice.map((s) => Math.floor(rng() * slotSize(s)));
   const vals = dice.map((s, i) => slotDisp(s, idxs[i]));
   const rngFx = mulberry32((seed ^ 0x9e3779b9) >>> 0); // 演出バリエーション用
+  const pchunRand = rngFx() < conf.pchun / 100;        // プチュン抽選（率は設定から）
   const allNum = dice.every((s) => !isChoice(s));
   const zoro = n >= 2 && vals.every((v) => v === vals[0]);
   const allMax = allNum && idxs.every((x, i) => x === slotSize(dice[i]) - 1);
   const allOne = allNum && n >= 2 && idxs.every((x) => x === 0);
-  const lastSlot = dice[n - 1];
-  const canMatchLast = isChoice(lastSlot)
-    ? lastSlot.includes(vals[0])
-    : (/^\d+$/.test(vals[0]) && +vals[0] >= 1 && +vals[0] <= lastSlot);
-  const reach = !quick && n >= 2 &&
-    vals.slice(0, -1).every((v) => v === vals[0]) && canMatchLast &&
-    (n >= 3 || zoro || rngFx() < 0.35);
-  const nudgeBack = zoro && slotSize(lastSlot) >= 3 && rngFx() < 0.5; // 通り過ぎて戻る演出
+  const crit = n === 1 && !isChoice(dice[0]) && idxs[0] === dice[0] - 1;
+  const autoLastReach = (() => { // 自動モード: 最後(n-1)のリールでのリーチ判定
+    if (quick || n < 2) return false;
+    const lastSlot = dice[n - 1];
+    const canMatch = isChoice(lastSlot)
+      ? lastSlot.includes(vals[0])
+      : (/^\d+$/.test(vals[0]) && +vals[0] >= 1 && +vals[0] <= lastSlot);
+    return vals.slice(0, -1).every((v) => v === vals[0]) && canMatch &&
+      (n >= 3 || zoro || rngFx() < 0.35);
+  })();
+  const nudgeBack = zoro && slotSize(dice[n - 1]) >= 3 && rngFx() < 0.5; // 通り過ぎて戻る演出
+  // プチュン発動: 抽選ヒット or 大当たり確定（ゾロ目/全最大/単騎クリティカル）
+  const pchunFinal = !quick && (pchunRand || zoro || allMax || (crit && dice[0] >= 10));
+
+  // 残り1リールになった時点でのリーチ判定（手動モード用・停止順は任意）
+  function reachNow(remaining, lastIdx) {
+    if (quick || n < 2) return false;
+    const others = vals.filter((_, j) => j !== lastIdx);
+    if (!others.every((v) => v === others[0])) return false;
+    const s = dice[lastIdx];
+    return isChoice(s) ? s.includes(others[0])
+      : (/^\d+$/.test(others[0]) && +others[0] >= 1 && +others[0] <= s);
+  }
+
+  // リーチ突入/解除
+  let hbTimer = null;
+  let reachHappened = false;
+  function enterReachFx(i) {
+    reachHappened = true;
+    sReachIn();
+    document.body.classList.add('reach');
+    reelEls[i].classList.add('reachfocus');
+    clearInterval(hbTimer);
+    hbTimer = setInterval(() => { sHeart(); vibrate(25); }, 600);
+  }
+  function exitReachFx(i) {
+    clearInterval(hbTimer);
+    document.body.classList.remove('reach');
+    reelEls[i].classList.remove('reachfocus');
+  }
+
+  // 最後の1リールの停止（プチュン → 超豪華リベール込み）
+  async function finishLastReel(i) {
+    if (pchunFinal) {
+      clearInterval(tickTimer);
+      await pchunEffect();
+      flash('#fff', 1, 320);
+      sExplosion();
+      if (nudgeBack) {
+        // 暗転明け、1つ先で止まったフリ → 戻ってジャスト
+        landReel(i, dice[i], (idxs[i] + 1) % slotSize(dice[i]));
+        await sleep(450);
+        sNudge();
+        landReel(i, dice[i], idxs[i]);
+      } else {
+        landReel(i, dice[i], idxs[i]);
+      }
+      reelEls[i].classList.add('hitglow');
+      strobe(['#ffffff', '#ffd24d', '#ff2d95', '#59f3ff'], 5, 100, 0.4);
+      shake('shake-l');
+      vibrate([50, 70, 120]);
+      const [rx, ry] = reelCenter(i);
+      sparkBurst(rx, ry, 90, RAINBOW, 10);
+      ring(rx, ry, '#ffffff', 300);
+      ring(W / 2, H / 2, '#ffd24d', 420);
+      await sleep(400);
+    } else {
+      landReel(i, dice[i], idxs[i]);
+    }
+  }
 
   try {
     $('#total').textContent = '--';
@@ -488,47 +565,88 @@ async function spin(seed) {
     spinTimers = [];
     dice.forEach((s, i) => startReelVisual(i, s, mulberry32((seed + i * 7919 + 1) >>> 0)));
     tickTimer = setInterval(sSpinTick, 75);
+    document.body.classList.add('spinmode');
 
-    const stopBase = quick ? 250 : 900;
-    const stopGap = quick ? 130 : 650;
-
-    for (let i = 0; i < n; i++) {
-      if (reach && i === n - 1) {
-        // ---- リーチ演出 ----
-        await sleep(500);
-        sReachIn();
-        document.body.classList.add('reach');
-        reelEls[i].classList.add('reachfocus');
-        const hb = setInterval(() => { sHeart(); vibrate(25); }, 600);
-        await sleep(2400);
-        clearInterval(hb);
-        if (nudgeBack) {
-          // 当たりの1つ先で止まったフリ → 戻ってジャスト
-          landReel(i, dice[i], (idxs[i] + 1) % slotSize(dice[i]));
-          await sleep(550);
-          sNudge();
+    if (manual) {
+      // ---- 手動モード: リールをタップして止める（SPINボタン=左から順に停止） ----
+      $('#spinBtn').disabled = false;
+      $('#spinBtn').querySelector('span').textContent = '🛑 STOP';
+      reelEls.forEach((r) => r.classList.add('stoppable'));
+      await new Promise((resolve) => {
+        const remaining = new Set(dice.map((_, i) => i));
+        let stopping = false; // 最後のリールの async 処理中の多重タップ防止
+        const cleanupFns = [];
+        async function stopReelAt(i) {
+          if (stopping || !remaining.has(i)) return;
+          reelEls[i].classList.remove('stoppable');
+          remaining.delete(i);
+          if (remaining.size === 0) {
+            stopping = true;
+            cleanupFns.forEach((f) => f());
+            const wasReach = document.body.classList.contains('reach');
+            await finishLastReel(i);
+            if (wasReach) exitReachFx(i);
+            resolve();
+            return;
+          }
           landReel(i, dice[i], idxs[i]);
+          if (remaining.size === 1) {
+            const lastIdx = [...remaining][0];
+            if (reachNow(remaining, lastIdx)) enterReachFx(lastIdx);
+          }
+        }
+        reelEls.forEach((r, i) => {
+          const h = () => stopReelAt(i);
+          r.addEventListener('pointerdown', h);
+          cleanupFns.push(() => r.removeEventListener('pointerdown', h));
+        });
+        manualStopNext = () => {
+          const next = dice.findIndex((_, i) => remaining.has(i));
+          if (next >= 0) stopReelAt(next);
+        };
+      });
+      manualStopNext = null;
+      $('#spinBtn').disabled = true;
+      $('#spinBtn').querySelector('span').textContent = '🎰 SPIN';
+    } else {
+      // ---- 自動モード: 1.5秒回転 → 1秒ごとに停止 → 最後の1個は1.5秒待つ ----
+      $('#spinBtn').disabled = true;
+      const spinUp = quick ? 250 : 1500;
+      const gap = quick ? 130 : 1000;
+      const lastWait = quick ? 130 : 1500;
+      for (let i = 0; i < n; i++) {
+        const isLast = i === n - 1;
+        await sleep(i === 0 ? spinUp : isLast ? lastWait : gap);
+        if (isLast) {
+          if (autoLastReach) {
+            enterReachFx(i);
+            await sleep(2400);
+            await finishLastReel(i);
+            exitReachFx(i);
+          } else {
+            await finishLastReel(i);
+          }
         } else {
           landReel(i, dice[i], idxs[i]);
         }
-        document.body.classList.remove('reach');
-        reelEls[i].classList.remove('reachfocus');
-      } else {
-        await sleep(i === 0 ? stopBase : stopGap);
-        landReel(i, dice[i], idxs[i]);
       }
     }
     clearInterval(tickTimer);
+    document.body.classList.remove('spinmode');
 
-    await celebrate({ dice, idxs, vals, n, quick, zoro, allMax, allOne, reach });
+    await celebrate({ dice, idxs, vals, n, quick, zoro, allMax, allOne, crit, reach: reachHappened, pchunDone: pchunFinal });
 
-    lastRoll = { d: dice, q: quick ? 1 : 0, x: seed >>> 0 };
+    lastRoll = { d: dice, q: quick ? 1 : 0, x: seed >>> 0, p: conf.pchun, md: conf.mode === 'manual' ? 'm' : 'a' };
   } finally {
     clearInterval(tickTimer);
+    clearInterval(hbTimer);
     spinTimers.forEach(clearInterval);
-    document.body.classList.remove('reach');
+    manualStopNext = null;
+    document.body.classList.remove('reach', 'spinmode');
+    reelEls.forEach((r) => r.classList.remove('stoppable', 'reachfocus'));
     busy = false;
     $('#spinBtn').disabled = false;
+    $('#spinBtn').querySelector('span').textContent = '🎰 SPIN';
     $('#shareResult').disabled = !lastRoll;
     $('#replayBtn').disabled = !lastRoll;
   }
@@ -561,11 +679,12 @@ function showTotal(dice, idxs, vals) {
   return total;
 }
 
-async function celebrate({ dice, idxs, vals, n, quick, zoro, allMax, allOne, reach }) {
+async function celebrate({ dice, idxs, vals, n, quick, zoro, allMax, allOne, crit, reach, pchunDone }) {
   const total = showTotal(dice, idxs, vals);
   const results = vals; // 表示文字列ベース
   const box = $('.slotbox').getBoundingClientRect();
   const cx = box.left + box.width / 2, cy = box.top + box.height / 2;
+  // プチュンは最後のリール停止時に済んでいる（pchunDone）。ここでは鳴らさない
 
   if (quick) { // 普通のサイコロモード: 小さめの気持ちよさだけ
     sCoin();
@@ -582,7 +701,6 @@ async function celebrate({ dice, idxs, vals, n, quick, zoro, allMax, allOne, rea
     await showBanner({ title: '大凶…', num: results.join(' '), sub: `TOTAL ${total} ── 出直そう`, cls: 'doom', dur: 3200 });
   } else if (allMax && n >= 2) {
     // ---- 天元突破（全リール最大値） ----
-    await pchunEffect();
     flash('#fff', 1, 350);
     sExplosion(); sFanfare(3);
     shake('shake-l'); vibrate([50, 60, 50, 60, 150]);
@@ -598,7 +716,6 @@ async function celebrate({ dice, idxs, vals, n, quick, zoro, allMax, allOne, rea
     document.body.classList.remove('jackpot-mode');
   } else if (zoro && n >= 2) {
     // ---- JACKPOT（ゾロ目） ----
-    await pchunEffect();
     flash('#fff', 0.95, 320);
     sExplosion(); sFanfare(3);
     shake('shake-l'); vibrate([40, 60, 40, 60, 120]);
@@ -613,9 +730,8 @@ async function celebrate({ dice, idxs, vals, n, quick, zoro, allMax, allOne, rea
     $('#total').classList.add('rainbow');
     await showBanner({ title: 'JACKPOT!!', num: results.join(' '), sub: total !== null ? `TOTAL ${total} ── ゾロ目` : '全スロット一致!!', cls: 'mega', dur: 5000 });
     document.body.classList.remove('jackpot-mode');
-  } else if (n === 1 && !isChoice(dice[0]) && idxs[0] === dice[0] - 1) {
+  } else if (crit) {
     // ---- クリティカル（単騎で最大値） ----
-    if (dice[0] >= 10) await pchunEffect();
     flash('#fff', 0.8, 300);
     sExplosion(); sFanfare(2);
     shake('shake-l'); vibrate([40, 60, 100]);
@@ -630,32 +746,65 @@ async function celebrate({ dice, idxs, vals, n, quick, zoro, allMax, allOne, rea
     flash('#7b2dff', 0.3, 260);
     shake('shake-s');
     await showBanner({ title: 'ファンブル…', num: '1', sub: 'どんまい', cls: 'doom', dur: 2600 });
+  } else if (pchunDone) {
+    // ---- FEVER!!（プチュン当選・結果は通常）: 超豪華演出 ----
+    sFanfare(3);
+    strobe(['#ffd24d', '#ff2d95', '#59f3ff', '#ffffff'], 6, 110, 0.3);
+    sparkBurst(W / 2, H / 2, 110, RAINBOW, 11);
+    confettiRain(200, RAINBOW);
+    goldRain(90);
+    fireworksBarrage(9, RAINBOW, 2200);
+    for (let i = 0; i < 7; i++) sCoin(0.4 + i * 0.13);
+    shake('shake-l'); vibrate([40, 60, 40, 60, 100]);
+    document.body.classList.add('jackpot-mode');
+    $('#total').classList.add('rainbow');
+    await showBanner({
+      title: 'FEVER!!',
+      num: total !== null && vals.length > 1 ? String(total) : results.join(' '),
+      sub: vals.length > 1 ? results.join(' ／ ') : 'プチュン降臨',
+      cls: 'mega', dur: 4200,
+    });
+    document.body.classList.remove('jackpot-mode');
   } else if (reach) {
     // ---- リーチ外れ: ズコー ----
     sZuko();
+    strobe(['#7b2dff', '#ff004c'], 3, 130, 0.2);
     shake('shake-s');
     toast('惜しい！！ あと1つだった…');
-    sparkBurst(cx, cy, 20, THEME, 5);
+    sparkBurst(cx, cy, 30, THEME, 5);
+    confettiRain(20, ['#7b2dff', '#556']);
   } else {
-    // ---- 通常: 合計の高さに応じたバースト（数字スロットがなければ中間の派手さ） ----
+    // ---- 通常でも派手派手チカチカ ----
     const numFaces = dice.filter((s) => !isChoice(s));
     const maxTotal = numFaces.reduce((a, b) => a + b, 0);
     const ratio = total !== null && maxTotal ? total / maxTotal : 0.5;
-    sCoin();
-    if (ratio > 0.8) { sFanfare(1); confettiRain(50, THEME); }
-    sparkBurst(cx, cy, Math.round(20 + 60 * ratio), THEME, 5 + 4 * ratio);
+    sFanfare(1);
+    sCoin(); sCoin(0.15); sCoin(0.3);
+    strobe([THEME[0], THEME[1], THEME[2]], 3, 110, 0.2);
+    sparkBurst(cx, cy, Math.round(50 + 90 * ratio), RAINBOW, 6 + 5 * ratio);
     ring(cx, cy, THEME[0]);
-    vibrate(20);
+    setTimeout(() => ring(cx, cy, THEME[1], 220), 130);
+    confettiRain(Math.round(40 + 80 * ratio), RAINBOW);
+    fountain(W * 0.22, H, THEME, 18);
+    fountain(W * 0.78, H, THEME, 18);
+    shake('shake-m');
+    vibrate(35);
+    $('#total').classList.add('rainbow');
+    setTimeout(() => $('#total').classList.remove('rainbow'), 1600);
   }
 }
 
 // ---------------- controls ----------------
-$('#spinBtn').addEventListener('click', () => spin(newSeed()));
+$('#spinBtn').addEventListener('click', () => {
+  if (manualStopNext) { manualStopNext(); return; } // 手動モード中は STOP として働く
+  spin(newSeed());
+});
 window.addEventListener('keydown', (e) => {
   if (e.key === ' ' || e.key === 'Enter') {
     if (!$('#confModal').classList.contains('hidden')) return;
     if (!$('#replayGate').classList.contains('hidden')) return;
     e.preventDefault();
+    if (manualStopNext) { manualStopNext(); return; }
     spin(newSeed());
   }
 });
@@ -663,8 +812,9 @@ $('#replayBtn').addEventListener('click', () => {
   if (busy || !lastRoll) return;
   conf.dice = [...lastRoll.d];
   conf.quick = !!lastRoll.q;
+  conf.pchun = lastRoll.p ?? conf.pchun;
   buildReels();
-  spin(lastRoll.x);
+  spin(lastRoll.x, { forceAuto: true }); // 再演は自動進行で完全再現
 });
 
 // ---------------- settings ----------------
@@ -692,6 +842,10 @@ const slotInputValue = (s) => (isChoice(s) ? s.join('、') : String(s));
 function renderConf() {
   $('#diceCount').textContent = conf.dice.length;
   $('#quickChk').checked = conf.quick;
+  $('#modeAuto').classList.toggle('on', conf.mode !== 'manual');
+  $('#modeManual').classList.toggle('on', conf.mode === 'manual');
+  $('#pchunRange').value = conf.pchun;
+  $('#pchunVal').textContent = conf.pchun;
   const list = $('#faceList');
   list.innerHTML = '';
   conf.dice.forEach((s, i) => {
@@ -740,6 +894,12 @@ $('#presets').addEventListener('click', (e) => {
   } catch (_) {}
 });
 $('#quickChk').addEventListener('change', (e) => { conf.quick = e.target.checked; });
+$('#modeAuto').addEventListener('click', () => { conf.mode = 'auto'; renderConf(); });
+$('#modeManual').addEventListener('click', () => { conf.mode = 'manual'; renderConf(); });
+$('#pchunRange').addEventListener('input', (e) => {
+  conf.pchun = Math.min(100, Math.max(0, Math.round(+e.target.value)));
+  $('#pchunVal').textContent = conf.pchun;
+});
 
 // ---------------- share ----------------
 function shareUrl(obj) {
@@ -755,11 +915,12 @@ async function copyUrl(url, label) {
   sCoin();
 }
 $('#shareSetup').addEventListener('click', () => {
-  copyUrl(shareUrl({ v: 1, m: 's', d: conf.dice, q: conf.quick ? 1 : 0 }), '設定の');
+  copyUrl(shareUrl({ v: 1, m: 's', d: conf.dice, q: conf.quick ? 1 : 0, p: conf.pchun, md: conf.mode === 'manual' ? 'm' : 'a' }), '設定の');
 });
 $('#shareResult').addEventListener('click', () => {
   if (!lastRoll) return;
-  copyUrl(shareUrl({ v: 1, m: 'r', d: lastRoll.d, q: lastRoll.q, x: lastRoll.x }), '結果の');
+  // p はプチュン抽選の再現に必須。md は設定復元用（再生自体は常に自動進行）
+  copyUrl(shareUrl({ v: 1, m: 'r', d: lastRoll.d, q: lastRoll.q, x: lastRoll.x, p: lastRoll.p, md: lastRoll.md }), '結果の');
 });
 
 // ---------------- init from URL ----------------
@@ -773,6 +934,8 @@ $('#shareResult').addEventListener('click', () => {
   }
   conf.dice = st.d.map(normalizeSlot);
   conf.quick = !!st.q;
+  if (Number.isInteger(st.p) && st.p >= 0 && st.p <= 100) conf.pchun = st.p;
+  if (st.md === 'm') conf.mode = 'manual';
   if (st.m === 'r' && Number.isInteger(st.x)) {
     pendingSeed = st.x >>> 0;
     $('#replayDesc').textContent = `${diceDesc(conf.dice)}${conf.quick ? '（クイック）' : ''} ── 演出ごと完全再現します`;
@@ -784,7 +947,7 @@ $('#shareResult').addEventListener('click', () => {
 $('#replayPlay').addEventListener('click', () => {
   $('#replayGate').classList.add('hidden');
   ac();
-  if (pendingSeed !== null) spin(pendingSeed);
+  if (pendingSeed !== null) spin(pendingSeed, { forceAuto: true }); // 共有結果は自動進行で完全再現
 });
 $('#replaySkip').addEventListener('click', () => {
   $('#replayGate').classList.add('hidden');
