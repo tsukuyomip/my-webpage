@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>DOPAMINE SLOT 🎰</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🎲</text></svg>">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <div id="app">
+    <header class="topbar">
+      <a class="home" href="../" title="トップへ">←</a>
+      <div class="brand">DOPAMINE&nbsp;SLOT<span class="bolt">🎲</span></div>
+      <button id="confBtn" type="button" title="設定">⚙ 設定</button>
+    </header>
+
+    <div class="slotbox">
+      <div class="reels" id="reels"></div>
+      <div class="totalrow">
+        <span class="tlabel">TOTAL</span>
+        <span id="total">--</span>
+      </div>
+      <div class="detail" id="detail">&nbsp;</div>
+    </div>
+
+    <button id="spinBtn" type="button"><span>🎰 SPIN</span></button>
+
+    <div class="sharerow">
+      <button id="replayBtn" type="button" disabled>🔁 再演</button>
+      <button id="shareResult" type="button" disabled>📤 結果を共有</button>
+      <button id="shareSetup" type="button">📤 設定を共有</button>
+    </div>
+
+    <footer class="hint">ゾロ目でJACKPOT ── 全部最大値なら「天元突破」</footer>
+  </div>
+
+  <!-- 設定モーダル -->
+  <div id="confModal" class="hidden">
+    <div class="cpanel">
+      <button class="cclose" id="confClose" type="button">✕</button>
+      <h2>⚙ スロット設定</h2>
+      <div class="crow">
+        <span>スロット数</span>
+        <div class="stepper">
+          <button id="diceMinus" type="button">－</button>
+          <b id="diceCount">3</b>
+          <button id="dicePlus" type="button">＋</button>
+        </div>
+      </div>
+      <div class="crow"><span>各スロットの面数（2〜1000）</span></div>
+      <div id="faceList" class="facelist"></div>
+      <div class="crow"><span>プリセット</span></div>
+      <div class="presets" id="presets">
+        <button data-p="6" type="button">🎲 1d6</button>
+        <button data-p="6,6" type="button">🎲 2d6</button>
+        <button data-p="6,6,6" type="button">🎲 3d6</button>
+        <button data-p="7,7,7" type="button">🎰 スロット3連</button>
+        <button data-p="20" type="button">⚔ d20</button>
+        <button data-p="100" type="button">💯 d100</button>
+      </div>
+      <label class="crow quickrow">
+        <span>クイックモード（演出オフ・普通のサイコロ）</span>
+        <input type="checkbox" id="quickChk">
+      </label>
+    </div>
+  </div>
+
+  <!-- 共有された結果の再生ゲート -->
+  <div id="replayGate" class="hidden">
+    <div class="rpanel">
+      <div class="rtitle">🎁 共有された結果</div>
+      <div class="rdesc" id="replayDesc"></div>
+      <button id="replayPlay" type="button">▶ 再生する</button>
+      <button id="replaySkip" type="button">設定だけ使う</button>
+    </div>
+  </div>
+
+  <!-- 大演出バナー -->
+  <div id="banner" class="hidden">
+    <div class="rays"></div>
+    <div class="b-inner">
+      <div class="b-title" id="bTitle"></div>
+      <div class="b-num" id="bNum"></div>
+      <div class="b-sub" id="bSub">TAP TO CONTINUE</div>
+    </div>
+  </div>
+
+  <!-- プチュン -->
+  <div id="pchun" class="hidden"><div class="beam" id="pchunBeam"></div></div>
+
+  <div id="toast" class="hidden"></div>
+  <div id="flash"></div>
+  <canvas id="fx"></canvas>
+
+  <script src="app.js"></script>
+</body>
+</html>
