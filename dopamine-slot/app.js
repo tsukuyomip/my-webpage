@@ -330,21 +330,39 @@ async function showBanner({ title, num, sub, cls = '', dur = 4000, rainbowTitle 
 }
 
 // ---------------- state ----------------
+// スロット定義: number = n面ダイス（出目 1..n） / string[] = 選択肢リスト
 const conf = { dice: [6, 6, 6], quick: false };
 let busy = false;
 let lastRoll = null;   // { d:[...], q:0|1, x:seed } 直前のロール（共有・再演用スナップショット）
 let pendingSeed = null;
 
 const MAX_DICE = 8, MIN_FACES = 2, MAX_FACES = 1000;
+const MAX_CHOICES = 50, MAX_CHOICE_LEN = 50;
 const clampFaces = (v) => Math.min(MAX_FACES, Math.max(MIN_FACES, Math.floor(v) || MIN_FACES));
+const isChoice = (s) => Array.isArray(s);
+const slotSize = (s) => (isChoice(s) ? s.length : s);           // 選択肢の数
+const slotDisp = (s, idx) => (isChoice(s) ? s[idx] : String(idx + 1)); // idx番目の表示
+function sanitizeChoices(arr) {
+  const out = arr.map((v) => String(v).trim().slice(0, MAX_CHOICE_LEN)).filter(Boolean).slice(0, MAX_CHOICES);
+  return out.length >= 2 ? out : null;
+}
+function normalizeSlot(v) {
+  if (typeof v === 'number' && Number.isInteger(v) && v >= MIN_FACES && v <= MAX_FACES) return v;
+  if (Array.isArray(v)) return sanitizeChoices(v);
+  return null;
+}
 function validDice(d) {
   return Array.isArray(d) && d.length >= 1 && d.length <= MAX_DICE &&
-    d.every((f) => Number.isInteger(f) && f >= MIN_FACES && f <= MAX_FACES);
+    d.every((s) => normalizeSlot(s) !== null);
 }
 function diceDesc(d = conf.dice) {
+  const partsD = [];
   const g = {};
-  for (const f of d) g[f] = (g[f] || 0) + 1;
-  return Object.entries(g).map(([f, n]) => `${n}d${f}`).join(' + ');
+  for (const s of d) {
+    if (isChoice(s)) partsD.push(`${s.length}択`);
+    else g[s] = (g[s] || 0) + 1;
+  }
+  return Object.entries(g).map(([f, n]) => `${n}d${f}`).concat(partsD).join(' + ');
 }
 function newSeed() {
   const a = new Uint32Array(1);
@@ -355,31 +373,45 @@ function newSeed() {
 // ---------------- reels ----------------
 const reelsEl = $('#reels');
 let reelEls = [];
+function slotMaxLen(s) {
+  return isChoice(s) ? Math.max(...s.map((v) => v.length)) : String(s).length;
+}
 function buildReels() {
   reelsEl.innerHTML = '';
-  reelEls = conf.dice.map((f, i) => {
+  reelEls = conf.dice.map((s, i) => {
     const reel = document.createElement('div');
     reel.className = 'reel';
     reel.innerHTML =
       '<div class="window"><div class="strip">' +
       '<div class="cell side">-</div><div class="cell cur">-</div><div class="cell side">-</div>' +
       '</div></div>' +
-      `<div class="dlab">d${f}</div>`;
+      `<div class="dlab">${isChoice(s) ? `${s.length}択` : `d${s}`}</div>`;
+    // 長い選択肢はリール窓を広げる
+    const len = slotMaxLen(s);
+    if (len > 3) reel.querySelector('.window').style.width = `${Math.min(170, 64 + len * 10)}px`;
     reelsEl.appendChild(reel);
     return reel;
   });
+  const hasNum = conf.dice.some((s) => !isChoice(s));
+  $('.tlabel').textContent = hasNum ? 'TOTAL' : 'RESULT';
   $('#total').textContent = '--';
-  $('#total').classList.remove('rainbow');
+  $('#total').classList.remove('rainbow', 'str');
   $('#detail').innerHTML = '&nbsp;';
 }
-function setReel(i, val, faces) {
+function fontFor(text) {
+  const L = String(text).length;
+  return L <= 2 ? '38px' : L <= 3 ? '26px' : L <= 5 ? '19px' : L <= 8 ? '15px' : '12px';
+}
+function setReel(i, slot, idx) {
+  const m = slotSize(slot);
   const cells = reelEls[i].querySelectorAll('.cell');
-  const prev = val - 1 < 1 ? faces : val - 1;
-  const next = val + 1 > faces ? 1 : val + 1;
+  const prev = slotDisp(slot, (idx - 1 + m) % m);
+  const next = slotDisp(slot, (idx + 1) % m);
+  const cur = slotDisp(slot, idx);
   cells[0].textContent = prev;
-  cells[1].textContent = val;
+  cells[1].textContent = cur;
   cells[2].textContent = next;
-  cells[1].style.fontSize = String(val).length >= 3 ? '26px' : '38px';
+  cells[1].style.fontSize = fontFor(cur);
 }
 function reelCenter(i) {
   const r = reelEls[i].querySelector('.window').getBoundingClientRect();
@@ -389,17 +421,18 @@ function reelCenter(i) {
 // ---------------- spin engine ----------------
 let spinTimers = [];
 let tickTimer = null;
-function startReelVisual(i, faces, visRng, tickMs = 55) {
+function startReelVisual(i, slot, visRng, tickMs = 55) {
   reelEls[i].classList.add('spinning');
   reelEls[i].classList.remove('landed', 'hitglow', 'reachfocus');
-  const timer = setInterval(() => setReel(i, 1 + Math.floor(visRng() * faces), faces), tickMs);
+  const m = slotSize(slot);
+  const timer = setInterval(() => setReel(i, slot, Math.floor(visRng() * m)), tickMs);
   spinTimers[i] = timer;
   return timer;
 }
-function landReel(i, val, faces, { strong = true } = {}) {
+function landReel(i, slot, idx, { strong = true } = {}) {
   clearInterval(spinTimers[i]);
   reelEls[i].classList.remove('spinning');
-  setReel(i, val, faces);
+  setReel(i, slot, idx);
   reelEls[i].classList.remove('landed');
   void reelEls[i].offsetWidth;
   reelEls[i].classList.add('landed');
@@ -425,17 +458,24 @@ async function spin(seed) {
   const n = dice.length;
 
   // ---- 結果と演出分岐をシードから決定論的に導出 ----
+  // 各スロットは 0..(選択肢数-1) のインデックスで抽選し、表示文字列で揃い判定する
+  // （数字ダイスも文字列スロットも同じ土俵: '4'='4' も 'うどん'='うどん' もゾロ目）
   const rng = mulberry32(seed >>> 0);
-  const results = dice.map((f) => 1 + Math.floor(rng() * f));
+  const idxs = dice.map((s) => Math.floor(rng() * slotSize(s)));
+  const vals = dice.map((s, i) => slotDisp(s, idxs[i]));
   const rngFx = mulberry32((seed ^ 0x9e3779b9) >>> 0); // 演出バリエーション用
-  const zoro = n >= 2 && results.every((v) => v === results[0]);
-  const allMax = results.every((v, i) => v === dice[i]);
-  const allOne = n >= 2 && results.every((v) => v === 1);
-  const canMatchLast = results[0] <= dice[n - 1];
+  const allNum = dice.every((s) => !isChoice(s));
+  const zoro = n >= 2 && vals.every((v) => v === vals[0]);
+  const allMax = allNum && idxs.every((x, i) => x === slotSize(dice[i]) - 1);
+  const allOne = allNum && n >= 2 && idxs.every((x) => x === 0);
+  const lastSlot = dice[n - 1];
+  const canMatchLast = isChoice(lastSlot)
+    ? lastSlot.includes(vals[0])
+    : (/^\d+$/.test(vals[0]) && +vals[0] >= 1 && +vals[0] <= lastSlot);
   const reach = !quick && n >= 2 &&
-    results.slice(0, -1).every((v) => v === results[0]) && canMatchLast &&
+    vals.slice(0, -1).every((v) => v === vals[0]) && canMatchLast &&
     (n >= 3 || zoro || rngFx() < 0.35);
-  const nudgeBack = zoro && dice[n - 1] >= 3 && rngFx() < 0.5; // 通り過ぎて戻る演出
+  const nudgeBack = zoro && slotSize(lastSlot) >= 3 && rngFx() < 0.5; // 通り過ぎて戻る演出
 
   try {
     $('#total').textContent = '--';
@@ -446,7 +486,7 @@ async function spin(seed) {
     sLever();
     vibrate(20);
     spinTimers = [];
-    dice.forEach((f, i) => startReelVisual(i, f, mulberry32((seed + i * 7919 + 1) >>> 0)));
+    dice.forEach((s, i) => startReelVisual(i, s, mulberry32((seed + i * 7919 + 1) >>> 0)));
     tickTimer = setInterval(sSpinTick, 75);
 
     const stopBase = quick ? 250 : 900;
@@ -464,23 +504,23 @@ async function spin(seed) {
         clearInterval(hb);
         if (nudgeBack) {
           // 当たりの1つ先で止まったフリ → 戻ってジャスト
-          landReel(i, results[i] % dice[i] + 1, dice[i]);
+          landReel(i, dice[i], (idxs[i] + 1) % slotSize(dice[i]));
           await sleep(550);
           sNudge();
-          landReel(i, results[i], dice[i]);
+          landReel(i, dice[i], idxs[i]);
         } else {
-          landReel(i, results[i], dice[i]);
+          landReel(i, dice[i], idxs[i]);
         }
         document.body.classList.remove('reach');
         reelEls[i].classList.remove('reachfocus');
       } else {
         await sleep(i === 0 ? stopBase : stopGap);
-        landReel(i, results[i], dice[i]);
+        landReel(i, dice[i], idxs[i]);
       }
     }
     clearInterval(tickTimer);
 
-    await celebrate({ dice, results, n, quick, zoro, allMax, allOne, reach });
+    await celebrate({ dice, idxs, vals, n, quick, zoro, allMax, allOne, reach });
 
     lastRoll = { d: dice, q: quick ? 1 : 0, x: seed >>> 0 };
   } finally {
@@ -495,19 +535,35 @@ async function spin(seed) {
 }
 
 // ---------------- celebrations ----------------
-function showTotal(results) {
-  const total = results.reduce((a, b) => a + b, 0);
+function showTotal(dice, idxs, vals) {
+  // 数字スロットの合計。数字がなければ RESULT（単独なら選ばれた文字列）を大きく出す
+  const nums = [];
+  dice.forEach((s, i) => { if (!isChoice(s)) nums.push(idxs[i] + 1); });
   const el = $('#total');
-  el.textContent = total.toLocaleString();
+  el.classList.remove('str');
+  let total = null;
+  if (nums.length) {
+    total = nums.reduce((a, b) => a + b, 0);
+    el.textContent = total.toLocaleString();
+  } else if (vals.length === 1) {
+    el.textContent = vals[0];
+    el.classList.add('str');
+  } else {
+    el.textContent = '—';
+  }
   el.classList.remove('pop');
   void el.offsetWidth;
   el.classList.add('pop');
-  $('#detail').textContent = results.length > 1 ? results.join(' + ') + ` = ${total}` : `出目: ${results[0]}`;
+  const detail = $('#detail');
+  if (vals.length === 1) detail.innerHTML = isChoice(dice[0]) ? '&nbsp;' : `出目: ${vals[0]}`;
+  else if (nums.length === vals.length) detail.textContent = vals.join(' + ') + ` = ${total}`;
+  else detail.textContent = vals.join(' ／ ');
   return total;
 }
 
-async function celebrate({ dice, results, n, quick, zoro, allMax, allOne, reach }) {
-  const total = showTotal(results);
+async function celebrate({ dice, idxs, vals, n, quick, zoro, allMax, allOne, reach }) {
+  const total = showTotal(dice, idxs, vals);
+  const results = vals; // 表示文字列ベース
   const box = $('.slotbox').getBoundingClientRect();
   const cx = box.left + box.width / 2, cy = box.top + box.height / 2;
 
@@ -555,9 +611,9 @@ async function celebrate({ dice, results, n, quick, zoro, allMax, allOne, reach 
     reelEls.forEach((r) => r.classList.add('hitglow'));
     document.body.classList.add('jackpot-mode');
     $('#total').classList.add('rainbow');
-    await showBanner({ title: 'JACKPOT!!', num: results.join(' '), sub: `TOTAL ${total} ── ゾロ目`, cls: 'mega', dur: 5000 });
+    await showBanner({ title: 'JACKPOT!!', num: results.join(' '), sub: total !== null ? `TOTAL ${total} ── ゾロ目` : '全スロット一致!!', cls: 'mega', dur: 5000 });
     document.body.classList.remove('jackpot-mode');
-  } else if (n === 1 && results[0] === dice[0]) {
+  } else if (n === 1 && !isChoice(dice[0]) && idxs[0] === dice[0] - 1) {
     // ---- クリティカル（単騎で最大値） ----
     if (dice[0] >= 10) await pchunEffect();
     flash('#fff', 0.8, 300);
@@ -568,7 +624,7 @@ async function celebrate({ dice, results, n, quick, zoro, allMax, allOne, reach 
     fireworksBarrage(6, RAINBOW, 1600);
     $('#total').classList.add('rainbow');
     await showBanner({ title: 'CRITICAL!!', num: String(results[0]), sub: `d${dice[0]} 最大値`, cls: 'mega', dur: 4200 });
-  } else if (n === 1 && results[0] === 1) {
+  } else if (n === 1 && !isChoice(dice[0]) && idxs[0] === 0) {
     // ---- ファンブル ----
     sZuko();
     flash('#7b2dff', 0.3, 260);
@@ -581,9 +637,10 @@ async function celebrate({ dice, results, n, quick, zoro, allMax, allOne, reach 
     toast('惜しい！！ あと1つだった…');
     sparkBurst(cx, cy, 20, THEME, 5);
   } else {
-    // ---- 通常: 合計の高さに応じたバースト ----
-    const maxTotal = dice.reduce((a, b) => a + b, 0);
-    const ratio = total / maxTotal;
+    // ---- 通常: 合計の高さに応じたバースト（数字スロットがなければ中間の派手さ） ----
+    const numFaces = dice.filter((s) => !isChoice(s));
+    const maxTotal = numFaces.reduce((a, b) => a + b, 0);
+    const ratio = total !== null && maxTotal ? total / maxTotal : 0.5;
     sCoin();
     if (ratio > 0.8) { sFanfare(1); confettiRain(50, THEME); }
     sparkBurst(cx, cy, Math.round(20 + 60 * ratio), THEME, 5 + 4 * ratio);
@@ -621,18 +678,37 @@ $('#confBtn').addEventListener('click', () => {
 $('#confClose').addEventListener('click', () => confModal.classList.add('hidden'));
 confModal.addEventListener('pointerdown', (e) => { if (e.target === confModal) confModal.classList.add('hidden'); });
 
+// 入力文字列 → スロット定義。"6" は d6、「、」/カンマ/改行区切りは選択肢リスト
+function parseSlotInput(str) {
+  const items = String(str).split(/[、,，\n]/).map((s) => s.trim()).filter(Boolean);
+  if (items.length === 0) return null;
+  if (items.length === 1) {
+    return /^\d+$/.test(items[0]) ? clampFaces(+items[0]) : null;
+  }
+  return sanitizeChoices(items);
+}
+const slotInputValue = (s) => (isChoice(s) ? s.join('、') : String(s));
+
 function renderConf() {
   $('#diceCount').textContent = conf.dice.length;
   $('#quickChk').checked = conf.quick;
   const list = $('#faceList');
   list.innerHTML = '';
-  conf.dice.forEach((f, i) => {
+  conf.dice.forEach((s, i) => {
     const d = document.createElement('div');
     d.className = 'fitem';
-    d.innerHTML = `<label>スロット${i + 1}</label><input type="number" min="2" max="1000" value="${f}" inputmode="numeric">`;
-    d.querySelector('input').addEventListener('change', (e) => {
-      conf.dice[i] = clampFaces(+e.target.value);
-      e.target.value = conf.dice[i];
+    d.innerHTML = `<label>スロット${i + 1}</label><input type="text" value="" placeholder="6 ／ うどん、そば、食べない">`;
+    const input = d.querySelector('input');
+    input.value = slotInputValue(s);
+    input.addEventListener('change', () => {
+      const parsed = parseSlotInput(input.value);
+      if (parsed === null) {
+        toast('数字1つ（面数）か、「、」区切りで2つ以上の選択肢を入れてください');
+        input.value = slotInputValue(conf.dice[i]);
+        return;
+      }
+      conf.dice[i] = parsed;
+      input.value = slotInputValue(parsed);
       buildReels();
     });
     list.appendChild(d);
@@ -646,16 +722,22 @@ $('#diceMinus').addEventListener('click', () => {
 });
 $('#dicePlus').addEventListener('click', () => {
   if (conf.dice.length >= MAX_DICE) return;
-  conf.dice.push(conf.dice.at(-1));
+  const last = conf.dice.at(-1);
+  conf.dice.push(isChoice(last) ? [...last] : last);
   tone({ freq: 500, end: 700, dur: 0.08, type: 'triangle', vol: 0.15 });
   buildReels(); renderConf();
 });
 $('#presets').addEventListener('click', (e) => {
   const btn = e.target.closest('button[data-p]');
   if (!btn) return;
-  conf.dice = btn.dataset.p.split(',').map((v) => clampFaces(+v));
-  sChime();
-  buildReels(); renderConf();
+  try {
+    const d = JSON.parse(btn.dataset.p).map(normalizeSlot);
+    if (d.length && d.every((s) => s !== null)) {
+      conf.dice = d;
+      sChime();
+      buildReels(); renderConf();
+    }
+  } catch (_) {}
 });
 $('#quickChk').addEventListener('change', (e) => { conf.quick = e.target.checked; });
 
@@ -689,7 +771,7 @@ $('#shareResult').addEventListener('click', () => {
     toast('⚠ 共有リンクが壊れているか、改ざんされています', 4000);
     return;
   }
-  conf.dice = st.d.map(clampFaces);
+  conf.dice = st.d.map(normalizeSlot);
   conf.quick = !!st.q;
   if (st.m === 'r' && Number.isInteger(st.x)) {
     pendingSeed = st.x >>> 0;
