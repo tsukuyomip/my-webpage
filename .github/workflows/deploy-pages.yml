@@ -30,9 +30,16 @@ jobs:
             media-vault/package-lock.json
             gkms-sprtcrd/package-lock.json
             train-sandbox/package-lock.json
+            make-medley/package-lock.json
 
       - name: Build mixer
         working-directory: mixer
+        run: |
+          npm ci
+          npm run build
+
+      - name: Build make-medley
+        working-directory: make-medley
         run: |
           npm ci
           npm run build
@@ -55,11 +62,12 @@ jobs:
           npm ci
           npm run build
 
-      - name: Assemble site (root static page + /mixer/ + /media-vault/ + /gkms-sprtcrd/ + /train-sandbox/ + /dopamine_calc/ + /dopamine-slot/)
+      - name: Assemble site (root static page + /mixer/ + /make-medley/ + /media-vault/ + /gkms-sprtcrd/ + /train-sandbox/ + /dopamine_calc/ + /dopamine-slot/)
         run: |
-          mkdir -p _site/mixer _site/media-vault _site/gkms-sprtcrd _site/train-sandbox _site/dopamine_calc _site/dopamine-slot
+          mkdir -p _site/mixer _site/make-medley _site/media-vault _site/gkms-sprtcrd _site/train-sandbox _site/dopamine_calc _site/dopamine-slot
           cp index.html style.css _site/
           cp -r mixer/dist/* _site/mixer/
+          cp -r make-medley/dist/* _site/make-medley/
           cp -r media-vault/dist/* _site/media-vault/
           cp -r gkms-sprtcrd/dist/* _site/gkms-sprtcrd/
           cp -r train-sandbox/dist/* _site/train-sandbox/
