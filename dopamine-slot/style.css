@@ -179,6 +179,46 @@ body.jackpot-mode::after {
 }
 .reel.spinning .strip { animation: stripjig 0.09s linear infinite; filter: blur(1.3px); }
 @keyframes stripjig { 0% { transform: translateY(-5px); } 100% { transform: translateY(5px); } }
+/* 回転中: 全体が生きて光る */
+body.spinmode { animation-duration: 4s; }
+body.spinmode .slotbox { animation: boxlive 0.5s ease-in-out infinite; }
+@keyframes boxlive {
+  50% {
+    box-shadow:
+      0 0 60px color-mix(in srgb, var(--pink) 40%, transparent),
+      0 18px 50px rgba(0, 0, 0, 0.45);
+  }
+}
+body.spinmode .reel.spinning .window {
+  animation: reelhue 0.9s linear infinite;
+}
+@keyframes reelhue {
+  0% { border-color: var(--gold); }
+  33% { border-color: var(--pink); }
+  66% { border-color: var(--cyan); }
+  100% { border-color: var(--gold); }
+}
+/* 手動モード: タップで止められるリール */
+.reel.stoppable { cursor: pointer; }
+.reel.stoppable .window {
+  animation: stoppulse 0.7s ease-in-out infinite;
+}
+@keyframes stoppulse {
+  50% {
+    box-shadow: inset 0 6px 14px rgba(0, 0, 0, 0.6), 0 0 30px color-mix(in srgb, var(--cyan) 80%, transparent);
+    transform: scale(1.04);
+  }
+}
+.reel.stoppable::after {
+  content: "TAP!";
+  display: block;
+  text-align: center;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: 1px;
+  color: var(--cyan);
+  animation: vignette 0.7s ease-in-out infinite;
+}
 .reel.reachfocus .window {
   border-color: #ff3d5e;
   box-shadow: inset 0 6px 14px rgba(0, 0, 0, 0.6), 0 0 30px rgba(255, 20, 80, 0.8);
@@ -480,6 +520,27 @@ body.jackpot-mode::after {
 .presets button:active { transform: scale(0.93); }
 .quickrow { cursor: pointer; }
 .quickrow input { width: 22px; height: 22px; accent-color: var(--pink); }
+.seg { display: flex; gap: 6px; }
+.seg button {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--txt);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid color-mix(in srgb, var(--cyan) 40%, transparent);
+  border-radius: 999px;
+  padding: 8px 18px;
+  cursor: pointer;
+  opacity: 0.55;
+}
+.seg button.on {
+  opacity: 1;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--pink) 55%, #000), color-mix(in srgb, var(--gold) 45%, #000));
+  border-color: var(--gold);
+  box-shadow: 0 0 12px color-mix(in srgb, var(--gold) 45%, transparent);
+}
+input.wide { width: 100%; accent-color: var(--pink); margin: 4px 0; }
+.modehint { margin-top: 0; opacity: 0.65; font-weight: 400; }
 
 /* ---------------- 再生ゲート ---------------- */
 #replayGate {
