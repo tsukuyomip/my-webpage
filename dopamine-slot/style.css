@@ -156,18 +156,26 @@ body.jackpot-mode::after {
 .cell {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-weight: 900;
-  line-height: 1;
+  line-height: 1.15;
+  max-width: 94%;
+  text-align: center;
 }
 .cell.side {
-  font-size: 17px;
+  font-size: 14px;
   opacity: 0.28;
   padding: 3px 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .cell.cur {
   font-size: 38px;
   padding: 4px 0;
   color: var(--gold);
   text-shadow: 0 0 14px color-mix(in srgb, var(--gold) 80%, transparent);
+  word-break: break-all;
+  max-height: 66px;
+  overflow: hidden;
 }
 .reel.spinning .strip { animation: stripjig 0.09s linear infinite; filter: blur(1.3px); }
 @keyframes stripjig { 0% { transform: translateY(-5px); } 100% { transform: translateY(5px); } }
@@ -210,6 +218,11 @@ body.jackpot-mode::after {
 }
 #total.pop { animation: totalpop 0.45s cubic-bezier(0.2, 2.4, 0.4, 1); }
 @keyframes totalpop { 0% { transform: scale(2.6); } 100% { transform: scale(1); } }
+#total.str {
+  font-size: clamp(20px, 6.5vw, 30px);
+  word-break: break-all;
+  font-family: inherit;
+}
 #total.rainbow {
   background: linear-gradient(90deg, #ff004c, #ff8000, #ffee00, #00ff6a, #00cfff, #7b2dff, #ff004c);
   background-size: 300%;
@@ -434,23 +447,24 @@ body.jackpot-mode::after {
 .stepper b { font-size: 20px; min-width: 28px; text-align: center; }
 .facelist {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: 1fr;
   gap: 8px;
 }
-.facelist .fitem { display: flex; flex-direction: column; align-items: center; gap: 3px; }
-.facelist label { font-size: 10px; opacity: 0.6; font-weight: 800; }
+.facelist .fitem { display: flex; align-items: center; gap: 8px; }
+.facelist label { font-size: 10px; opacity: 0.6; font-weight: 800; flex: 0 0 58px; }
 .facelist input {
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   font: inherit;
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 800;
-  text-align: center;
   color: var(--gold);
   background: rgba(0, 0, 0, 0.4);
   border: 1px solid color-mix(in srgb, var(--gold) 40%, transparent);
   border-radius: 10px;
-  padding: 7px 2px;
+  padding: 8px 10px;
 }
+.crow small { font-weight: 400; opacity: 0.65; }
 .presets { display: flex; flex-wrap: wrap; gap: 8px; }
 .presets button {
   font: inherit;

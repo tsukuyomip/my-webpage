@@ -49,16 +49,19 @@
           <button id="dicePlus" type="button">＋</button>
         </div>
       </div>
-      <div class="crow"><span>各スロットの面数（2〜1000）</span></div>
+      <div class="crow"><span>各スロットの中身<br><small>数字1つ = n面ダイス ／ 「、」区切り = 選択肢リスト</small></span></div>
       <div id="faceList" class="facelist"></div>
       <div class="crow"><span>プリセット</span></div>
       <div class="presets" id="presets">
-        <button data-p="6" type="button">🎲 1d6</button>
-        <button data-p="6,6" type="button">🎲 2d6</button>
-        <button data-p="6,6,6" type="button">🎲 3d6</button>
-        <button data-p="7,7,7" type="button">🎰 スロット3連</button>
-        <button data-p="20" type="button">⚔ d20</button>
-        <button data-p="100" type="button">💯 d100</button>
+        <button data-p="[6]" type="button">🎲 1d6</button>
+        <button data-p="[6,6]" type="button">🎲 2d6</button>
+        <button data-p="[6,6,6]" type="button">🎲 3d6</button>
+        <button data-p="[7,7,7]" type="button">🎰 スロット3連</button>
+        <button data-p="[20]" type="button">⚔ d20</button>
+        <button data-p="[100]" type="button">💯 d100</button>
+        <button data-p='[["うどん","そば","カレー","ラーメン","食べない"]]' type="button">🍜 メシ抽選</button>
+        <button data-p='[["行く","行かない"]]' type="button">🔮 二択</button>
+        <button data-p='[["大吉","中吉","小吉","吉","末吉","凶","大凶"]]' type="button">⛩ おみくじ</button>
       </div>
       <label class="crow quickrow">
         <span>クイックモード（演出オフ・普通のサイコロ）</span>
