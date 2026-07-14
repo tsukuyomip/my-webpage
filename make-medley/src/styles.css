@@ -329,6 +329,31 @@ h2 {
   min-width: 66px;
 }
 
+/* Control buttons must not select text / show the callout on long-press. */
+.tap-btn,
+.tap-reset,
+.transport > button,
+.zoombar button,
+.bpm-editor button {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.beat-meter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.beat-count {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  min-width: 46px;
+}
+
 .controls {
   background: var(--panel);
   border: 1px solid #263041;

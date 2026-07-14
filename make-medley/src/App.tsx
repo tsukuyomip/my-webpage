@@ -404,6 +404,7 @@ export default function App() {
               bpm={targetBpm}
               offset={0}
               position={position}
+              duration={medley.durationSec}
             />
             <button onClick={download}>⬇️ WAV を書き出し</button>
             <span className="duration">
@@ -524,7 +525,13 @@ function TrackCard({
         >
           {playing && playMode === 'segment' ? '⏹' : '▶️'} 使用区間
         </button>
-        <BeatPulse active={playing} bpm={tempo.bpm} offset={tempo.beatOffset} position={position} />
+        <BeatPulse
+          active={playing}
+          bpm={tempo.bpm}
+          offset={tempo.beatOffset}
+          position={position}
+          duration={track.duration}
+        />
         <TapTempo onEstimate={(bpm) => onTempo(track.id, bpm)} />
         <span className="bpm-editor">
           <label>BPM</label>
@@ -699,25 +706,40 @@ function BeatPulse({
   bpm,
   offset,
   position,
+  duration,
 }: {
   active: boolean
   bpm: number
   offset: number
   position: number
+  duration: number
 }) {
   let scale = 1
-  if (active && bpm > 0) {
+  let n = 0
+  let total = 0
+  if (bpm > 0 && duration > 0) {
     const period = 60 / bpm
-    const since = ((position - offset) % period + period) % period
-    scale = 1 + 0.6 * Math.exp(-since / (period * 0.3))
+    total = Math.max(0, Math.floor((duration - offset) / period) + 1)
+    if (active) {
+      const since = ((position - offset) % period + period) % period
+      scale = 1 + 0.6 * Math.exp(-since / (period * 0.3))
+      n = position >= offset ? Math.min(total, Math.floor((position - offset) / period) + 1) : 0
+    }
   }
   return (
-    <span
-      className={`beat-pulse ${active ? 'on' : ''}`}
-      style={{ transform: `scale(${scale.toFixed(3)})` }}
-      title={active ? `${Math.round(bpm)} BPM` : '再生すると拍が脈打ちます'}
-    >
-      ❤️
+    <span className="beat-meter">
+      <span
+        className={`beat-pulse ${active ? 'on' : ''}`}
+        style={{ transform: `scale(${scale.toFixed(3)})` }}
+        title={active ? `${Math.round(bpm)} BPM` : '再生すると拍が脈打ちます'}
+      >
+        ❤️
+      </span>
+      {active && total > 0 && (
+        <span className="beat-count" title="今鳴った拍 / 全拍数">
+          {n}/{total}
+        </span>
+      )}
     </span>
   )
 }

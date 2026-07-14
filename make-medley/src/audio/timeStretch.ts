@@ -93,5 +93,89 @@ export function timeStretchChannel(input: Float32Array, alpha: number): Float32A
   for (let i = 0; i < outLen; i++) {
     result[i] = norm[i] > 1e-6 ? out[i] / norm[i] : out[i]
   }
+  fixEdges(result, norm, outLen)
+  return result
+}
+
+/**
+ * The Hann window is zero at its extremes, so the first/last output samples can
+ * end up near-silent (norm≈0). Butted against full-amplitude audio that reads
+ * as a click. Backfill those edge samples from the nearest fully-normalised one.
+ */
+function fixEdges(result: Float32Array, norm: Float32Array, outLen: number): void {
+  if (outLen < 2) return
+  let firstGood = 0
+  while (firstGood < outLen - 1 && norm[firstGood] <= 1e-6) firstGood++
+  for (let i = 0; i < firstGood; i++) result[i] = result[firstGood]
+  let lastGood = outLen - 1
+  while (lastGood > 0 && norm[lastGood] <= 1e-6) lastGood--
+  for (let i = lastGood + 1; i < outLen; i++) result[i] = result[lastGood]
+}
+
+/**
+ * Variable-rate time-stretch producing exactly `outLen` output samples. The
+ * local stretch ratio is `alphaAt(outPos)` (output/input duration) sampled at
+ * each synthesis step, so tempo can glide continuously across the region while
+ * the waveform stays phase-continuous — no per-segment seams, hence no clicks.
+ *
+ * Used for the gradual-BPM crossfade, where both tracks are warped along a
+ * shared tempo ramp into a matching output length so their beats stay aligned.
+ */
+export function timeStretchVariable(
+  input: Float32Array,
+  outLen: number,
+  alphaAt: (outPos: number) => number,
+): Float32Array {
+  const out = new Float32Array(outLen + FRAME)
+  const norm = new Float32Array(outLen + FRAME)
+  const overlap = FRAME - SYNTH_HOP
+  if (input.length < FRAME) return out.subarray(0, outLen)
+
+  let analysisPos = 0
+  let outPos = 0
+  let naturalPos = 0
+
+  // First frame verbatim.
+  for (let i = 0; i < FRAME; i++) {
+    out[i] += (input[i] ?? 0) * WINDOW[i]
+    norm[i] += WINDOW[i]
+  }
+  outPos += SYNTH_HOP
+  naturalPos = SYNTH_HOP
+  analysisPos += SYNTH_HOP / Math.max(1e-3, alphaAt(0))
+
+  while (outPos < outLen) {
+    let bestOffset = 0
+    let bestScore = -Infinity
+    const center = Math.round(analysisPos)
+    for (let off = -SEARCH; off <= SEARCH; off += SEARCH_STEP) {
+      const cand = center + off
+      if (cand < 0 || cand + overlap >= input.length) continue
+      let score = 0
+      for (let i = 0; i < overlap; i += CORR_STRIDE) {
+        score += input[cand + i] * input[naturalPos + i]
+      }
+      if (score > bestScore) {
+        bestScore = score
+        bestOffset = off
+      }
+    }
+    const frameStart = center + bestOffset
+    if (frameStart < 0 || frameStart + FRAME >= input.length) break
+
+    for (let i = 0; i < FRAME; i++) {
+      out[outPos + i] += input[frameStart + i] * WINDOW[i]
+      norm[outPos + i] += WINDOW[i]
+    }
+    outPos += SYNTH_HOP
+    naturalPos = frameStart + SYNTH_HOP
+    analysisPos += SYNTH_HOP / Math.max(1e-3, alphaAt(outPos))
+  }
+
+  const result = new Float32Array(outLen)
+  for (let i = 0; i < outLen; i++) {
+    result[i] = norm[i] > 1e-6 ? out[i] / norm[i] : out[i]
+  }
+  fixEdges(result, norm, outLen)
   return result
 }

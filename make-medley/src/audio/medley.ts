@@ -11,7 +11,7 @@
 // Optionally (keyBridge) a short synthesised arpeggio is inserted between tracks
 // whose keys differ, to soften the modulation.
 
-import { timeStretchChannel } from './timeStretch.ts'
+import { timeStretchChannel, timeStretchVariable } from './timeStretch.ts'
 import { synthBridge } from './bridge.ts'
 import type { MergeSettings, Track } from './types.ts'
 
@@ -232,6 +232,11 @@ function mixCrossfade(
   }
 }
 
+// Short equal-power crossfade (~10 ms) used to glue gradual-mode seams so the
+// transition between a native body and a tempo-warped fade block cannot click,
+// even where their waveform phases don't line up exactly.
+const SEAM = Math.round(0.012 * OUTPUT_RATE)
+
 function buildGradual(prepared: Prepared[], settings: MergeSettings): MedleyResult {
   const aligned = prepared.map(beatAlign)
   const bound = aligned.reduce((s, a) => s + a.L.length, 0) + aligned.length * OUTPUT_RATE * 4
@@ -240,6 +245,27 @@ function buildGradual(prepared: Prepared[], settings: MergeSettings): MedleyResu
   const sections: MedleySection[] = []
 
   let cursor = 0
+  let firstBlock = true
+
+  // Append a block, gluing its leading `SEAM` samples onto whatever is already
+  // there with an equal-power crossfade (skipped for the very first block).
+  const place = (blockL: Float32Array, blockR: Float32Array): number => {
+    const cf = firstBlock ? 0 : Math.min(SEAM, blockL.length, cursor)
+    const startAt = cursor - cf
+    for (let j = 0; j < cf; j++) {
+      const [gOut, gIn] = fadeGains(j / cf)
+      outL[startAt + j] = outL[startAt + j] * gOut + blockL[j] * gIn
+      outR[startAt + j] = outR[startAt + j] * gOut + blockR[j] * gIn
+    }
+    for (let j = cf; j < blockL.length; j++) {
+      outL[startAt + j] = blockL[j]
+      outR[startAt + j] = blockR[j]
+    }
+    firstBlock = false
+    cursor = startAt + blockL.length
+    return startAt
+  }
+
   for (let i = 0; i < prepared.length; i++) {
     const seg = aligned[i]
     const p = prepared[i]
@@ -251,65 +277,69 @@ function buildGradual(prepared: Prepared[], settings: MergeSettings): MedleyResu
     const bodyStart = reservedIn
     const bodyEnd = Math.max(bodyStart, seg.beats - reservedOut)
 
-    // Place this track's body at native tempo. Announce the track at its body
-    // start (after any incoming fade), so every track gets exactly one marker
-    // regardless of crossfade length.
-    sections.push({ name: p.name, startSec: cursor / OUTPUT_RATE, kind: 'track' })
-    for (let b = bodyStart; b < bodyEnd; b++) {
-      const s = b * seg.period
-      outL.set(seg.L.subarray(s, s + seg.period), cursor)
-      outR.set(seg.R.subarray(s, s + seg.period), cursor)
-      cursor += seg.period
-    }
+    // Place this track's body at native tempo (one contiguous block). Announce
+    // the track at its body start so every track gets exactly one marker.
+    const bodyStartAt = place(
+      seg.L.subarray(bodyStart * seg.period, bodyEnd * seg.period),
+      seg.R.subarray(bodyStart * seg.period, bodyEnd * seg.period),
+    )
+    sections.push({ name: p.name, startSec: bodyStartAt / OUTPUT_RATE, kind: 'track' })
 
     // Build the tempo-ramped crossfade into the next track. Both tracks are
-    // warped, beat by beat, along a shared tempo ramp so the beat glides from
-    // this track's BPM to the next track's BPM while they crossfade.
+    // warped along a *shared* tempo ramp into the same output length, so their
+    // beats stay aligned. Each track's fade region is stretched in a single
+    // continuous pass (timeStretchVariable) rather than beat-by-beat, so the
+    // waveform stays phase-continuous internally; the short seam crossfades in
+    // place() then hide the phase step where the warped fade meets a native body.
     if (nextExists && reservedOut > 0) {
       const next = aligned[i + 1]
       const nextP = prepared[i + 1]
       const n = reservedOut
 
-      // Per-beat outgoing/incoming slices, all resampled to a shared ramp tempo.
-      const outBeatsL: Float32Array[] = []
-      const outBeatsR: Float32Array[] = []
-      const inBeatsL: Float32Array[] = []
-      const inBeatsR: Float32Array[] = []
-      const beatLens: number[] = []
+      // Output length of each beat along the ramp, and cumulative boundaries.
+      const periods: number[] = []
+      const bounds: number[] = [0]
       let fadeLen = 0
       for (let k = 0; k < n; k++) {
         const frac = (k + 0.5) / n
         const bpmK = p.bpm + (nextP.bpm - p.bpm) * frac
         const periodK = Math.round((60 / bpmK) * OUTPUT_RATE)
-        const outBeat = seg.beats - n + k
-        const aL = timeStretchChannel(sliceBeat(seg.L, outBeat, seg.period), periodK / seg.period)
-        const aR = timeStretchChannel(sliceBeat(seg.R, outBeat, seg.period), periodK / seg.period)
-        const bL = timeStretchChannel(sliceBeat(next.L, k, next.period), periodK / next.period)
-        const bR = timeStretchChannel(sliceBeat(next.R, k, next.period), periodK / next.period)
-        const len = Math.min(aL.length, bL.length)
-        outBeatsL.push(aL)
-        outBeatsR.push(aR)
-        inBeatsL.push(bL)
-        inBeatsR.push(bR)
-        beatLens.push(len)
-        fadeLen += len
+        periods.push(periodK)
+        fadeLen += periodK
+        bounds.push(fadeLen)
       }
 
-      // Equal-power crossfade across the concatenated ramp.
-      let offset = 0
-      for (let k = 0; k < n; k++) {
-        const aL = outBeatsL[k]
-        const aR = outBeatsR[k]
-        const bL = inBeatsL[k]
-        const bR = inBeatsR[k]
-        for (let j = 0; j < beatLens[k]; j++) {
-          const [gOut, gIn] = fadeGains((offset + j) / fadeLen)
-          outL[cursor + offset + j] = aL[j] * gOut + bL[j] * gIn
-          outR[cursor + offset + j] = aR[j] * gOut + bR[j] * gIn
-        }
-        offset += beatLens[k]
+      // Local stretch ratio at an output position: (ramp beat length) / (native
+      // beat length). One native beat is consumed per output beat, so the n
+      // native beats of each fade region map exactly onto the n output beats.
+      const ratioFor = (nativePeriod: number) => (outPos: number) => {
+        let bi = 0
+        while (bi < n - 1 && outPos >= bounds[bi + 1]) bi++
+        return periods[bi] / nativePeriod
       }
-      cursor += fadeLen
+
+      const outStart = (seg.beats - n) * seg.period
+      const aL = timeStretchVariable(
+        seg.L.subarray(outStart, outStart + n * seg.period),
+        fadeLen,
+        ratioFor(seg.period),
+      )
+      const aR = timeStretchVariable(
+        seg.R.subarray(outStart, outStart + n * seg.period),
+        fadeLen,
+        ratioFor(seg.period),
+      )
+      const bL = timeStretchVariable(next.L.subarray(0, n * next.period), fadeLen, ratioFor(next.period))
+      const bR = timeStretchVariable(next.R.subarray(0, n * next.period), fadeLen, ratioFor(next.period))
+
+      const fadeL = new Float32Array(fadeLen)
+      const fadeR = new Float32Array(fadeLen)
+      for (let j = 0; j < fadeLen; j++) {
+        const [gOut, gIn] = fadeGains(j / fadeLen)
+        fadeL[j] = aL[j] * gOut + bL[j] * gIn
+        fadeR[j] = aR[j] * gOut + bR[j] * gIn
+      }
+      place(fadeL, fadeR)
     }
   }
 
@@ -319,11 +349,6 @@ function buildGradual(prepared: Prepared[], settings: MergeSettings): MedleyResu
     durationSec: cursor / OUTPUT_RATE,
     sections,
   }
-}
-
-function sliceBeat(data: Float32Array, beat: number, period: number): Float32Array {
-  const s = beat * period
-  return data.subarray(s, s + period)
 }
 
 function clampBeats(
