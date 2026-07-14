@@ -166,6 +166,130 @@ h2 {
   font-size: 0.78rem;
 }
 
+.global-toggles {
+  display: flex;
+  gap: 18px;
+  flex-wrap: wrap;
+  margin-top: 18px;
+  padding: 10px 14px;
+  background: var(--panel);
+  border: 1px solid #263041;
+  border-radius: 10px;
+}
+
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.88rem;
+}
+
+.zoombar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+
+.zoombar button {
+  border: 1px solid #2e3a4d;
+  background: var(--panel-2);
+  color: var(--text);
+  border-radius: 7px;
+  padding: 4px 8px;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.zoombar .pan {
+  flex: 1;
+  min-width: 60px;
+  accent-color: var(--accent);
+}
+
+.zoombar .pan:disabled {
+  opacity: 0.3;
+}
+
+.zoom-label {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-variant-numeric: tabular-nums;
+  min-width: 34px;
+  text-align: right;
+}
+
+.transport {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.transport > button {
+  border: 1px solid #2e3a4d;
+  background: var(--panel-2);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 7px 12px;
+  font-size: 0.86rem;
+  cursor: pointer;
+}
+
+.transport > button.active {
+  background: var(--accent);
+  color: #06121a;
+  border-color: var(--accent);
+  font-weight: 600;
+}
+
+.beat-pulse {
+  display: inline-block;
+  font-size: 1.1rem;
+  filter: grayscale(1) opacity(0.4);
+  transition: transform 0.05s linear;
+}
+
+.beat-pulse.on {
+  filter: none;
+}
+
+.bpm-editor {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+
+.bpm-editor label {
+  color: var(--muted);
+  font-size: 0.78rem;
+  margin-right: 2px;
+}
+
+.bpm-editor button {
+  border: 1px solid #2e3a4d;
+  background: var(--panel-2);
+  color: var(--text);
+  border-radius: 6px;
+  width: 30px;
+  height: 30px;
+  cursor: pointer;
+  font-size: 0.8rem;
+}
+
+.bpm-editor input {
+  width: 74px;
+  background: #0b0f16;
+  border: 1px solid #2e3a4d;
+  border-radius: 6px;
+  color: var(--text);
+  padding: 6px 8px;
+  font-size: 0.9rem;
+  text-align: center;
+}
+
 .controls {
   background: var(--panel);
   border: 1px solid #263041;
