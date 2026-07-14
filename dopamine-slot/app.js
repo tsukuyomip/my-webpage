@@ -304,11 +304,20 @@ async function pchunEffect() {
 }
 
 // ---------------- banner ----------------
+let uiGuardUntil = 0; // バナーを閉じた直後のゴーストタップ吸収用
 function dismissable(ms, el) {
   return new Promise((resolve) => {
     let done = false;
-    const finish = () => { if (!done) { done = true; el.removeEventListener('pointerdown', finish); resolve(); } };
-    el.addEventListener('pointerdown', finish);
+    const finish = () => {
+      if (done) return;
+      done = true;
+      el.removeEventListener('click', finish);
+      uiGuardUntil = performance.now() + 350;
+      resolve();
+    };
+    // pointerdown で閉じると、iOS が後から合成する click が
+    // 下の SPIN ボタンに貫通してしまうため、click（指を離した後）で閉じる
+    el.addEventListener('click', finish);
     setTimeout(finish, ms);
   });
 }
@@ -719,8 +728,8 @@ async function celebrate({ dice, idxs, vals, n, quick, zoro, allMax, allOne, cri
     shake('shake-l'); vibrate([50, 60, 50, 60, 150]);
     ring(W / 2, H / 2, '#ffffff', 420);
     sparkBurst(W / 2, H / 2, 130, RAINBOW, 12);
-    confettiRain(260, RAINBOW);
-    goldRain(120);
+    // 大量スポーンはバナー文字のスラムが終わってから（直後の詰まり防止）
+    setTimeout(() => { confettiRain(260, RAINBOW); goldRain(120); }, 450);
     fireworksBarrage(16, RAINBOW, 3400);
     for (let i = 0; i < 12; i++) sCoin(0.5 + i * 0.11);
     document.body.classList.add('jackpot-mode');
@@ -734,8 +743,7 @@ async function celebrate({ dice, idxs, vals, n, quick, zoro, allMax, allOne, cri
     shake('shake-l'); vibrate([40, 60, 40, 60, 120]);
     ring(W / 2, H / 2, '#ffd24d', 380);
     sparkBurst(W / 2, H / 2, 100, RAINBOW, 11);
-    confettiRain(180, RAINBOW);
-    goldRain(80);
+    setTimeout(() => { confettiRain(180, RAINBOW); goldRain(80); }, 450);
     fireworksBarrage(10, RAINBOW, 2400);
     for (let i = 0; i < 8; i++) sCoin(0.5 + i * 0.12);
     reelEls.forEach((r) => r.classList.add('hitglow'));
@@ -749,7 +757,7 @@ async function celebrate({ dice, idxs, vals, n, quick, zoro, allMax, allOne, cri
     sExplosion(); sFanfare(2);
     shake('shake-l'); vibrate([40, 60, 100]);
     sparkBurst(cx, cy, 80, RAINBOW, 10);
-    confettiRain(120, RAINBOW);
+    setTimeout(() => confettiRain(120, RAINBOW), 450);
     fireworksBarrage(6, RAINBOW, 1600);
     $('#total').classList.add('rainbow');
     await showBanner({ title: 'CRITICAL!!', num: String(results[0]), sub: `d${dice[0]} 最大値`, cls: 'mega', dur: 4200 });
@@ -764,8 +772,7 @@ async function celebrate({ dice, idxs, vals, n, quick, zoro, allMax, allOne, cri
     sFanfare(3);
     strobe(['#ffd24d', '#ff2d95', '#59f3ff', '#ffffff'], 6, 110, 0.3);
     sparkBurst(W / 2, H / 2, 110, RAINBOW, 11);
-    confettiRain(200, RAINBOW);
-    goldRain(90);
+    setTimeout(() => { confettiRain(200, RAINBOW); goldRain(90); }, 450);
     fireworksBarrage(9, RAINBOW, 2200);
     for (let i = 0; i < 7; i++) sCoin(0.4 + i * 0.13);
     shake('shake-l'); vibrate([40, 60, 40, 60, 100]);
@@ -809,6 +816,7 @@ async function celebrate({ dice, idxs, vals, n, quick, zoro, allMax, allOne, cri
 
 // ---------------- controls ----------------
 $('#spinBtn').addEventListener('click', () => {
+  if (performance.now() < uiGuardUntil) return; // バナー閉じ直後の貫通タップを無視
   if (manualStopNext) { manualStopNext(); return; } // 手動モード中は STOP として働く
   spin(newSeed());
 });
@@ -817,6 +825,7 @@ window.addEventListener('keydown', (e) => {
     if (!$('#confModal').classList.contains('hidden')) return;
     if (!$('#replayGate').classList.contains('hidden')) return;
     e.preventDefault();
+    if (performance.now() < uiGuardUntil) return;
     if (manualStopNext) { manualStopNext(); return; }
     spin(newSeed());
   }
