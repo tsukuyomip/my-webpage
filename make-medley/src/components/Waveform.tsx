@@ -16,6 +16,8 @@ interface Props {
   viewDur: number
   bpm: number
   beatOffset: number
+  /** Beats per bar; every N-th grid line is drawn as an emphasised bar line. */
+  beatsPerBar?: number
   /** Segment in/out handles; omit for a read-only waveform (e.g. output). */
   segment?: Segment
   /** Current playback position (seconds) or null when stopped. */
@@ -38,6 +40,7 @@ export function Waveform({
   viewDur,
   bpm,
   beatOffset,
+  beatsPerBar = 4,
   segment,
   playhead,
   onSeek,
@@ -100,9 +103,11 @@ export function Waveform({
       let t = viewStart - firstPhase
       let idx = Math.round((t - beatOffset) / period)
       ctx.lineWidth = 1
+      const perBar = Math.max(1, beatsPerBar)
       for (; t < viewEnd; t += period, idx++) {
         const x = xForTime(t)
-        ctx.strokeStyle = idx % 4 === 0 ? 'rgba(120,200,255,0.55)' : 'rgba(120,200,255,0.16)'
+        const isBarLine = ((idx % perBar) + perBar) % perBar === 0
+        ctx.strokeStyle = isBarLine ? 'rgba(120,200,255,0.55)' : 'rgba(120,200,255,0.16)'
         ctx.beginPath()
         ctx.moveTo(x, 0)
         ctx.lineTo(x, height)
@@ -157,7 +162,7 @@ export function Waveform({
       ctx.lineTo(x, height)
       ctx.stroke()
     }
-  }, [mono, sampleRate, duration, viewStart, viewDur, bpm, beatOffset, segment, playhead, width, height])
+  }, [mono, sampleRate, duration, viewStart, viewDur, bpm, beatOffset, beatsPerBar, segment, playhead, width, height])
 
   const timeFromEvent = (e: React.PointerEvent) => {
     const rect = canvasRef.current!.getBoundingClientRect()

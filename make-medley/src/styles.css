@@ -348,10 +348,37 @@ h2 {
 }
 
 .beat-count {
+  display: inline-flex;
+  flex-direction: column;
+  line-height: 1.15;
   color: var(--muted);
   font-size: 0.78rem;
   font-variant-numeric: tabular-nums;
   min-width: 46px;
+}
+
+.bar-beat {
+  color: var(--accent-2);
+  font-size: 0.72rem;
+}
+
+.timesig {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.timesig input {
+  width: 42px;
+  background: #0b0f16;
+  border: 1px solid #2e3a4d;
+  border-radius: 6px;
+  color: var(--text);
+  padding: 6px 4px;
+  font-size: 0.9rem;
+  text-align: center;
 }
 
 .controls {

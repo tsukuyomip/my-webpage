@@ -14,6 +14,7 @@ interface UITrack extends Track {
   viewStart: number
   viewDur: number
   cursor: number
+  beatsPerBar: number
 }
 
 const MIN_VIEW_DUR = 0.5
@@ -63,6 +64,7 @@ export default function App() {
   const [outMono, setOutMono] = useState<Float32Array | null>(null)
   const [outView, setOutView] = useState({ viewStart: 0, viewDur: 1 })
   const [outCursor, setOutCursor] = useState(0)
+  const [outBeatsPerBar, setOutBeatsPerBar] = useState(4)
 
   const [playId, setPlayId] = useState<PlayId>(null)
   const [playMode, setPlayMode] = useState<PlayMode>('full')
@@ -108,6 +110,7 @@ export default function App() {
           viewStart: 0,
           viewDur: buffer.duration,
           cursor: 0,
+          beatsPerBar: 4,
         }
         setTracks((prev) => [...prev, track])
       } catch (e) {
@@ -321,6 +324,7 @@ export default function App() {
               onView={(v) => updateTrack(t.id, v)}
               onSegment={(s, e) => updateTrack(t.id, { segmentStart: s, segmentEnd: e })}
               onTempo={setTrackTempo}
+              onBeatsPerBar={(n) => updateTrack(t.id, { beatsPerBar: n })}
             />
           ))}
         </section>
@@ -405,7 +409,9 @@ export default function App() {
               offset={0}
               position={position}
               duration={medley.durationSec}
+              beatsPerBar={outBeatsPerBar}
             />
+            {mode === 'unify' && <TimeSig value={outBeatsPerBar} onChange={setOutBeatsPerBar} />}
             <button onClick={download}>⬇️ WAV を書き出し</button>
             <span className="duration">
               {formatTime(playId === 'output' ? position : outCursor)} /{' '}
@@ -426,6 +432,7 @@ export default function App() {
             viewDur={outView.viewDur}
             bpm={mode === 'unify' ? targetBpm : 0}
             beatOffset={0}
+            beatsPerBar={outBeatsPerBar}
             playhead={playId === 'output' ? position : outCursor}
             onSeek={seekOutput}
           />
@@ -456,6 +463,7 @@ function TrackCard({
   onView,
   onSegment,
   onTempo,
+  onBeatsPerBar,
 }: {
   track: UITrack
   index: number
@@ -470,6 +478,7 @@ function TrackCard({
   onView: (v: { viewStart: number; viewDur: number }) => void
   onSegment: (start: number, end: number) => void
   onTempo: (id: string, bpm: number, beatOffset?: number) => void
+  onBeatsPerBar: (n: number) => void
 }) {
   const { tempo, key } = track.analysis
   const playhead = playing ? position : track.cursor
@@ -507,6 +516,7 @@ function TrackCard({
         viewDur={track.viewDur}
         bpm={tempo.bpm}
         beatOffset={tempo.beatOffset}
+        beatsPerBar={track.beatsPerBar}
         segment={{ start: track.segmentStart, end: track.segmentEnd, onChange: onSegment }}
         playhead={playhead}
         onSeek={(t) => onSeek(track, t)}
@@ -531,7 +541,9 @@ function TrackCard({
           offset={tempo.beatOffset}
           position={position}
           duration={track.duration}
+          beatsPerBar={track.beatsPerBar}
         />
+        <TimeSig value={track.beatsPerBar} onChange={onBeatsPerBar} />
         <TapTempo onEstimate={(bpm) => onTempo(track.id, bpm)} />
         <span className="bpm-editor">
           <label>BPM</label>
@@ -700,19 +712,41 @@ function TapTempo({ onEstimate }: { onEstimate: (bpm: number) => void }) {
   )
 }
 
-/** A heart that pulses on every beat while playing — a visual BPM preview. */
+/** Time-signature input: the beats-per-bar numerator, denominator fixed to 4. */
+function TimeSig({ value, onChange }: { value: number; onChange: (n: number) => void }) {
+  return (
+    <span className="timesig" title="1小節あたりの拍数（拍子の分子）。分母は4分音符固定">
+      <input
+        type="number"
+        min={1}
+        max={16}
+        value={value}
+        onChange={(e) => onChange(Math.max(1, Math.min(16, Math.round(Number(e.target.value) || 4))))}
+      />
+      <span>/4拍子</span>
+    </span>
+  )
+}
+
+/**
+ * A heart that pulses on every beat while playing — a visual BPM preview —
+ * with an "n/N" readout of which beat sounded and its bar:beat position given
+ * the time signature (beatsPerBar / 4).
+ */
 function BeatPulse({
   active,
   bpm,
   offset,
   position,
   duration,
+  beatsPerBar,
 }: {
   active: boolean
   bpm: number
   offset: number
   position: number
   duration: number
+  beatsPerBar: number
 }) {
   let scale = 1
   let n = 0
@@ -726,6 +760,8 @@ function BeatPulse({
       n = position >= offset ? Math.min(total, Math.floor((position - offset) / period) + 1) : 0
     }
   }
+  const bar = n > 0 ? Math.floor((n - 1) / beatsPerBar) + 1 : 0
+  const beatInBar = n > 0 ? ((n - 1) % beatsPerBar) + 1 : 0
   return (
     <span className="beat-meter">
       <span
@@ -736,8 +772,11 @@ function BeatPulse({
         ❤️
       </span>
       {active && total > 0 && (
-        <span className="beat-count" title="今鳴った拍 / 全拍数">
+        <span className="beat-count" title="今鳴った拍 / 全拍数 ・ 何小節目の何拍目か">
           {n}/{total}
+          <span className="bar-beat">
+            {bar}小節{beatInBar}拍
+          </span>
         </span>
       )}
     </span>
