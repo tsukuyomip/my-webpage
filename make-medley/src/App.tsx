@@ -5,6 +5,7 @@ import { buildMedley, type MedleyResult } from './audio/medley.ts'
 import { channelsToAudioBuffer } from './audio/toAudioBuffer.ts'
 import { encodeWav } from './audio/wav.ts'
 import { player, beatGrid } from './audio/player.ts'
+import { detectChords, mergeChords, synthChords, type ChordSegment } from './audio/chords.ts'
 import { Waveform } from './components/Waveform.tsx'
 import type { Analysis, BpmMode, MergeSettings, Track } from './audio/types.ts'
 
@@ -15,6 +16,9 @@ interface UITrack extends Track {
   viewDur: number
   cursor: number
   beatsPerBar: number
+  chordSegments?: ChordSegment[]
+  chordBuffer?: AudioBuffer
+  chordsLoading?: boolean
 }
 
 const MIN_VIEW_DUR = 0.5
@@ -42,7 +46,7 @@ function zoomView(
 
 // One id identifies whatever is currently sounding: a track id or 'output'.
 type PlayId = string | 'output' | null
-type PlayMode = 'full' | 'segment'
+type PlayMode = 'full' | 'segment' | 'chords'
 
 export default function App() {
   const [tracks, setTracks] = useState<UITrack[]>([])
@@ -163,10 +167,13 @@ export default function App() {
   )
 
   const playTrack = (track: UITrack, m: PlayMode, from?: number) => {
+    // 'chords' plays the synthesised chord track (same timeline as the audio).
+    const buffer = m === 'chords' ? track.chordBuffer : track.buffer
+    if (!buffer) return
     const grid = beatGrid(track.analysis.tempo.bpm, track.analysis.tempo.beatOffset, track.duration)
     const startSec = m === 'segment' ? track.segmentStart : from ?? track.cursor
     player.play({
-      buffer: track.buffer,
+      buffer,
       loop: loopOn,
       beatTimes: grid,
       metronomeGain: metroOn ? 0.5 : 0,
@@ -177,6 +184,32 @@ export default function App() {
     setPlayId(track.id)
     setPlayMode(m)
     setPosition(startSec)
+  }
+
+  const analyzeChords = async (track: UITrack) => {
+    updateTrack(track.id, { chordsLoading: true })
+    await new Promise((r) => setTimeout(r, 20))
+    try {
+      const grid = beatGrid(
+        track.analysis.tempo.bpm,
+        track.analysis.tempo.beatOffset,
+        track.duration,
+      )
+      const chords = detectChords(
+        track.mono,
+        track.buffer.sampleRate,
+        grid,
+        track.duration,
+        track.analysis.key,
+      )
+      const segments = mergeChords(chords)
+      const [L, R] = synthChords(segments, track.duration, track.buffer.sampleRate)
+      const chordBuffer = channelsToAudioBuffer([L, R], track.buffer.sampleRate)
+      updateTrack(track.id, { chordSegments: segments, chordBuffer, chordsLoading: false })
+    } catch (e) {
+      updateTrack(track.id, { chordsLoading: false })
+      setError(`コード解析に失敗しました: ${(e as Error).message}`)
+    }
   }
 
   const toggleTrack = (track: UITrack, m: PlayMode) => {
@@ -325,6 +358,7 @@ export default function App() {
               onSegment={(s, e) => updateTrack(t.id, { segmentStart: s, segmentEnd: e })}
               onTempo={setTrackTempo}
               onBeatsPerBar={(n) => updateTrack(t.id, { beatsPerBar: n })}
+              onAnalyzeChords={analyzeChords}
             />
           ))}
         </section>
@@ -464,6 +498,7 @@ function TrackCard({
   onSegment,
   onTempo,
   onBeatsPerBar,
+  onAnalyzeChords,
 }: {
   track: UITrack
   index: number
@@ -479,6 +514,7 @@ function TrackCard({
   onSegment: (start: number, end: number) => void
   onTempo: (id: string, bpm: number, beatOffset?: number) => void
   onBeatsPerBar: (n: number) => void
+  onAnalyzeChords: (track: UITrack) => void
 }) {
   const { tempo, key } = track.analysis
   const playhead = playing ? position : track.cursor
@@ -522,6 +558,15 @@ function TrackCard({
         onSeek={(t) => onSeek(track, t)}
       />
 
+      {track.chordSegments && (
+        <ChordStrip
+          segments={track.chordSegments}
+          viewStart={track.viewStart}
+          viewDur={track.viewDur}
+          playhead={playhead}
+        />
+      )}
+
       <div className="transport">
         <button
           className={playing && playMode === 'full' ? 'active' : ''}
@@ -535,6 +580,17 @@ function TrackCard({
         >
           {playing && playMode === 'segment' ? '⏹' : '▶️'} 使用区間
         </button>
+        <button onClick={() => onAnalyzeChords(track)} disabled={track.chordsLoading}>
+          {track.chordsLoading ? 'コード解析中…' : '🎼 コード解析'}
+        </button>
+        {track.chordBuffer && (
+          <button
+            className={playing && playMode === 'chords' ? 'active' : ''}
+            onClick={() => onToggle(track, 'chords')}
+          >
+            {playing && playMode === 'chords' ? '⏹' : '🎹'} コードのみ
+          </button>
+        )}
         <BeatPulse
           active={playing}
           bpm={tempo.bpm}
@@ -573,6 +629,44 @@ function TrackCard({
         使用区間: {formatTime(track.segmentStart)} – {formatTime(track.segmentEnd)}
         （黄・赤ハンドルをドラッグ／波形クリックで頭出し）
       </div>
+    </div>
+  )
+}
+
+/**
+ * Chord labels laid out along the same time axis as the waveform (follows zoom
+ * and pan). Consecutive equal chords are already merged into one segment.
+ */
+function ChordStrip({
+  segments,
+  viewStart,
+  viewDur,
+  playhead,
+}: {
+  segments: ChordSegment[]
+  viewStart: number
+  viewDur: number
+  playhead: number
+}) {
+  const viewEnd = viewStart + viewDur
+  return (
+    <div className="chord-strip">
+      {segments.map((s, i) => {
+        if (s.endSec <= viewStart || s.startSec >= viewEnd) return null
+        const left = ((s.startSec - viewStart) / viewDur) * 100
+        const w = ((s.endSec - s.startSec) / viewDur) * 100
+        const active = playhead >= s.startSec && playhead < s.endSec
+        return (
+          <div
+            key={i}
+            className={`chord-cell ${s.root < 0 ? 'nc' : ''} ${active ? 'now' : ''}`}
+            style={{ left: `${left}%`, width: `${w}%` }}
+            title={`${s.label}｜${formatTime(s.startSec)}–${formatTime(s.endSec)}`}
+          >
+            <span>{s.label}</span>
+          </div>
+        )
+      })}
     </div>
   )
 }
