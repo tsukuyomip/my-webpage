@@ -23,6 +23,8 @@ interface Props {
   /** Current playback position (seconds) or null when stopped. */
   playhead: number | null
   onSeek?: (t: number) => void
+  /** Pan/zoom the visible window (wheel, two-finger scroll, arrow keys). */
+  onViewChange?: (v: { viewStart: number; viewDur: number }) => void
   height?: number
 }
 
@@ -44,6 +46,7 @@ export function Waveform({
   segment,
   playhead,
   onSeek,
+  onViewChange,
   height = 110,
 }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -61,6 +64,53 @@ export function Waveform({
     ro.observe(el)
     return () => ro.disconnect()
   }, [])
+
+  // Latest values for the native (non-passive) wheel listener below.
+  const stateRef = useRef({ viewStart, viewDur, duration, onViewChange })
+  stateRef.current = { viewStart, viewDur, duration, onViewChange }
+
+  // Wheel / two-finger scroll: horizontal (or vertical) pans; ctrl/⌘+wheel and
+  // trackpad pinch zoom around the pointer. Registered natively with
+  // passive:false so preventDefault stops the page from scrolling/zooming.
+  useEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas) return
+    const onWheel = (e: WheelEvent) => {
+      const { viewStart, viewDur, duration, onViewChange } = stateRef.current
+      if (!onViewChange || duration <= 0) return
+      e.preventDefault()
+      const rect = canvas.getBoundingClientRect()
+      const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? rect.width : 1
+      if (e.ctrlKey || e.metaKey) {
+        const factor = Math.exp(e.deltaY * unit * 0.002)
+        const minDur = Math.min(0.5, duration)
+        const newDur = Math.max(minDur, Math.min(duration, viewDur * factor))
+        const px = Math.max(0, Math.min(rect.width, e.clientX - rect.left))
+        const pointerTime = viewStart + (px / rect.width) * viewDur
+        let newStart = pointerTime - (px / rect.width) * newDur
+        newStart = Math.max(0, Math.min(Math.max(0, duration - newDur), newStart))
+        onViewChange({ viewStart: newStart, viewDur: newDur })
+      } else {
+        const delta = (Math.abs(e.deltaX) >= Math.abs(e.deltaY) ? e.deltaX : e.deltaY) * unit
+        const deltaSec = (delta / rect.width) * viewDur
+        const maxStart = Math.max(0, duration - viewDur)
+        onViewChange({ viewStart: Math.max(0, Math.min(maxStart, viewStart + deltaSec)), viewDur })
+      }
+    }
+    canvas.addEventListener('wheel', onWheel, { passive: false })
+    return () => canvas.removeEventListener('wheel', onWheel)
+  }, [])
+
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (!onViewChange) return
+    if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      e.preventDefault()
+      const dir = e.key === 'ArrowLeft' ? -1 : 1
+      const step = viewDur * (e.shiftKey ? 0.25 : 0.08) * dir
+      const maxStart = Math.max(0, duration - viewDur)
+      onViewChange({ viewStart: Math.max(0, Math.min(maxStart, viewStart + step)), viewDur })
+    }
+  }
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -214,10 +264,12 @@ export function Waveform({
     <div ref={wrapRef} className="waveform">
       <canvas
         ref={canvasRef}
+        tabIndex={onViewChange ? 0 : undefined}
         style={{ width: '100%', height, touchAction: 'none', cursor: drag ? 'grabbing' : 'text' }}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
+        onKeyDown={onKeyDown}
       />
     </div>
   )

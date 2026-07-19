@@ -219,6 +219,18 @@ h2 {
   text-align: right;
 }
 
+.zoom-hint {
+  color: var(--muted);
+  font-size: 0.8rem;
+  cursor: help;
+}
+
+/* Focused waveform (keyboard scrolling) gets a subtle ring. */
+.waveform canvas:focus-visible {
+  outline: 2px solid var(--accent-2);
+  outline-offset: -2px;
+}
+
 .transport {
   display: flex;
   align-items: center;

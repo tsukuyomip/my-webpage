@@ -469,6 +469,7 @@ export default function App() {
             beatsPerBar={outBeatsPerBar}
             playhead={playId === 'output' ? position : outCursor}
             onSeek={seekOutput}
+            onViewChange={setOutView}
           />
           <SectionTimeline
             sections={medley.sections}
@@ -556,6 +557,7 @@ function TrackCard({
         segment={{ start: track.segmentStart, end: track.segmentEnd, onChange: onSegment }}
         playhead={playhead}
         onSeek={(t) => onSeek(track, t)}
+        onViewChange={onView}
       />
 
       {track.chordSegments && (
@@ -707,6 +709,9 @@ function ZoomBar({
         onChange={(e) => onView({ ...view, viewStart: Number(e.target.value) })}
       />
       <span className="zoom-label">×{(duration / view.viewDur).toFixed(1)}</span>
+      <span className="zoom-hint" title="波形上でホイール/2本指スクロールで移動、Ctrl(⌘)+ホイールで拡大縮小、←→キーで微調整">
+        ⓘ
+      </span>
     </div>
   )
 }
