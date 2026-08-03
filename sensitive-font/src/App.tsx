@@ -8,7 +8,7 @@ import { Section, Slider } from './components/controls'
 import { TextEditor } from './components/TextEditor'
 import { renderText, type RenderResult } from './render/draw'
 import { loadConfig, saveConfig, shareUrl } from './state/share'
-import { DEFAULT_CONFIG, type Config } from './state/types'
+import { defaultConfig, defaultOf, SECTION_KEYS, type Config } from './state/types'
 import {
   ensureFontReady,
   EXPORT_TIMEOUT_MS,
@@ -18,6 +18,45 @@ import {
 } from './text/fonts'
 import { coverageNote, describeCoverage, missingChars } from './text/coverage'
 import { STYLE_PRESETS } from './text/presets'
+
+/**
+ * 全設定の初期化ボタン。作りかけが消える操作なので、押し間違いで飛ばないよう
+ * 2 段階にしている（ブラウザの confirm はスマホで扱いにくいため自前）。
+ */
+function ResetAllButton({ onReset }: { onReset: () => void }) {
+  const [armed, setArmed] = useState(false)
+
+  useEffect(() => {
+    if (!armed) return
+    const t = setTimeout(() => setArmed(false), 5000)
+    return () => clearTimeout(t)
+  }, [armed])
+
+  if (!armed) {
+    return (
+      <button type="button" className="ghost-sm" onClick={() => setArmed(true)}>
+        すべて初期値に戻す
+      </button>
+    )
+  }
+  return (
+    <span className="confirm">
+      <button
+        type="button"
+        className="danger"
+        onClick={() => {
+          onReset()
+          setArmed(false)
+        }}
+      >
+        本当に戻す
+      </button>
+      <button type="button" className="ghost-sm" onClick={() => setArmed(false)}>
+        やめる
+      </button>
+    </span>
+  )
+}
 
 /** プレビューの解像度倍率。大きすぎる版は端末が死ぬので上限を掛ける。 */
 function previewScaleFor(cfg: Config): number {
@@ -54,12 +93,23 @@ export default function App() {
   const applyPreset = useCallback(
     (p: Partial<Config>) =>
       setCfg((c) => ({
-        ...DEFAULT_CONFIG,
-        ...p,
+        ...defaultConfig(),
+        ...JSON.parse(JSON.stringify(p)),
         text: c.text,
         fontSize: c.fontSize,
         padding: c.padding,
       })),
+    [],
+  )
+
+  /** セクション単位の初期化。そのセクションが持つ項目だけ既定値に戻す。 */
+  const resetKeys = useCallback(
+    (keys: readonly (keyof Config)[]) =>
+      setCfg((c) => {
+        const next = { ...c }
+        for (const k of keys) Object.assign(next, { [k]: defaultOf(k) })
+        return next
+      }),
     [],
   )
   const font = useMemo(() => findFont(cfg.fontId), [cfg.fontId])
@@ -113,7 +163,10 @@ export default function App() {
       <AgeGate />
       <div className="app">
         <header className="app-header">
-          <h1>✨ 透過文字ジェネレータ</h1>
+          <div className="app-title">
+            <h1>✨ 透過文字ジェネレータ</h1>
+            <ResetAllButton onReset={() => setCfg(defaultConfig())} />
+          </div>
           <p>
             文字を透過 PNG にして書き出すツール。処理はすべてブラウザ内で完結し、
             入力も画像もどこにも送信されません。
@@ -150,11 +203,11 @@ export default function App() {
 
           {/* 操作の頻度が高い順: 文字 → フォント → スタイル → 細かい調整 → 書き出し */}
           <div className="right">
-            <Section title="文字">
+            <Section title="文字" onReset={() => resetKeys(SECTION_KEYS.文字)}>
               <TextEditor text={cfg.text} onChange={(text) => patch({ text })} />
             </Section>
 
-            <Section title="フォント">
+            <Section title="フォント" onReset={() => resetKeys(SECTION_KEYS.フォント)}>
               <FontPicker
                 fontId={cfg.fontId}
                 fontWeight={cfg.fontWeight}
@@ -162,14 +215,7 @@ export default function App() {
               />
             </Section>
 
-            <Section
-              title="スタイル"
-              right={
-                <button type="button" className="ghost-sm" onClick={() => setCfg(DEFAULT_CONFIG)}>
-                  リセット
-                </button>
-              }
-            >
+            <Section title="スタイル" onReset={() => resetKeys(SECTION_KEYS.スタイル)}>
               <div className="btn-row">
                 {STYLE_PRESETS.map((p) => (
                   <button key={p.name} type="button" className="chip" onClick={() => applyPreset(p.patch)}>
@@ -177,29 +223,37 @@ export default function App() {
                   </button>
                 ))}
               </div>
+              <p className="hint">
+                プリセットは見た目一式を置き換えます（文字・サイズ・余白はそのまま）。
+                「初期化」で塗り・縁取り・影・変形をまとめて既定に戻せます。
+              </p>
             </Section>
 
-            <Section title="文字組み">
+            <Section title="文字組み" onReset={() => resetKeys(SECTION_KEYS.文字組み)}>
               <TypePanel cfg={cfg} patch={patch} />
             </Section>
 
-            <Section title="塗り">
+            <Section title="塗り" onReset={() => resetKeys(SECTION_KEYS.塗り)}>
               <FillPanel cfg={cfg} patch={patch} />
             </Section>
 
-            <Section title="縁取り">
+            <Section title="縁取り" onReset={() => resetKeys(SECTION_KEYS.縁取り)}>
               <StrokePanel cfg={cfg} patch={patch} />
             </Section>
 
-            <Section title="影" defaultOpen={false}>
+            <Section title="影" defaultOpen={false} onReset={() => resetKeys(SECTION_KEYS.影)}>
               <ShadowPanel cfg={cfg} patch={patch} />
             </Section>
 
-            <Section title="変形・ゆらぎ" defaultOpen={false}>
+            <Section
+              title="変形・ゆらぎ"
+              defaultOpen={false}
+              onReset={() => resetKeys(SECTION_KEYS.変形)}
+            >
               <TransformPanel cfg={cfg} patch={patch} />
             </Section>
 
-            <Section title="書き出し">
+            <Section title="書き出し" onReset={() => resetKeys(SECTION_KEYS.書き出し)}>
               <Slider
                 label="周囲の余白"
                 value={cfg.padding}

@@ -110,3 +110,31 @@ export const DEFAULT_CONFIG: Config = {
   arch: 0,
   padding: 8,
 }
+
+/**
+ * 既定値のコピー。DEFAULT_CONFIG の中の配列やオブジェクトをそのまま state に
+ * 入れると参照が共有され、初期化するたびに同じ実体を触ることになる。
+ * 中身はすべて JSON で表せる素の値なので、これで十分。
+ */
+export function defaultConfig(): Config {
+  return JSON.parse(JSON.stringify(DEFAULT_CONFIG)) as Config
+}
+
+/** 設定 1 項目ぶんの既定値のコピー。 */
+export function defaultOf<K extends keyof Config>(key: K): Config[K] {
+  const v = DEFAULT_CONFIG[key]
+  return (v !== null && typeof v === 'object' ? JSON.parse(JSON.stringify(v)) : v) as Config[K]
+}
+
+/** 各セクションが受け持つ設定項目。セクション単位の初期化に使う。 */
+export const SECTION_KEYS = {
+  文字: ['text'],
+  フォント: ['fontId', 'fontWeight'],
+  スタイル: ['fill', 'strokes', 'shadow', 'hardShadow', 'jitter', 'skew', 'rotate', 'arch'],
+  文字組み: ['fontSize', 'lineHeight', 'letterSpacing', 'vertical', 'align'],
+  塗り: ['fill'],
+  縁取り: ['strokes'],
+  影: ['shadow', 'hardShadow'],
+  変形: ['skew', 'rotate', 'arch', 'jitter'],
+  書き出し: ['padding'],
+} satisfies Record<string, (keyof Config)[]>

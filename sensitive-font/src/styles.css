@@ -114,9 +114,35 @@ select {
   padding: 16px 12px 60px;
 }
 
+.app-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
 .app-header h1 {
-  margin: 0 0 4px;
+  margin: 0;
   font-size: 1.2rem;
+}
+
+.confirm {
+  display: inline-flex;
+  gap: 6px;
+}
+
+button.danger {
+  min-height: 26px;
+  padding: 2px 10px;
+  border-color: transparent;
+  background: #c62c5b;
+  color: #fff;
+  font-size: 0.75rem;
+}
+
+button.danger:hover:not(:disabled) {
+  background: #e2467a;
 }
 
 .app-header p {
