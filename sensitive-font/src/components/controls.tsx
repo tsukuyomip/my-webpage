@@ -11,11 +11,14 @@ export function Section({
   children,
   right,
   defaultOpen = true,
+  onReset,
 }: {
   title: string
   children: ReactNode
   right?: ReactNode
   defaultOpen?: boolean
+  /** 指定するとヘッダに「初期化」ボタンが出る（このセクションの項目だけ戻す） */
+  onReset?: () => void
 }) {
   const key = `sensitive-font:open:${title}`
   const [open, setOpen] = useState(() => {
@@ -48,6 +51,16 @@ export function Section({
           {title}
         </button>
         {right}
+        {onReset && (
+          <button
+            type="button"
+            className="ghost-sm"
+            onClick={onReset}
+            title={`「${title}」の設定を初期値に戻す`}
+          >
+            初期化
+          </button>
+        )}
       </h2>
       {open && <div className="panel-body">{children}</div>}
     </section>
