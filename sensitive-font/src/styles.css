@@ -670,6 +670,15 @@ input[type='color'] {
   height: 16px;
 }
 
+/*
+ * ブラウザ自身がフォーカスした入力欄を見せようとするとき、上に固定した
+ * プレビューの下に潜り込ませないための余白（JS 側の補正が入るまでの保険）。
+ */
+.text-editor textarea {
+  scroll-margin-top: 190px;
+  scroll-margin-bottom: 24px;
+}
+
 textarea,
 input[type='search'] {
   width: 100%;

@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Config } from '../state/types'
 import { addCombining, COMBINING_DAKUTEN, COMBINING_HANDAKUTEN, stripCombining } from '../text/dakuten'
 import { TEXT_PRESETS } from '../text/presets'
@@ -16,26 +16,43 @@ export function TextEditor({
   const text = cfg.text
   const onChange = (v: string) => patch({ text: v })
   const area = useRef<HTMLTextAreaElement>(null)
+  const [focused, setFocused] = useState(false)
 
   /**
-   * スマホでキーボードが出ると、上に固定したプレビューとキーボードに挟まれて
-   * 入力欄が画面外に押し出される。キーボードの開き終わりを待ってから、
-   * 入力欄が見える位置までスクロールする。
+   * 入力欄を「固定表示の下」かつ「キーボードの上」に収める。
+   *
+   * scrollIntoView は固定表示との重なりを考慮しないので、上に貼り付いた
+   * プレビューの真下に入力欄が潜り込んでしまう（打っている 1 行目が隠れる）。
+   * 固定領域の下端と可視領域の下端を実測して、自分でスクロール量を出す。
    */
-  const onFocus = () => {
-    const scroll = () => area.current?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  const ensureVisible = useCallback(() => {
+    const el = area.current
+    if (!el) return
+    const sticky = document.querySelector('.left')
+    const stickyBottom = sticky ? sticky.getBoundingClientRect().bottom : 0
+    const visibleBottom = window.visualViewport?.height ?? window.innerHeight
+    const r = el.getBoundingClientRect()
+
+    let delta = 0
+    // まず下にはみ出していれば引き上げる
+    if (r.bottom > visibleBottom - 8) delta = r.bottom - (visibleBottom - 8)
+    // 固定表示に潜り込むならそちらを優先して押し下げる
+    if (r.top - delta < stickyBottom + 10) delta = r.top - stickyBottom - 10
+    if (Math.abs(delta) > 1) window.scrollBy({ top: delta, behavior: 'smooth' })
+  }, [])
+
+  // フォーカス中はキーボードの開閉・変形にあわせて位置を保つ。
+  // （scroll は拾わない。ユーザーが自分でスクロールしたのを引き戻してしまう）
+  useEffect(() => {
+    if (!focused) return
     const vv = window.visualViewport
-    if (vv) {
-      const once = () => {
-        vv.removeEventListener('resize', once)
-        scroll()
-      }
-      vv.addEventListener('resize', once)
-      // resize が来ない環境（デスクトップなど）向けの保険
-      setTimeout(() => vv.removeEventListener('resize', once), 600)
+    const t = setTimeout(ensureVisible, 300)
+    vv?.addEventListener('resize', ensureVisible)
+    return () => {
+      clearTimeout(t)
+      vv?.removeEventListener('resize', ensureVisible)
     }
-    setTimeout(scroll, 350)
-  }
+  }, [focused, ensureVisible])
 
   return (
     <div className="text-editor">
@@ -45,7 +62,8 @@ export function TextEditor({
         rows={3}
         spellCheck={false}
         placeholder="ここに文字を入力（改行で複数行）"
-        onFocus={onFocus}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
         onChange={(e) => onChange(e.target.value)}
       />
 
