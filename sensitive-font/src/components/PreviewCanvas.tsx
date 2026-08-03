@@ -4,6 +4,8 @@ import { SegmentedControl } from './controls'
 
 export type BgMode = 'checker' | 'white' | 'black' | 'image'
 
+const HINT_KEY = 'sensitive-font:hintSeen'
+
 export function PreviewCanvas({
   canvas,
   previewScale,
@@ -19,19 +21,43 @@ export function PreviewCanvas({
 }) {
   const stage = useRef<HTMLDivElement>(null)
   const holder = useRef<HTMLDivElement>(null)
+  const fileInput = useRef<HTMLInputElement>(null)
   const [bg, setBg] = useState<BgMode>('checker')
   const [bgUrl, setBgUrl] = useState<string | null>(null)
+  /** 実際に表示されている倍率（1 未満なら縮小して全体を見せている） */
+  const [zoom, setZoom] = useState(1)
+  const [hint, setHint] = useState(() => {
+    try {
+      return localStorage.getItem(HINT_KEY) !== '1'
+    } catch {
+      return true
+    }
+  })
 
   // 出来上がった canvas 要素をそのまま差し込む（toDataURL は大きい画像で遅い）。
-  // 表示は書き出しと等倍。入りきらないぶんはステージ側でスクロールさせる。
+  // 幅・高さの上限は CSS 側に持たせてあるので、入りきらないときは
+  // アスペクト比を保ったまま自動で縮む。ここではその結果を読むだけ。
   useEffect(() => {
     const el = holder.current
     if (!el) return
     el.replaceChildren()
-    if (!canvas) return
-    canvas.style.width = `${canvas.width / previewScale}px`
+    if (!canvas) {
+      setZoom(1)
+      return
+    }
+    const natural = canvas.width / previewScale
+    canvas.style.width = `${natural}px`
     canvas.style.height = 'auto'
     el.appendChild(canvas)
+
+    const measure = () => {
+      const shown = canvas.getBoundingClientRect().width
+      setZoom(natural > 0 ? shown / natural : 1)
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(canvas)
+    return () => ro.disconnect()
   }, [canvas, previewScale])
 
   useEffect(() => () => {
@@ -39,7 +65,6 @@ export function PreviewCanvas({
   }, [bgUrl])
 
   // ---- ピンチで文字サイズを変える ----
-  // 触っている指の情報。2 本になったところで基準の距離と文字サイズを覚える。
   const pointers = useRef(new Map<number, { x: number; y: number }>())
   const pinch = useRef<{ dist: number; size: number } | null>(null)
   // 拡大中に高さが変わると指の下で表示が跳ねるので、その間だけ高さを固定する。
@@ -101,6 +126,15 @@ export function PreviewCanvas({
     setBg('image')
   }
 
+  const dismissHint = () => {
+    setHint(false)
+    try {
+      localStorage.setItem(HINT_KEY, '1')
+    } catch {
+      /* 覚えられなくても表示自体には支障がない */
+    }
+  }
+
   return (
     <div className="preview">
       <div className="preview-bar">
@@ -112,17 +146,38 @@ export function PreviewCanvas({
             { value: 'black', label: '黒' },
             { value: 'image', label: '画像' },
           ]}
-          onChange={(v) => setBg(v)}
+          onChange={(v) => {
+            // 「画像」は押した時点でファイル選択を兼ねる（別ラベルを置くと
+            // 狭いバーが 1 行では収まらなくなるため）。
+            if (v === 'image') {
+              fileInput.current?.click()
+              if (bgUrl) setBg('image')
+              return
+            }
+            setBg(v)
+          }}
         />
-        <label className="bg-file">
-          背景画像
-          <input
-            type="file"
-            accept="image/*"
-            onChange={(e) => pickBgImage(e.target.files?.[0])}
-          />
-        </label>
+        <input
+          ref={fileInput}
+          className="hidden-file"
+          type="file"
+          accept="image/*"
+          onChange={(e) => pickBgImage(e.target.files?.[0])}
+        />
+        {zoom < 0.99 && (
+          <span className="zoom" title="全体が入るように縮小して表示しています">
+            {Math.round(zoom * 100)}%
+          </span>
+        )}
         {busy && <span className="busy">描画中…</span>}
+        <button
+          type="button"
+          className="info"
+          onClick={() => (hint ? dismissHint() : setHint(true))}
+          aria-label="プレビューの操作について"
+        >
+          ⓘ
+        </button>
       </div>
 
       <div
@@ -137,9 +192,16 @@ export function PreviewCanvas({
       >
         <div className="preview-holder" ref={holder} />
       </div>
-      <p className="preview-hint">
-        2本指でつまむと文字サイズを変えられます（PC は Ctrl＋ホイール）。表示は書き出しと等倍です。
-      </p>
+
+      {hint && (
+        <p className="preview-hint">
+          2本指でつまむと文字サイズを変えられます（PC は Ctrl＋ホイール）。
+          入りきらないときは縮小表示になり、バーに倍率が出ます。
+          <button type="button" className="ghost-sm" onClick={dismissHint}>
+            閉じる
+          </button>
+        </p>
+      )}
     </div>
   )
 }

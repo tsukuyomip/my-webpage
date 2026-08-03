@@ -274,6 +274,16 @@ export function FontPicker({
       </div>
       <p className="hint">「例」を押すと、その書体の例文と収録されている字種を確認できます。</p>
 
+      {current?.credit && (
+        <p className="credit">
+          「{current.label}」は{' '}
+          <a href={current.credit.url} target="_blank" rel="noreferrer noopener">
+            {current.credit.name}
+          </a>{' '}
+          の配布フォントです。配布元の利用規約に従ってご利用ください。
+        </p>
+      )}
+
       {current && current.weights.length > 1 && (
         <div className="weights">
           <span>太さ</span>
