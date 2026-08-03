@@ -17,10 +17,10 @@ function FontCard({
   onSelect: () => void
 }) {
   const ref = useRef<HTMLButtonElement>(null)
-  const [ready, setReady] = useState(!!font.local)
+  const [ready, setReady] = useState(!!font.local || !!font.bundled)
 
   useEffect(() => {
-    if (font.local) return
+    if (font.local || font.bundled) return
     const el = ref.current
     if (!el) return
     const io = new IntersectionObserver(

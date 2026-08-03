@@ -176,6 +176,31 @@ export const STYLE_PRESETS: StylePreset[] = [
     },
   },
   {
+    name: '擬音（エチオン）',
+    patch: {
+      fontId: 'echion',
+      fill: {
+        mode: 'solid',
+        color1: '#ffffff',
+        color2: '#ff5f9e',
+        useColor3: false,
+        color3: '#ffe36e',
+        angle: 0,
+        stripeCount: 6,
+      },
+      strokes: [
+        { color: '#1a0710', width: 5 },
+        { color: '#ffffff', width: 7 },
+      ],
+      shadow: { enabled: false, color: '#00000080', blur: 12, offsetX: 0, offsetY: 6 },
+      hardShadow: { enabled: false, color: '#2a0d1a', offsetX: 8, offsetY: 8 },
+      jitter: { enabled: true, mode: 'wave', size: 8, angle: 5, offset: 7, seed: 3 },
+      skew: 0,
+      rotate: 0,
+      arch: 0,
+    },
+  },
+  {
     name: 'ドット',
     patch: {
       fontId: 'dotgothic16',
