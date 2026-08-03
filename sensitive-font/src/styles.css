@@ -28,6 +28,11 @@
   --muted: #a496b4;
   --accent: #ff5f9e;
   --accent-2: #ffb0cf;
+  /*
+   * 実際に見えている高さ。JS（useViewport）が visualViewport から更新する。
+   * iOS では vh がキーボードで縮まないので、固定表示の高さには使えない。
+   */
+  --vvh: 100vh;
   color-scheme: dark;
 }
 
@@ -274,6 +279,8 @@ button.danger:hover:not(:disabled) {
 /* ---------- プレビュー ---------- */
 
 .preview {
+  /* プレビューに割ける高さ。ステージと canvas の上限で共有する */
+  --preview-max: calc(var(--vvh) * 0.62);
   border: 1px solid var(--line);
   border-radius: 12px;
   background: var(--panel);
@@ -291,14 +298,15 @@ button.danger:hover:not(:disabled) {
 }
 
 /*
- * 高さは描画物にあわせて伸縮する（余白を作らない）。上限を超えたぶんは
- * スクロールで見る。表示は書き出しと等倍なので縮小はしない。
+ * 高さは描画物にあわせて伸縮する（余白を作らない）。上限に当たったときは
+ * canvas 側の max-width / max-height が効いて、アスペクト比を保ったまま
+ * 縮小されるので、切れずに全体が見える。
  */
 .preview-stage {
   display: grid;
   place-items: center;
   min-height: 72px;
-  max-height: 62vh;
+  max-height: var(--preview-max);
   padding: 12px;
   overflow: auto;
   background-size: cover;
@@ -330,25 +338,55 @@ button.danger:hover:not(:disabled) {
   background-color: #000;
 }
 
-/* 小さい絵は中央に、大きい絵ははみ出させてステージ側でスクロールさせる */
 .preview-holder {
   display: grid;
   place-items: center;
   min-width: 100%;
-  min-height: 100%;
 }
 
+/*
+ * 幅か高さが上限に当たったら、置換要素のサイズ計算でアスペクト比を保ったまま
+ * 縮む（width は JS が実寸で入れるので、上限に当たらなければ等倍のまま）。
+ */
 .preview-holder canvas {
   display: block;
+  max-width: 100%;
+  max-height: calc(var(--preview-max) - 26px);
 }
 
 .preview-hint {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin: 0;
   padding: 6px 12px;
   border-top: 1px solid var(--line);
   background: var(--panel-2);
   color: var(--muted);
   font-size: 0.72rem;
+}
+
+.zoom {
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: #3a2033;
+  color: var(--accent-2);
+  font-size: 0.72rem;
+  font-variant-numeric: tabular-nums;
+}
+
+button.info {
+  min-height: 28px;
+  margin-left: auto;
+  padding: 0 8px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.hidden-file {
+  display: none;
 }
 
 .busy {
@@ -362,14 +400,22 @@ button.danger:hover:not(:disabled) {
  * （基本の .preview-stage より後ろに置かないと上書きされない）
  */
 @media (max-width: 899px) {
+  .preview {
+    --preview-max: calc(var(--vvh) * 0.34);
+  }
+
   .preview-bar {
-    padding: 6px 8px;
-    gap: 8px;
+    padding: 5px 8px;
+    gap: 6px;
+  }
+
+  .preview-bar .segmented button {
+    min-height: 30px;
+    padding: 3px 9px;
   }
 
   .preview-stage {
     min-height: 64px;
-    max-height: 30vh;
     padding: 8px;
   }
 
@@ -377,6 +423,19 @@ button.danger:hover:not(:disabled) {
     padding: 5px 8px;
     font-size: 0.68rem;
   }
+}
+
+/*
+ * キーボードが出ている間は、入力欄を出すために固定表示を最小限にする。
+ * 補足表示（ヒント・警告）は一旦引っ込め、プレビューだけ残す。
+ */
+.app[data-keyboard='1'] .preview {
+  --preview-max: calc(var(--vvh) * 0.24);
+}
+
+.app[data-keyboard='1'] .preview-hint,
+.app[data-keyboard='1'] .left .warn {
+  display: none;
 }
 
 .bg-file {
@@ -653,6 +712,55 @@ input[type='search'] {
 .warn b {
   color: #fff;
   font-weight: 700;
+}
+
+/* 固定表示の中に置く注意書き。既定は 1 行、タップで全文。 */
+.warn.compact {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 10px;
+  text-align: left;
+  font-size: 0.74rem;
+  line-height: 1.45;
+}
+
+.warn.as-button {
+  min-height: 0;
+  cursor: pointer;
+}
+
+.warn.as-button:hover:not(:disabled) {
+  background: #362817;
+}
+
+.warn .warn-head {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.warn.open {
+  display: block;
+}
+
+.warn.open .warn-head {
+  white-space: normal;
+}
+
+.warn .warn-body {
+  display: block;
+  margin-top: 3px;
+  opacity: 0.85;
+}
+
+.warn .warn-more {
+  flex: 0 0 auto;
+  text-decoration: underline;
+  opacity: 0.75;
 }
 
 .warn {

@@ -1,3 +1,4 @@
+import { useRef } from 'react'
 import type { Config } from '../state/types'
 import { addCombining, COMBINING_DAKUTEN, COMBINING_HANDAKUTEN, stripCombining } from '../text/dakuten'
 import { TEXT_PRESETS } from '../text/presets'
@@ -14,14 +15,37 @@ export function TextEditor({
 }) {
   const text = cfg.text
   const onChange = (v: string) => patch({ text: v })
+  const area = useRef<HTMLTextAreaElement>(null)
+
+  /**
+   * スマホでキーボードが出ると、上に固定したプレビューとキーボードに挟まれて
+   * 入力欄が画面外に押し出される。キーボードの開き終わりを待ってから、
+   * 入力欄が見える位置までスクロールする。
+   */
+  const onFocus = () => {
+    const scroll = () => area.current?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    const vv = window.visualViewport
+    if (vv) {
+      const once = () => {
+        vv.removeEventListener('resize', once)
+        scroll()
+      }
+      vv.addEventListener('resize', once)
+      // resize が来ない環境（デスクトップなど）向けの保険
+      setTimeout(() => vv.removeEventListener('resize', once), 600)
+    }
+    setTimeout(scroll, 350)
+  }
 
   return (
     <div className="text-editor">
       <textarea
+        ref={area}
         value={text}
         rows={3}
         spellCheck={false}
         placeholder="ここに文字を入力（改行で複数行）"
+        onFocus={onFocus}
         onChange={(e) => onChange(e.target.value)}
       />
 

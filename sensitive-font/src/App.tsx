@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AgeGate } from './components/AgeGate'
+import { CompactNote } from './components/CompactNote'
 import { ExportBar } from './components/ExportBar'
 import { FontPicker } from './components/FontPicker'
 import { PreviewCanvas } from './components/PreviewCanvas'
@@ -8,6 +9,7 @@ import { Section, Slider } from './components/controls'
 import { TextEditor } from './components/TextEditor'
 import { renderText, type RenderResult } from './render/draw'
 import { loadConfig, saveConfig, shareUrl } from './state/share'
+import { useViewport } from './state/useViewport'
 import { defaultConfig, defaultOf, SECTION_KEYS, type Config } from './state/types'
 import {
   ensureFontReady,
@@ -78,6 +80,7 @@ export default function App() {
   // フォントが遅れて届いたときに描き直すためのカウンタ。
   const [fontEpoch, setFontEpoch] = useState(0)
   const renderToken = useRef(0)
+  const { keyboard } = useViewport()
 
   useEffect(() => {
     const onDone = () => setFontEpoch((n) => n + 1)
@@ -161,7 +164,8 @@ export default function App() {
   return (
     <>
       <AgeGate />
-      <div className="app">
+      {/* キーボードが出ている間は固定表示を最小限にする（CSS 側で参照） */}
+      <div className="app" data-keyboard={keyboard ? '1' : undefined}>
         <header className="app-header">
           <div className="app-title">
             <h1>✨ 透過文字ジェネレータ</h1>
@@ -184,26 +188,21 @@ export default function App() {
               onFontSize={(fontSize) => patch({ fontSize })}
             />
             {fontMissing && (
-              <p className="warn">
-                「{font.label}」を読み込めていないため、代替書体で表示しています。
-                回線が復帰すれば自動で描き直します。手持ちのフォントを読み込んで使うこともできます。
-              </p>
+              <CompactNote head={<>⚠ 「{font.label}」を読み込めていません</>}>
+                代替書体で表示しています。回線が復帰すれば自動で描き直します。
+                手持ちのフォントを読み込んで使うこともできます。
+              </CompactNote>
             )}
             {!fontMissing && missing.length > 0 && (
-              <p className="warn">
-                「{font.label}」に入っていない文字があります（<b>{missing.join(' ')}</b>
-                ）。この文字だけ別の書体で描かれています。
-                {coverageHint}
-              </p>
-            )}
-            {font.credit && (
-              <p className="credit">
-                「{font.label}」は{' '}
-                <a href={font.credit.url} target="_blank" rel="noreferrer noopener">
-                  {font.credit.name}
-                </a>{' '}
-                の配布フォントです。
-              </p>
+              <CompactNote
+                head={
+                  <>
+                    ⚠ この書体にない文字: <b>{missing.join(' ')}</b>
+                  </>
+                }
+              >
+                この文字だけ別の書体で描かれています。{coverageHint}
+              </CompactNote>
             )}
           </div>
 
