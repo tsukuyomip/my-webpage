@@ -176,7 +176,13 @@ export default function App() {
         <div className="layout">
           {/* プレビューは常に見えるように固定表示。スマホでは画面上部に貼り付く。 */}
           <div className="left">
-            <PreviewCanvas canvas={preview} previewScale={previewScale} busy={busy} />
+            <PreviewCanvas
+              canvas={preview}
+              previewScale={previewScale}
+              busy={busy}
+              fontSize={cfg.fontSize}
+              onFontSize={(fontSize) => patch({ fontSize })}
+            />
             {fontMissing && (
               <p className="warn">
                 「{font.label}」を読み込めていないため、代替書体で表示しています。

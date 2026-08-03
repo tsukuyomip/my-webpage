@@ -290,15 +290,21 @@ button.danger:hover:not(:disabled) {
   background: var(--panel-2);
 }
 
+/*
+ * 高さは描画物にあわせて伸縮する（余白を作らない）。上限を超えたぶんは
+ * スクロールで見る。表示は書き出しと等倍なので縮小はしない。
+ */
 .preview-stage {
   display: grid;
   place-items: center;
-  min-height: 260px;
+  min-height: 72px;
   max-height: 62vh;
-  padding: 16px;
+  padding: 12px;
   overflow: auto;
   background-size: cover;
   background-position: center;
+  /* 1本指はスクロール、2本指は自前のピンチに使う */
+  touch-action: pan-x pan-y;
 }
 
 .preview-stage.bg-checker {
@@ -324,14 +330,25 @@ button.danger:hover:not(:disabled) {
   background-color: #000;
 }
 
+/* 小さい絵は中央に、大きい絵ははみ出させてステージ側でスクロールさせる */
 .preview-holder {
   display: grid;
   place-items: center;
-  max-width: 100%;
+  min-width: 100%;
+  min-height: 100%;
 }
 
 .preview-holder canvas {
   display: block;
+}
+
+.preview-hint {
+  margin: 0;
+  padding: 6px 12px;
+  border-top: 1px solid var(--line);
+  background: var(--panel-2);
+  color: var(--muted);
+  font-size: 0.72rem;
 }
 
 .busy {
@@ -351,9 +368,14 @@ button.danger:hover:not(:disabled) {
   }
 
   .preview-stage {
-    min-height: 104px;
-    max-height: 25vh;
+    min-height: 64px;
+    max-height: 30vh;
     padding: 8px;
+  }
+
+  .preview-hint {
+    padding: 5px 8px;
+    font-size: 0.68rem;
   }
 }
 
