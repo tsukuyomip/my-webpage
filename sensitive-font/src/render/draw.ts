@@ -29,21 +29,27 @@ function totalStrokeWidth(cfg: Config): number {
   return cfg.strokes.reduce((a, s) => a + (s.width / 100) * cfg.fontSize, 0)
 }
 
-/** 1 文字を、ゆらぎ・回転を効かせた座標系で描く。 */
+/**
+ * 1 文字を、ゆらぎ・回転を効かせた座標系で描く。
+ * 重ねる濁点（g.marks）も同じ変換の中で描くので、土台と一緒に傾き・揺れる。
+ */
 function withGlyphTransform(
   ctx: CanvasRenderingContext2D,
   g: Glyph,
   size: number,
-  paint: (x: number, y: number) => void,
+  paint: (text: string, x: number, y: number) => void,
 ): void {
   ctx.save()
+  let penX: number
+  let penY: number
   if (g.anchor === 'center') {
     ctx.translate(g.x, g.y)
     if (g.rotate) ctx.rotate(g.rotate)
     if (g.scale !== 1) ctx.scale(g.scale, g.scale)
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
-    paint(0, 0)
+    penX = 0
+    penY = 0
   } else {
     // 字面のだいたいの中心を回転・拡大の軸にする（ペン位置を軸にすると
     // 文字が振り回されて並びが崩れる）。
@@ -53,7 +59,22 @@ function withGlyphTransform(
     if (g.scale !== 1) ctx.scale(g.scale, g.scale)
     ctx.textAlign = 'left'
     ctx.textBaseline = 'alphabetic'
-    paint(-w / 2, size * 0.35)
+    penX = -w / 2
+    penY = size * 0.35
+  }
+  paint(g.text, penX, penY)
+
+  for (const m of g.marks ?? []) {
+    ctx.save()
+    ctx.translate(penX + m.dx, penY + m.dy)
+    if (m.scale !== 1) ctx.scale(m.scale, m.scale)
+    ctx.textAlign = 'center'
+    // ベースライン基準で描く。濁点は書体側が em ボックスの上寄りに置いて
+    // くれているので、それをそのまま活かすのが一番収まりがいい。
+    // 'middle' にすると、その上寄りぶんだけ余計に浮いて土台から離れる。
+    ctx.textBaseline = 'alphabetic'
+    paint(m.text, 0, 0)
+    ctx.restore()
   }
   ctx.restore()
 }
@@ -125,7 +146,7 @@ function renderGlyphCanvas(
     ctx.strokeStyle = cfg.strokes[i].color
     ctx.lineWidth = outer * 2
     for (const g of layout.glyphs) {
-      withGlyphTransform(ctx, g, cfg.fontSize, (x, y) => ctx.strokeText(g.text, x, y))
+      withGlyphTransform(ctx, g, cfg.fontSize, (t, x, y) => ctx.strokeText(t, x, y))
     }
     outer -= bands[i]
   }
@@ -134,7 +155,7 @@ function renderGlyphCanvas(
   if (cfg.fill.mode === 'solid') {
     ctx.fillStyle = cfg.fill.color1
     for (const g of layout.glyphs) {
-      withGlyphTransform(ctx, g, cfg.fontSize, (x, y) => ctx.fillText(g.text, x, y))
+      withGlyphTransform(ctx, g, cfg.fontSize, (t, x, y) => ctx.fillText(t, x, y))
     }
   } else {
     // グラデ／縞は「文字の形でマスクした矩形」として別キャンバスで作る。
@@ -145,7 +166,7 @@ function renderGlyphCanvas(
     setup(mctx)
     mctx.fillStyle = '#000'
     for (const g of layout.glyphs) {
-      withGlyphTransform(mctx, g, cfg.fontSize, (x, y) => mctx.fillText(g.text, x, y))
+      withGlyphTransform(mctx, g, cfg.fontSize, (t, x, y) => mctx.fillText(t, x, y))
     }
     mctx.setTransform(1, 0, 0, 1, 0, 0)
     mctx.globalCompositeOperation = 'source-in'
