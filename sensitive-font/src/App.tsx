@@ -16,6 +16,7 @@ import {
   isFontReady,
   PREVIEW_TIMEOUT_MS,
 } from './text/fonts'
+import { missingChars } from './text/coverage'
 import { STYLE_PRESETS } from './text/presets'
 
 /** プレビューの解像度倍率。大きすぎる版は端末が死ぬので上限を掛ける。 */
@@ -33,6 +34,7 @@ export default function App() {
   const [baseSize, setBaseSize] = useState<{ w: number; h: number } | null>(null)
   const [busy, setBusy] = useState(false)
   const [fontMissing, setFontMissing] = useState(false)
+  const [missing, setMissing] = useState<string[]>([])
   // フォントが遅れて届いたときに描き直すためのカウンタ。
   const [fontEpoch, setFontEpoch] = useState(0)
   const renderToken = useRef(0)
@@ -75,7 +77,11 @@ export default function App() {
         if (renderToken.current !== token) return
         setPreview(r.canvas)
         setBaseSize({ w: r.canvas.width / r.scale, h: r.canvas.height / r.scale })
-        setFontMissing(!isFontReady(font, cfg.fontWeight, cfg.text))
+        const ready = isFontReady(font, cfg.fontWeight, cfg.text)
+        setFontMissing(!ready)
+        // 書体が効いているときだけ「その書体に無い文字」を見る
+        // （そもそも読めていないなら全文字が無いことになって意味がない）。
+        setMissing(ready ? missingChars(font.family, cfg.fontWeight, cfg.text) : [])
       } finally {
         if (renderToken.current === token) setBusy(false)
       }
@@ -116,6 +122,24 @@ export default function App() {
               <p className="warn">
                 「{font.label}」を読み込めていないため、代替書体で表示しています。
                 回線が復帰すれば自動で描き直します。手持ちのフォントを読み込んで使うこともできます。
+              </p>
+            )}
+            {!fontMissing && missing.length > 0 && (
+              <p className="warn">
+                「{font.label}」に入っていない文字があります（
+                <b>{missing.join(' ')}</b>
+                ）。この文字だけ別の書体で描かれています。
+                {font.id === 'anbata' && 'あんばたは欧文・数字のみの書体です。'}
+                {font.id === 'echion' && 'エチオンはかな・カタカナ・記号のみで、漢字は入っていません。'}
+              </p>
+            )}
+            {font.credit && (
+              <p className="credit">
+                「{font.label}」は{' '}
+                <a href={font.credit.url} target="_blank" rel="noreferrer noopener">
+                  {font.credit.name}
+                </a>{' '}
+                の配布フォントです。
               </p>
             )}
             <Section title="書き出し">
@@ -202,6 +226,17 @@ export default function App() {
           <p>
             フォントは Google Fonts（SIL Open Font License）を使用。手持ちフォントで作った
             画像の配布可否は、そのフォントのライセンスに従ってください。
+          </p>
+          <p>
+            同梱フォント:{' '}
+            <a href="https://booth.pm/ja/items/4004751" target="_blank" rel="noreferrer noopener">
+              エチオン（ガク藝会）
+            </a>
+            {' / '}
+            <a href="https://booth.pm/ja/items/2439013" target="_blank" rel="noreferrer noopener">
+              あんばたフォント
+            </a>
+            。いずれも配布元の利用規約に従ってご利用ください（フォントデータの再配布・改変・販売は禁止されています）。
           </p>
           <p className="build">build {__BUILD_INFO__}</p>
         </footer>

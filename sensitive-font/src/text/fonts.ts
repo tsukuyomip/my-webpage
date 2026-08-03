@@ -22,9 +22,14 @@ export type FontDef = {
   weights: number[]
   /** ローカル読み込みされたフォントか */
   local?: boolean
+  /** アプリに同梱している（= CSS を取りに行く必要がない）フォントか */
+  bundled?: boolean
+  /** 配布元の表示名とリンク（同梱フォントのクレジット用） */
+  credit?: { name: string; url: string }
 }
 
 export const FONT_CATEGORIES = [
+  '同人向け（同梱）',
   'ゴシック',
   '極太・インパクト',
   '明朝・和風',
@@ -34,6 +39,26 @@ export const FONT_CATEGORIES = [
 ] as const
 
 export const BUILTIN_FONTS: FontDef[] = [
+  // 同梱フォント。@font-face は styles.css で宣言している。
+  {
+    id: 'echion',
+    family: 'Echion',
+    label: 'エチオン（擬音）',
+    category: '同人向け（同梱）',
+    weights: [400],
+    bundled: true,
+    credit: { name: 'ガク藝会', url: 'https://booth.pm/ja/items/4004751' },
+  },
+  {
+    id: 'anbata',
+    family: 'Anbatafonts',
+    label: 'あんばた（欧文のみ）',
+    category: '同人向け（同梱）',
+    weights: [400],
+    bundled: true,
+    credit: { name: 'あんばたフォント', url: 'https://booth.pm/ja/items/2439013' },
+  },
+
   { id: 'noto-sans-jp', family: 'Noto Sans JP', label: 'Noto Sans JP', category: 'ゴシック', weights: [400, 700, 900] },
   { id: 'm-plus-1p', family: 'M PLUS 1p', label: 'M PLUS 1p', category: 'ゴシック', weights: [400, 700, 900] },
   { id: 'stick', family: 'Stick', label: 'Stick（角ばり）', category: 'ゴシック', weights: [400] },
@@ -109,7 +134,8 @@ function withTimeout(p: Promise<unknown>, ms: number): Promise<void> {
 
 /** @font-face 宣言（Google Fonts の CSS）を 1 度だけ読み込む。 */
 export function ensureFontCss(f: FontDef, timeoutMs: number): Promise<void> {
-  if (f.local) return Promise.resolve()
+  // 同梱ぶんと手持ちぶんは取りに行く CSS が無い。
+  if (f.local || f.bundled) return Promise.resolve()
   const cached = cssPromises.get(f.id)
   if (cached) return withTimeout(cached, timeoutMs)
   // link の読み込み自体は打ち切らずに走らせ続ける（後から届いたら描き直す）。

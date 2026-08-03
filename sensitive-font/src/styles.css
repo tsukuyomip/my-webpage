@@ -1,3 +1,24 @@
+/*
+ * 同梱フォント。配布元のクレジットは README とアプリのフッタに記載。
+ * - エチオン: ガク藝会 https://booth.pm/ja/items/4004751
+ * - あんばたフォント: https://booth.pm/ja/items/2439013
+ */
+@font-face {
+  font-family: 'Echion';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./fonts/echion.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'Anbatafonts';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./fonts/anbata.woff2') format('woff2');
+}
+
 :root {
   --bg: #14101a;
   --panel: #1e1826;
@@ -421,6 +442,22 @@ input[type='search'] {
   margin: 0;
   color: var(--accent-2);
   font-size: 0.82rem;
+}
+
+.credit {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.credit a,
+.app-footer a {
+  color: var(--accent-2);
+}
+
+.warn b {
+  color: #fff;
+  font-weight: 700;
 }
 
 .warn {
