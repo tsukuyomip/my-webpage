@@ -111,6 +111,14 @@ export const DEFAULT_CONFIG: Config = {
   padding: 8,
 }
 
+/** 文字サイズの範囲。スライダーとピンチ操作で共有する。 */
+export const FONT_SIZE_MIN = 16
+export const FONT_SIZE_MAX = 600
+
+export function clampFontSize(v: number): number {
+  return Math.min(FONT_SIZE_MAX, Math.max(FONT_SIZE_MIN, Math.round(v)))
+}
+
 /**
  * 既定値のコピー。DEFAULT_CONFIG の中の配列やオブジェクトをそのまま state に
  * 入れると参照が共有され、初期化するたびに同じ実体を触ることになる。

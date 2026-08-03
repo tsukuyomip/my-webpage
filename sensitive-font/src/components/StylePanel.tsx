@@ -1,4 +1,4 @@
-import type { Config, StrokeLayer } from '../state/types'
+import { FONT_SIZE_MAX, FONT_SIZE_MIN, type Config, type StrokeLayer } from '../state/types'
 import { ColorField, SegmentedControl, Slider, Toggle } from './controls'
 
 type Patch = (p: Partial<Config>) => void
@@ -9,8 +9,8 @@ export function TypePanel({ cfg, patch }: { cfg: Config; patch: Patch }) {
       <Slider
         label="文字サイズ"
         value={cfg.fontSize}
-        min={16}
-        max={600}
+        min={FONT_SIZE_MIN}
+        max={FONT_SIZE_MAX}
         step={1}
         unit="px"
         onChange={(fontSize) => patch({ fontSize })}
