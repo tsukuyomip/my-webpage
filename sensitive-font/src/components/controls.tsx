@@ -1,23 +1,55 @@
 /** パネルで使う小さな入力パーツ。 */
 
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 
+/**
+ * 折りたたみできるパネル。設定項目が多く、特にスマホでは畳めないと
+ * プレビューまでのスクロールが長くなるため。開閉状態は覚えておく。
+ */
 export function Section({
   title,
   children,
   right,
+  defaultOpen = true,
 }: {
   title: string
   children: ReactNode
   right?: ReactNode
+  defaultOpen?: boolean
 }) {
+  const key = `sensitive-font:open:${title}`
+  const [open, setOpen] = useState(() => {
+    try {
+      const v = localStorage.getItem(key)
+      return v === null ? defaultOpen : v === '1'
+    } catch {
+      return defaultOpen
+    }
+  })
+
+  const toggle = () => {
+    setOpen((o) => {
+      try {
+        localStorage.setItem(key, o ? '0' : '1')
+      } catch {
+        /* 保存できなくても開閉自体はできる */
+      }
+      return !o
+    })
+  }
+
   return (
-    <section className="panel">
+    <section className={`panel${open ? '' : ' closed'}`}>
       <h2>
-        <span>{title}</span>
+        <button type="button" className="panel-toggle" onClick={toggle} aria-expanded={open}>
+          <span className="caret" aria-hidden="true">
+            ▾
+          </span>
+          {title}
+        </button>
         {right}
       </h2>
-      <div className="panel-body">{children}</div>
+      {open && <div className="panel-body">{children}</div>}
     </section>
   )
 }

@@ -68,6 +68,13 @@ function fingerprint(c: CanvasRenderingContext2D, font: string, ch: string): str
   return `${x1 - x0 + 1}x${y1 - y0 + 1}:${h}`
 }
 
+/** 1 文字がその書体に収録されているか。 */
+function hasChar(c: CanvasRenderingContext2D, family: string, weight: number, ch: string): boolean {
+  const withFont = fingerprint(c, `${weight} ${PROBE_PX}px "${family}", monospace`, ch)
+  const fallback = fingerprint(c, `${weight} ${PROBE_PX}px monospace`, ch)
+  return withFont !== fallback
+}
+
 /**
  * `text` のうち、その書体に収録されていない文字を返す（重複は除く）。
  * フォントのロードが済んでから呼ぶこと。
@@ -80,9 +87,68 @@ export function missingChars(family: string, weight: number, text: string): stri
   for (const g of splitGraphemes(text)) {
     if (!g.trim() || seen.has(g)) continue
     seen.add(g)
-    const withFont = fingerprint(c, `${weight} ${PROBE_PX}px "${family}", monospace`, g)
-    const fallback = fingerprint(c, `${weight} ${PROBE_PX}px monospace`, g)
-    if (withFont === fallback) out.push(g)
+    if (!hasChar(c, family, weight, g)) out.push(g)
   }
   return out
+}
+
+export type Support = 'full' | 'partial' | 'none'
+
+export type Coverage = {
+  ひらがな: Support
+  カタカナ: Support
+  漢字: Support
+  英字: Support
+  数字: Support
+  記号: Support
+}
+
+/** 字種ごとの代表文字。全部あれば full、一部だけなら partial。 */
+const PROBES: [keyof Coverage, string[]][] = [
+  ['ひらがな', ['あ', 'ん', 'っ', 'ぬ']],
+  ['カタカナ', ['ア', 'ク', 'ッ', 'ヲ']],
+  ['漢字', ['絶', '頂', '音', '愛']],
+  ['英字', ['A', 'a', 'g', 'W']],
+  ['数字', ['0', '5', '9']],
+  ['記号', ['♡', '★', '！', '…']],
+]
+
+export const COVERAGE_KEYS = PROBES.map(([k]) => k)
+
+/** その書体がどの字種を持っているかをざっと調べる。 */
+export function describeCoverage(family: string, weight: number): Coverage {
+  const c = ctx()
+  const out = {} as Coverage
+  for (const [key, chars] of PROBES) {
+    if (!c) {
+      out[key] = 'full'
+      continue
+    }
+    const hit = chars.filter((ch) => hasChar(c, family, weight, ch)).length
+    out[key] = hit === chars.length ? 'full' : hit === 0 ? 'none' : 'partial'
+  }
+  return out
+}
+
+/** 字種が偏っている書体につける注意書き。ふつうの書体では null。 */
+export function coverageNote(cov: Coverage): string | null {
+  const noKana = cov.ひらがな === 'none' && cov.カタカナ === 'none'
+  if (noKana && cov.英字 !== 'none') {
+    return 'この書体は欧文・数字が中心で、かな・漢字は入っていません。日本語を打つと別の書体で描かれます。'
+  }
+  if (cov.漢字 === 'none' && !noKana) {
+    return 'かな・カタカナ中心の書体で、漢字は入っていません。'
+  }
+  if (cov.漢字 === 'partial') {
+    return '漢字は一部だけ収録されています。無い漢字は別の書体で描かれます。'
+  }
+  return null
+}
+
+/** フォント一覧のカードに出す短いバッジ。ふつうの書体では null。 */
+export function coverageBadge(cov: Coverage): string | null {
+  if (cov.ひらがな === 'none' && cov.カタカナ === 'none') return '欧文のみ'
+  if (cov.漢字 === 'none') return '漢字なし'
+  if (cov.漢字 === 'partial') return '漢字一部'
+  return null
 }
