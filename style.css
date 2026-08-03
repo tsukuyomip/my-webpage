@@ -184,6 +184,28 @@ nav a:hover {
   margin: 0;
 }
 
+/* 成人向けカード：一目でそれと分かるようにしておく */
+.card-r18 {
+  border-color: #7a3350;
+}
+
+.card-r18 .badge {
+  display: inline-block;
+  margin-left: 0.4rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  background: #ff3d7f;
+  color: #2b0716;
+  font-size: 0.7rem;
+  font-weight: 700;
+  vertical-align: middle;
+}
+
+.card-r18 strong {
+  color: #ff9bc2;
+  font-weight: 600;
+}
+
 /* Footer */
 footer {
   text-align: center;

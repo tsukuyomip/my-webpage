@@ -1,0 +1,112 @@
+/** 描画設定。これ 1 つでプレビューも書き出しも決まる（= 共有 URL に載る全て）。 */
+
+export type FillMode = 'solid' | 'gradient' | 'stripe'
+
+export type Fill = {
+  mode: FillMode
+  /** solid のときの色 / gradient・stripe の 1 色目 */
+  color1: string
+  /** gradient・stripe の 2 色目 */
+  color2: string
+  /** gradient で 3 色目を使うか */
+  useColor3: boolean
+  color3: string
+  /** グラデ方向（度）。0 = 上→下、90 = 左→右 */
+  angle: number
+  /** stripe の縞の本数 */
+  stripeCount: number
+}
+
+/** 縁取り 1 本。太さは「そのバンドの幅」で、外側に向かって積み上がる。 */
+export type StrokeLayer = {
+  color: string
+  /** バンド幅（フォントサイズに対する %) */
+  width: number
+}
+
+export type Shadow = {
+  enabled: boolean
+  color: string
+  blur: number
+  offsetX: number
+  offsetY: number
+}
+
+/** ずらしたベタ影（同人の文字でよく見るやつ）。 */
+export type HardShadow = {
+  enabled: boolean
+  color: string
+  offsetX: number
+  offsetY: number
+}
+
+export type Jitter = {
+  enabled: boolean
+  /** 'random' = ランダム / 'wave' = サイン波でうねらせる */
+  mode: 'random' | 'wave'
+  /** 文字サイズの揺れ幅（%） */
+  size: number
+  /** 回転の揺れ幅（度） */
+  angle: number
+  /** 上下位置の揺れ幅（フォントサイズに対する %） */
+  offset: number
+  seed: number
+}
+
+export type Config = {
+  text: string
+  fontId: string
+  fontWeight: number
+  fontSize: number
+  /** 行送り（フォントサイズ倍） */
+  lineHeight: number
+  /** 字間（em） */
+  letterSpacing: number
+  vertical: boolean
+  align: 'start' | 'center' | 'end'
+  fill: Fill
+  /** 内側から外側の順に積む */
+  strokes: StrokeLayer[]
+  shadow: Shadow
+  hardShadow: HardShadow
+  jitter: Jitter
+  /** 斜体（度）。正で右に倒れる */
+  skew: number
+  /** 全体の回転（度） */
+  rotate: number
+  /** アーチ（度）。正で上に凸、負で下に凸 */
+  arch: number
+  /** 書き出し時に周囲へ残す余白（px, 等倍） */
+  padding: number
+}
+
+export const DEFAULT_CONFIG: Config = {
+  text: 'んっ♡',
+  fontId: 'dela-gothic-one',
+  fontWeight: 400,
+  fontSize: 160,
+  lineHeight: 1.15,
+  letterSpacing: 0,
+  vertical: false,
+  align: 'center',
+  fill: {
+    mode: 'solid',
+    color1: '#ffffff',
+    color2: '#ff5f9e',
+    useColor3: false,
+    color3: '#ffe36e',
+    angle: 0,
+    stripeCount: 6,
+  },
+  strokes: [
+    { color: '#ff3d7f', width: 8 },
+    { color: '#ffffff', width: 6 },
+  ],
+  shadow: { enabled: false, color: '#00000080', blur: 12, offsetX: 0, offsetY: 6 },
+  hardShadow: { enabled: false, color: '#2a0d1a', offsetX: 8, offsetY: 8 },
+  jitter: { enabled: false, mode: 'random', size: 10, angle: 6, offset: 6, seed: 1 },
+  skew: 0,
+  rotate: 0,
+  arch: 0,
+  padding: 8,
+}
