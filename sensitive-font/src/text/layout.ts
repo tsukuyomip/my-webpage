@@ -6,6 +6,7 @@
  */
 
 import type { Config } from '../state/types'
+import { splitMarks } from './dakuten'
 
 export type Glyph = {
   text: string
@@ -21,6 +22,12 @@ export type Glyph = {
    * 縦書きで 90° 回転させる文字は中心合わせのほうが素直なので分けている。
    */
   anchor: 'start' | 'center'
+  /**
+   * この文字に重ねて描く濁点など。位置は土台の文字のペン位置からの相対で、
+   * **土台と同じ変換の中で**描く。こうしないと、ゆらぎや回転をかけたときに
+   * 濁点だけ別の場所へ飛んでいく。
+   */
+  marks?: { text: string; dx: number; dy: number; scale: number }[]
 }
 
 export type Layout = {
@@ -88,6 +95,29 @@ export function layoutText(cfg: Config, measure: (s: string) => number): Layout 
   const lineGap = cfg.lineHeight * size
   const lines = cfg.text.split('\n').map(splitGraphemes)
 
+  /**
+   * 濁点を別文字として重ねるモードでは、書記素クラスタを土台と濁点に分ける。
+   * 送り幅は土台だけで決め、濁点は土台にぶら下げる（= 送りに影響しない）。
+   */
+  const overlay = cfg.dakutenMode === 'overlay'
+  const decompose = (cluster: string) => {
+    if (!overlay) return { base: cluster, marks: [] as Glyph['marks'] }
+    const { base, marks } = splitMarks(cluster)
+    if (!marks.length) return { base, marks: [] as Glyph['marks'] }
+    const w = measure(base)
+    return {
+      base,
+      marks: marks.map((m, i) => ({
+        text: m,
+        // 横は土台の右端あたり。縦は土台と同じベースライン（描画側が
+        // ベースライン基準で描くので、高さは書体の字形任せになる）。
+        dx: w * 0.82 + (cfg.dakutenOffsetX / 100) * size + i * size * 0.28,
+        dy: (cfg.dakutenOffsetY / 100) * size,
+        scale: cfg.dakutenScale / 100,
+      })),
+    }
+  }
+
   const glyphs: Glyph[] = []
   let minX = Infinity
   let minY = Infinity
@@ -101,10 +131,25 @@ export function layoutText(cfg: Config, measure: (s: string) => number): Layout 
     if (y1 > maxY) maxY = y1
   }
 
+  /**
+   * 重ねた濁点は送りに含まれないので、外接矩形には手で足す。
+   * これを忘れると、位置を大きくずらしたときにキャンバスからはみ出して切れる。
+   */
+  const bumpMarks = (px: number, py: number, marks: Glyph['marks']) => {
+    for (const m of marks ?? []) {
+      const r = size * m.scale * 0.6
+      // ベースライン基準なので、上に 1em ぶん・下に少しだけ見ておく。
+      bump(px + m.dx - r, py + m.dy - size * m.scale, px + m.dx + r, py + m.dy + size * m.scale * 0.2)
+    }
+  }
+
+  /** 送りに使う幅。overlay のときは濁点を除いた土台の幅。 */
+  const advanceOf = (cluster: string) => measure(decompose(cluster).base)
+
   if (!cfg.vertical) {
     // ---- 横書き ----
     const widths = lines.map((cs) =>
-      cs.reduce((w, c) => w + measure(c) + spacing, 0) - (cs.length ? spacing : 0),
+      cs.reduce((w, c) => w + advanceOf(c) + spacing, 0) - (cs.length ? spacing : 0),
     )
     const boxWidth = Math.max(0, ...widths)
     lines.forEach((cs, li) => {
@@ -117,10 +162,12 @@ export function layoutText(cfg: Config, measure: (s: string) => number): Layout 
             : 0
       const y = li * lineGap
       for (const c of cs) {
-        const w = measure(c)
-        glyphs.push({ text: c, x, y, rotate: 0, scale: 1, anchor: 'start' })
+        const { base, marks } = decompose(c)
+        const w = measure(base)
+        glyphs.push({ text: base, x, y, rotate: 0, scale: 1, anchor: 'start', marks })
         // ベースライン基準で上に 0.88em / 下に 0.22em くらいが実際の字面。
         bump(x, y - size * 0.92, x + w, y + size * 0.26)
+        bumpMarks(x, y, marks)
         x += w + spacing
       }
     })
@@ -142,23 +189,33 @@ export function layoutText(cfg: Config, measure: (s: string) => number): Layout 
             ? fullLen - colLen
             : 0
       for (const c of cs) {
-        const w = measure(c)
-        const rotate = VERTICAL_ROTATE.has(c) ? Math.PI / 2 : 0
+        const { base: bc, marks } = decompose(c)
+        const w = measure(bc)
+        const rotate = VERTICAL_ROTATE.has(bc) ? Math.PI / 2 : 0
         // 全角ボックスの中央に字面を置く。回転する文字は中心合わせ。
         let x = cx - w / 2
         let y = top + size * 0.88
         if (rotate) {
           x = cx
           y = top + size / 2
-        } else if (SMALL_KANA.has(c)) {
+        } else if (SMALL_KANA.has(bc)) {
           x += size * 0.12
           y -= size * 0.12
-        } else if (PUNCTUATION.has(c)) {
+        } else if (PUNCTUATION.has(bc)) {
           x += size * 0.5
           y -= size * 0.55
         }
-        glyphs.push({ text: c, x, y, rotate, scale: 1, anchor: rotate ? 'center' : 'start' })
+        glyphs.push({
+          text: bc,
+          x,
+          y,
+          rotate,
+          scale: 1,
+          anchor: rotate ? 'center' : 'start',
+          marks,
+        })
         bump(cx - size / 2, top, cx + size / 2, top + size)
+        bumpMarks(x, y, marks)
         top += advance
       }
     })

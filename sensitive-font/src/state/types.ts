@@ -53,8 +53,21 @@ export type Jitter = {
   seed: number
 }
 
+/**
+ * 濁点・半濁点の描き方。
+ * - 'font'    … 結合文字（U+3099 / U+309A）をそのまま渡し、合成は書体に任せる
+ * - 'overlay' … 濁点を別の文字として、アプリが決めた位置に重ねて描く
+ */
+export type DakutenMode = 'font' | 'overlay'
+
 export type Config = {
   text: string
+  dakutenMode: DakutenMode
+  /** overlay のときの濁点位置（フォントサイズに対する %） */
+  dakutenOffsetX: number
+  dakutenOffsetY: number
+  /** overlay のときの濁点の大きさ（%） */
+  dakutenScale: number
   fontId: string
   fontWeight: number
   fontSize: number
@@ -82,6 +95,10 @@ export type Config = {
 
 export const DEFAULT_CONFIG: Config = {
   text: 'んっ♡',
+  dakutenMode: 'font',
+  dakutenOffsetX: 0,
+  dakutenOffsetY: 0,
+  dakutenScale: 100,
   fontId: 'echion',
   fontWeight: 400,
   fontSize: 160,
@@ -136,7 +153,7 @@ export function defaultOf<K extends keyof Config>(key: K): Config[K] {
 
 /** 各セクションが受け持つ設定項目。セクション単位の初期化に使う。 */
 export const SECTION_KEYS = {
-  文字: ['text'],
+  文字: ['text', 'dakutenMode', 'dakutenOffsetX', 'dakutenOffsetY', 'dakutenScale'],
   フォント: ['fontId', 'fontWeight'],
   スタイル: ['fill', 'strokes', 'shadow', 'hardShadow', 'jitter', 'skew', 'rotate', 'arch'],
   文字組み: ['fontSize', 'lineHeight', 'letterSpacing', 'vertical', 'align'],

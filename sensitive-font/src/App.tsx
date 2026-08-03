@@ -210,7 +210,7 @@ export default function App() {
           {/* 操作の頻度が高い順: 文字 → フォント → スタイル → 細かい調整 → 書き出し */}
           <div className="right">
             <Section title="文字" onReset={() => resetKeys(SECTION_KEYS.文字)}>
-              <TextEditor text={cfg.text} onChange={(text) => patch({ text })} />
+              <TextEditor cfg={cfg} patch={patch} />
             </Section>
 
             <Section title="フォント" onReset={() => resetKeys(SECTION_KEYS.フォント)}>
