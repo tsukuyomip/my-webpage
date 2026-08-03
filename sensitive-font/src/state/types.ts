@@ -82,7 +82,7 @@ export type Config = {
 
 export const DEFAULT_CONFIG: Config = {
   text: 'んっ♡',
-  fontId: 'dela-gothic-one',
+  fontId: 'echion',
   fontWeight: 400,
   fontSize: 160,
   lineHeight: 1.15,
