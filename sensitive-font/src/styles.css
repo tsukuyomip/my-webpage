@@ -111,24 +111,46 @@ select {
 .app {
   max-width: 1240px;
   margin: 0 auto;
-  padding: 20px 16px 60px;
+  padding: 16px 12px 60px;
 }
 
 .app-header h1 {
   margin: 0 0 4px;
-  font-size: 1.35rem;
+  font-size: 1.2rem;
 }
 
 .app-header p {
-  margin: 0 0 18px;
+  margin: 0 0 12px;
   color: var(--muted);
-  font-size: 0.9rem;
+  font-size: 0.85rem;
+}
+
+@media (max-width: 899px) {
+  .app-header p {
+    /* 固定プレビューを画面上に残したいので、前置きは短く畳む */
+    display: none;
+  }
 }
 
 .layout {
   display: grid;
-  gap: 18px;
+  gap: 14px;
   grid-template-columns: 1fr;
+}
+
+.left,
+.right {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+/* プレビューは常に見えるように固定する。 */
+.left {
+  position: sticky;
+  top: 0;
+  z-index: 20;
 }
 
 @media (min-width: 900px) {
@@ -138,17 +160,26 @@ select {
   }
 
   .left {
-    position: sticky;
     top: 16px;
   }
 }
 
-.left,
-.right {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  min-width: 0;
+/* スマホでは画面上部に貼り付ける。設定を触っている間もその場で結果が見える。 */
+@media (max-width: 899px) {
+  .left {
+    /* 背景を敷かないと、下を流れる設定パネルが透けて見えてしまう */
+    margin: 0 -12px;
+    padding: 6px 12px 8px;
+    background: linear-gradient(var(--bg) 86%, transparent);
+    backdrop-filter: blur(4px);
+  }
+
+  .left .warn,
+  .left .credit {
+    /* 固定領域が伸びすぎないように詰める */
+    font-size: 0.72rem;
+    line-height: 1.45;
+  }
 }
 
 /* ---------- パネル ---------- */
@@ -166,7 +197,7 @@ select {
   justify-content: space-between;
   gap: 8px;
   margin: 0;
-  padding: 10px 14px;
+  padding: 0 12px 0 0;
   border-bottom: 1px solid var(--line);
   background: var(--panel-2);
   font-size: 0.86rem;
@@ -175,11 +206,43 @@ select {
   color: var(--accent-2);
 }
 
+.panel.closed > h2 {
+  border-bottom: 0;
+}
+
+.panel-toggle {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 11px 12px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.panel-toggle:hover:not(:disabled) {
+  background: #33293f;
+}
+
+.panel-toggle .caret {
+  display: inline-block;
+  font-size: 0.7rem;
+  transition: transform 0.15s ease;
+}
+
+.panel.closed .panel-toggle .caret {
+  transform: rotate(-90deg);
+}
+
 .panel-body {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 14px;
+  gap: 9px;
+  padding: 12px;
 }
 
 /* ---------- プレビュー ---------- */
@@ -250,6 +313,24 @@ select {
   font-size: 0.82rem;
 }
 
+/*
+ * スマホ用の詰め。プレビューは画面上部に固定されるので、
+ * 占有する高さを抑えないと設定側が見えなくなる。
+ * （基本の .preview-stage より後ろに置かないと上書きされない）
+ */
+@media (max-width: 899px) {
+  .preview-bar {
+    padding: 6px 8px;
+    gap: 8px;
+  }
+
+  .preview-stage {
+    min-height: 104px;
+    max-height: 25vh;
+    padding: 8px;
+  }
+}
+
 .bg-file {
   font-size: 0.82rem;
   color: var(--muted);
@@ -263,6 +344,8 @@ select {
 /* ---------- 入力パーツ ---------- */
 
 button {
+  /* タップ目標は 36px 以上を確保する */
+  min-height: 36px;
   padding: 7px 12px;
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -292,21 +375,28 @@ button.primary:hover:not(:disabled) {
 }
 
 button.chip {
-  padding: 5px 10px;
+  min-height: 34px;
+  padding: 5px 12px;
   border-radius: 999px;
-  font-size: 0.9rem;
+  font-size: 0.92rem;
 }
 
 button.icon {
-  padding: 4px 9px;
+  min-height: 32px;
+  padding: 4px 10px;
   line-height: 1;
 }
 
 button.ghost-sm {
-  padding: 2px 8px;
+  min-height: 26px;
+  padding: 2px 10px;
   font-size: 0.75rem;
   font-weight: 400;
   letter-spacing: 0;
+}
+
+.segmented button {
+  min-height: 34px;
 }
 
 a.ghost {
@@ -351,8 +441,17 @@ a.ghost {
 .slider {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 0;
   min-width: 0;
+  /*
+   * .panel-body は縦並びの flex なので、ここで基準サイズを指定すると
+   * それが「高さ」として効いて 1 行が異様に間延びする。横に並べたいときだけ
+   * .row の中で基準幅を持たせる。
+   */
+  flex: 0 0 auto;
+}
+
+.row > .slider {
   flex: 1 1 180px;
 }
 
@@ -360,18 +459,66 @@ a.ghost {
   display: flex;
   justify-content: space-between;
   gap: 8px;
-  font-size: 0.82rem;
+  font-size: 0.8rem;
+  line-height: 1.3;
   color: var(--muted);
 }
 
 .slider-label b {
   color: var(--fg);
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
+/*
+ * ブラウザ既定の range は上下に余白が付いて縦に間延びする。外側の余白は消して、
+ * 代わりにトラックを厚く・つまみを大きくしてタップしやすさだけ確保する。
+ */
 input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  display: block;
   width: 100%;
-  accent-color: var(--accent);
+  height: 26px;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+input[type='range']::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--line);
+}
+
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 22px;
+  height: 22px;
+  margin-top: -8px;
+  border: 2px solid #170f1e;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+input[type='range']::-moz-range-track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--line);
+}
+
+input[type='range']::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border: 2px solid #170f1e;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.color-field .alpha {
+  height: 22px;
 }
 
 .color-field {
@@ -518,11 +665,10 @@ input[type='search'] {
 
 .font-card {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
-  align-items: flex-start;
-  padding: 8px 10px;
-  text-align: left;
+  align-items: stretch;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--panel-2);
   overflow: hidden;
 }
 
@@ -531,19 +677,66 @@ input[type='search'] {
   background: #3a2033;
 }
 
+.font-pick {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  align-items: flex-start;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 0;
+  border-radius: 0;
+  background: none;
+  text-align: left;
+}
+
+.font-eg {
+  flex: 0 0 auto;
+  padding: 0 10px;
+  border: 0;
+  border-left: 1px solid var(--line);
+  border-radius: 0;
+  background: none;
+  color: var(--accent-2);
+  font-size: 0.78rem;
+}
+
 .font-sample {
   font-size: 1.25rem;
   line-height: 1.3;
   white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
 }
 
 .font-name {
+  display: flex;
+  align-items: center;
+  gap: 5px;
   font-size: 0.7rem;
   color: var(--muted);
+  max-width: 100%;
+  min-width: 0;
+}
+
+/* 名前が長いときは名前側を削り、バッジは削らない */
+.font-label {
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 100%;
+}
+
+/* 字種が偏っている書体はカード上でも分かるようにする */
+.font-badge {
+  flex: 0 0 auto;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: #6b4a1f;
+  color: #ffd79a;
+  font-size: 0.62rem;
+  line-height: 1.5;
 }
 
 .weights {
@@ -578,6 +771,106 @@ input[type='search'] {
 .local-font input {
   font-size: 0.75rem;
   max-width: 100%;
+}
+
+/* ---------- 見本モーダル ---------- */
+
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: rgba(8, 5, 12, 0.72);
+}
+
+.modal-box {
+  width: min(520px, 100%);
+  max-height: 86vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+}
+
+.modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.modal-head h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.specimens {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px;
+  border-radius: 10px;
+  background: #17121e;
+  font-size: 1.6rem;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.specimens p {
+  margin: 0;
+}
+
+.specimens p:last-child {
+  font-size: 1.25rem;
+}
+
+.coverage {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.coverage li {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 0.78rem;
+}
+
+.coverage .cov-mark {
+  font-weight: 700;
+}
+
+.coverage .cov-full {
+  color: #9dffc0;
+  border-color: #2c6b43;
+}
+
+.coverage .cov-partial {
+  color: #ffd79a;
+  border-color: #6b4a1f;
+}
+
+.coverage .cov-none {
+  color: #ff9bb0;
+  border-color: #6b2036;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 8px;
 }
 
 /* ---------- 縁取り ---------- */

@@ -4,7 +4,7 @@ import { ExportBar } from './components/ExportBar'
 import { FontPicker } from './components/FontPicker'
 import { PreviewCanvas } from './components/PreviewCanvas'
 import { FillPanel, ShadowPanel, StrokePanel, TransformPanel, TypePanel } from './components/StylePanel'
-import { Section } from './components/controls'
+import { Section, Slider } from './components/controls'
 import { TextEditor } from './components/TextEditor'
 import { renderText, type RenderResult } from './render/draw'
 import { loadConfig, saveConfig, shareUrl } from './state/share'
@@ -16,7 +16,7 @@ import {
   isFontReady,
   PREVIEW_TIMEOUT_MS,
 } from './text/fonts'
-import { missingChars } from './text/coverage'
+import { coverageNote, describeCoverage, missingChars } from './text/coverage'
 import { STYLE_PRESETS } from './text/presets'
 
 /** プレビューの解像度倍率。大きすぎる版は端末が死ぬので上限を掛ける。 */
@@ -35,6 +35,7 @@ export default function App() {
   const [busy, setBusy] = useState(false)
   const [fontMissing, setFontMissing] = useState(false)
   const [missing, setMissing] = useState<string[]>([])
+  const [coverageHint, setCoverageHint] = useState<string | null>(null)
   // フォントが遅れて届いたときに描き直すためのカウンタ。
   const [fontEpoch, setFontEpoch] = useState(0)
   const renderToken = useRef(0)
@@ -81,7 +82,11 @@ export default function App() {
         setFontMissing(!ready)
         // 書体が効いているときだけ「その書体に無い文字」を見る
         // （そもそも読めていないなら全文字が無いことになって意味がない）。
-        setMissing(ready ? missingChars(font.family, cfg.fontWeight, cfg.text) : [])
+        const lacking = ready ? missingChars(font.family, cfg.fontWeight, cfg.text) : []
+        setMissing(lacking)
+        setCoverageHint(
+          lacking.length ? coverageNote(describeCoverage(font.family, cfg.fontWeight)) : null,
+        )
       } finally {
         if (renderToken.current === token) setBusy(false)
       }
@@ -116,6 +121,7 @@ export default function App() {
         </header>
 
         <div className="layout">
+          {/* プレビューは常に見えるように固定表示。スマホでは画面上部に貼り付く。 */}
           <div className="left">
             <PreviewCanvas canvas={preview} previewScale={previewScale} busy={busy} />
             {fontMissing && (
@@ -126,11 +132,9 @@ export default function App() {
             )}
             {!fontMissing && missing.length > 0 && (
               <p className="warn">
-                「{font.label}」に入っていない文字があります（
-                <b>{missing.join(' ')}</b>
+                「{font.label}」に入っていない文字があります（<b>{missing.join(' ')}</b>
                 ）。この文字だけ別の書体で描かれています。
-                {font.id === 'anbata' && 'あんばたは欧文・数字のみの書体です。'}
-                {font.id === 'echion' && 'エチオンはかな・カタカナ・記号のみで、漢字は入っていません。'}
+                {coverageHint}
               </p>
             )}
             {font.credit && (
@@ -142,17 +146,22 @@ export default function App() {
                 の配布フォントです。
               </p>
             )}
-            <Section title="書き出し">
-              <ExportBar
-                text={cfg.text}
-                baseSize={baseSize}
-                renderAt={renderAt}
-                shareHref={shareUrl(cfg)}
-              />
-            </Section>
           </div>
 
+          {/* 操作の頻度が高い順: 文字 → フォント → スタイル → 細かい調整 → 書き出し */}
           <div className="right">
+            <Section title="文字">
+              <TextEditor text={cfg.text} onChange={(text) => patch({ text })} />
+            </Section>
+
+            <Section title="フォント">
+              <FontPicker
+                fontId={cfg.fontId}
+                fontWeight={cfg.fontWeight}
+                onChange={(p) => patch(p)}
+              />
+            </Section>
+
             <Section
               title="スタイル"
               right={
@@ -170,18 +179,6 @@ export default function App() {
               </div>
             </Section>
 
-            <Section title="文字">
-              <TextEditor text={cfg.text} onChange={(text) => patch({ text })} />
-            </Section>
-
-            <Section title="フォント">
-              <FontPicker
-                fontId={cfg.fontId}
-                fontWeight={cfg.fontWeight}
-                onChange={(p) => patch(p)}
-              />
-            </Section>
-
             <Section title="文字組み">
               <TypePanel cfg={cfg} patch={patch} />
             </Section>
@@ -194,30 +191,32 @@ export default function App() {
               <StrokePanel cfg={cfg} patch={patch} />
             </Section>
 
-            <Section title="影">
+            <Section title="影" defaultOpen={false}>
               <ShadowPanel cfg={cfg} patch={patch} />
             </Section>
 
-            <Section title="変形・ゆらぎ">
+            <Section title="変形・ゆらぎ" defaultOpen={false}>
               <TransformPanel cfg={cfg} patch={patch} />
             </Section>
 
-            <Section title="余白">
-              <label className="slider">
-                <span className="slider-label">
-                  書き出し時の余白<b>{cfg.padding}px</b>
-                </span>
-                <input
-                  type="range"
-                  min={0}
-                  max={200}
-                  value={cfg.padding}
-                  onChange={(e) => patch({ padding: Number(e.target.value) })}
-                />
-              </label>
+            <Section title="書き出し">
+              <Slider
+                label="周囲の余白"
+                value={cfg.padding}
+                min={0}
+                max={200}
+                unit="px"
+                onChange={(padding) => patch({ padding })}
+              />
               <p className="hint">
                 文字の周囲は自動でトリムされます。ここで指定したぶんだけ余白を残します。
               </p>
+              <ExportBar
+                text={cfg.text}
+                baseSize={baseSize}
+                renderAt={renderAt}
+                shareHref={shareUrl(cfg)}
+              />
             </Section>
           </div>
         </div>
