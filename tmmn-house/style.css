@@ -611,6 +611,7 @@ code { font-family: var(--mono); font-size: .92em; }
   background: linear-gradient(to bottom, rgb(0 0 0 / .45), transparent);
 }
 .hud__row { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; pointer-events: auto; }
+.hud__row[hidden] { display: none; }
 .hud__chip {
   font: 700 .74rem/1 var(--mono);
   color: #fff;
@@ -620,6 +621,28 @@ code { font-family: var(--mono); font-size: .92em; }
   padding: .34rem .7rem;
   backdrop-filter: blur(4px);
 }
+.hud__seg {
+  display: flex;
+  gap: 0;
+  border: 1px solid rgb(255 255 255 / .28);
+  border-radius: 999px;
+  overflow: hidden;
+  backdrop-filter: blur(4px);
+  background: rgb(0 0 0 / .45);
+  flex: none;
+}
+.hud__seg button {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: rgb(255 255 255 / .8);
+  font: inherit;
+  font-size: .74rem;
+  padding: .3rem .8rem;
+  cursor: pointer;
+}
+.hud__seg button.is-active { background: rgb(255 255 255 / .9); color: #1c1a17; font-weight: 700; }
+
 .hud__select {
   font: inherit;
   font-size: .78rem;
@@ -634,15 +657,43 @@ code { font-family: var(--mono); font-size: .92em; }
 .hud__select option, .hud__select optgroup { color: #1c1a17; background: #fff; }
 .hud__help {
   margin: 0;
+  justify-self: start;
+  width: max-content;
+  max-width: 100%;
   font-size: .7rem;
-  color: rgb(255 255 255 / .88);
-  text-shadow: 0 1px 3px rgb(0 0 0 / .6);
+  color: rgb(255 255 255 / .92);
+  background: rgb(0 0 0 / .38);
+  border-radius: 999px;
+  padding: .16rem .6rem;
+  backdrop-filter: blur(3px);
   pointer-events: none;
 }
 @media (max-width: 900px) {
   .three-hud { padding: .45rem; gap: .3rem; }
   .hud__row { flex-wrap: nowrap; }
-  .hud__select { max-width: none; flex: 1 1 0; min-width: 0; font-size: .72rem; padding: .28rem .5rem; }
+  .hud__seg {
+  display: flex;
+  gap: 0;
+  border: 1px solid rgb(255 255 255 / .28);
+  border-radius: 999px;
+  overflow: hidden;
+  backdrop-filter: blur(4px);
+  background: rgb(0 0 0 / .45);
+  flex: none;
+}
+.hud__seg button {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: rgb(255 255 255 / .8);
+  font: inherit;
+  font-size: .74rem;
+  padding: .3rem .8rem;
+  cursor: pointer;
+}
+.hud__seg button.is-active { background: rgb(255 255 255 / .9); color: #1c1a17; font-weight: 700; }
+
+.hud__select { max-width: none; flex: 1 1 0; min-width: 0; font-size: .72rem; padding: .28rem .5rem; }
   .hud__chip { font-size: .64rem; padding: .28rem .5rem; flex: none; }
   .hud__help { font-size: .64rem; }
 }
