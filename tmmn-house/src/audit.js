@@ -128,13 +128,60 @@ function measureCoverage(areas) {
   return { covered, gap, overlap, total, rate: total ? covered / total : 0, overlapNames: [...overlapNames] };
 }
 
-/** 全階分の検査＋延床の整合 */
+/**
+ * 階をまたぐ検査。
+ * 上階の吹抜は、その真下が「ひとつの空間」でなければなりません。
+ * （複数の室にまたがっていると、下に対応する部屋がない“浮いた吹抜”になる）
+ * この矛盾は各階だけを見ていても見つからないので、ここで別に見ます。
+ */
+export function auditCrossFloor(floors) {
+  const checks = [];
+
+  for (let n = 1; n < floors.length; n++) {
+    const upper = floors[n];
+    const lower = floors[n - 1];
+    const lowerAreas = [...lower.rooms, ...(lower.voids ?? [])];
+
+    for (const v of upper.voids ?? []) {
+      const below = new Set();
+      const half = SAMPLE_STEP / 2;
+      const { min, max } = polygonBounds(v.polygon);
+      for (let x = min[0] + half; x < max[0]; x += SAMPLE_STEP) {
+        for (let y = min[1] + half; y < max[1]; y += SAMPLE_STEP) {
+          if (!pointInPolygon([x, y], v.polygon)) continue;
+          const hit = lowerAreas.find((a) => pointInPolygon([x, y], a.polygon));
+          below.add(hit ? hit.name : '（建物の外）');
+        }
+      }
+      const names = [...below];
+      checks.push({
+        label: `${upper.name} ${v.name} の真下`,
+        detail: names.length === 1
+          ? `${lower.name} の「${names[0]}」だけに対応`
+          : `${names.length}つの空間にまたがっている: ${names.join(' / ')}`,
+        ok: names.length === 1,
+      });
+    }
+  }
+
+  return { checks, ok: checks.every((c) => c.ok) };
+}
+
+function polygonBounds(polygon) {
+  const xs = polygon.map((p) => p[0]);
+  const ys = polygon.map((p) => p[1]);
+  return { min: [Math.min(...xs), Math.min(...ys)], max: [Math.max(...xs), Math.max(...ys)] };
+}
+
+/** 全階分の検査＋階またぎ＋延床の整合 */
 export function auditAll(floors) {
   const perFloor = floors.map((f) => ({ floor: f, result: auditFloor(f) }));
+  const cross = auditCrossFloor(floors);
   const total = perFloor.reduce((sum, p) => sum + p.result.roomSum, 0);
   return {
     perFloor,
+    cross,
     total,
-    ok: perFloor.every((p) => p.result.ok),
+    ok: perFloor.every((p) => p.result.ok) && cross.ok,
   };
 }

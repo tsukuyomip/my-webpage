@@ -45,6 +45,13 @@ export function renderView(view, room) {
     <span class="view-caption__label">${escapeHtml(view.label)}</span>
     <span class="view-caption__meta">${escapeHtml(room.name)} ／ 視線 ${dirName(view.dir)}${view.ref ? ` ／ 参考写真 ${view.ref}枚目` : ''}</span>
   `;
+  // 同じ立ち位置・同じ向きで3Dに立つ
+  const to3d = document.createElement('button');
+  to3d.type = 'button';
+  to3d.className = 'view-3d';
+  to3d.textContent = '3Dでこの視点に立つ';
+  to3d.addEventListener('click', () => window.__tmmnGotoView3d?.(view.id));
+  caption.append(to3d);
   figure.append(caption);
 
   return figure;
