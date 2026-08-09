@@ -466,13 +466,20 @@ function skeletonStair(st, level, rise) {
   for (let i = 1; i <= steps; i++) {
     const yTop = level + riser * i;
     const nosing = startAlong + dir * going * i;
+    // 最上段は「着地の板」。上階の床の縁まで伸ばして、隙間なく乗り移れるようにする
+    const isLanding = i === steps;
+    const d = isLanding ? depth + 0.06 : depth;
+    // 着地の板は、上階の床の縁（＝階段室の抜きの縁）にぴったり付ける
+    const center = isLanding
+      ? nosing - dir * (d / 2)
+      : nosing - dir * (depth / 2 - 0.03);
     const tread = new THREE.Mesh(
-      new RoundedBoxGeometry(vertical ? width : depth, 0.05, vertical ? depth : width, 2, 0.012),
+      new RoundedBoxGeometry(vertical ? width : d, 0.05, vertical ? d : width, 2, 0.012),
       S.oak,
     );
     tread.castShadow = true;
     tread.receiveShadow = true;
-    place(tread, nosing - dir * (depth / 2 - 0.03), yTop - 0.025);
+    place(tread, center, yTop - 0.025);
 
     // 踏板の裏のライン照明（浮いて見せる）
     const strip = vertical
@@ -484,17 +491,27 @@ function skeletonStair(st, level, rise) {
 
   // ── 手すり（西側。踏面の外に出す） ──
   const railOff = -(width / 2 + 0.04);
-  for (let i = 0; i <= steps; i += 3) {
+  for (let i = 0; i < steps; i += 3) {          // 最上段（着地）には立てない
     const along = startAlong + dir * going * i;
     const y = level + riser * i;
     const post = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.9, 6), S.steel);
     post.castShadow = true;
     place(post, along, y + 0.45, railOff);
   }
+  // 手すりの上端（着地の1段手前）に方立てを立てて、宙で切れないようにする
+  {
+    const along = startAlong + dir * going * (steps - 1);
+    const y = level + riser * (steps - 1);
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.9, 6), S.steel);
+    post.castShadow = true;
+    place(post, along, y + 0.45, railOff);
+  }
+  const handLen = flightLen * (steps - 1) / steps;
   const hand = vertical
-    ? box(0.035, 0.035, flightLen, S.steel)
-    : box(flightLen, 0.035, 0.035, S.steel);
-  place(hand, nosingCenter.along, nosingCenter.y + 0.9, railOff);
+    ? box(0.035, 0.035, handLen, S.steel)
+    : box(handLen, 0.035, 0.035, S.steel);
+  place(hand, startAlong + dir * run * (steps - 1) / (2 * steps),
+    level + rise * (steps - 1) / (2 * steps) + 0.9, railOff);
   if (vertical) hand.rotation.x = angle; else hand.rotation.z = angle;
 
   return g;
@@ -628,6 +645,41 @@ export function checkDoorClearance(floor, blocked) {
     });
   }
   return results;
+}
+
+/**
+ * 家具が室の外へはみ出していないかを実測する。
+ * L字の室では、外接ボックスだけで置くと吹抜へ棒や服が飛び出すので、
+ * 実際のポリゴンに対して総当たりで確かめる。
+ * @returns {{name:string, ok:boolean, detail:string}}
+ */
+export function checkFurnitureFit(area, group, tol = 0.08) {
+  const bbox = new THREE.Box3();
+  const worst = [];
+  group.updateMatrixWorld(true);
+  group.traverse((o) => {
+    if (!o.isMesh) return;
+    bbox.setFromObject(o);
+    let out = 0; let total = 0;
+    for (let x = bbox.min.x + 0.02; x <= bbox.max.x; x += 0.08) {
+      for (let z = bbox.min.z + 0.02; z <= bbox.max.z; z += 0.08) {
+        total++;
+        if (!pointInPolygon([x, z], area.polygon)) out++;
+      }
+    }
+    // ほんの少しのはみ出し（壁に寄せた家具など）は許す
+    if (total && out / total > 0.25) {
+      const over = Math.max(
+        area.polygon.every(([px]) => px >= bbox.min.x + tol) ? bbox.min.x : 0, 0);
+      worst.push(`${o.name || o.type}[${bbox.min.x.toFixed(2)},${bbox.min.z.toFixed(2)}]-[${bbox.max.x.toFixed(2)},${bbox.max.z.toFixed(2)}]`);
+      void over;
+    }
+  });
+  return {
+    name: area.name,
+    ok: worst.length === 0,
+    detail: worst.length === 0 ? '室の内側に収まっている' : `${worst.length}点がはみ出し: ${worst.slice(0, 4).join(' / ')}`,
+  };
 }
 
 export { RoundedBoxGeometry, scaleBoxUVs };
