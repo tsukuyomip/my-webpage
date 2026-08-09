@@ -7,7 +7,7 @@ import { RoomEnvironment } from '../../vendor/addons/RoomEnvironment.js';
 import { Reflector } from '../../vendor/addons/Reflector.js';
 import { floors, build3d, meta } from '../../data/house.js';
 import { findView } from '../geometry.js';
-import { buildFloorShell, stairProfile } from './shell.js';
+import { buildFloorShell, stairProfile, registerFurniture, checkDoorClearance } from './shell.js';
 import { furnishRoom } from './furniture.js';
 import { buildBackgroundTree } from './tree.js';
 import { sharedMaterials, box } from './materials.js';
@@ -143,15 +143,31 @@ export class Walkthrough {
         ? [...(upper.slabHoles ?? []), ...(upper.voids ?? []).map((v) => v.polygon)]
         : [];
 
-      const shell = buildFloorShell(floor, { isTop: i === floors.length - 1, holesAbove });
+      const shell = buildFloorShell(floor, {
+        isTop: i === floors.length - 1,
+        holesAbove,
+        riseToNext: upper ? upper.level - floor.level : undefined,
+      });
       this.shells.push(shell);
       this.house.add(shell.group);
 
       for (const area of [...floor.rooms, ...(floor.voids ?? [])]) {
-        const f = furnishRoom(area, floor.level);
-        if (f) this.house.add(f);
+        const f = furnishRoom(area, floor.level, floor.openings ?? []);
+        if (!f) continue;
+        this.house.add(f);
+        // 家具もすり抜けられないようにする
+        registerFurniture(f, floor.level, shell.blocked);
       }
     });
+
+    // 家具を置いたあとで、建具の前後がふさがっていないかを実測する
+    this.clearance = floors.map((floor, i) => ({
+      floor, results: checkDoorClearance(floor, this.shells[i].blocked),
+    }));
+    const bad = this.clearance.flatMap(({ floor, results }) =>
+      results.filter((r) => !r.ok).map((r) => `${floor.name} ${r.label}: ${r.detail}`));
+    if (bad.length) console.warn('[tmmn-house] 建具の前後がふさがっています:\n' + bad.join('\n'));
+    else console.info('[tmmn-house] 建具の前後の空き: すべてOK');
 
     this._gymMirror();
     this.scene.add(this.house);

@@ -41,6 +41,21 @@ function bounds(polygon) {
 
 const rand = (a, b) => a + Math.random() * (b - a);
 
+/** 2点を結ぶ円柱。フレーム類はこれで組むと破綻しない */
+function tube(group, p0, p1, radius, mat, seg = 8) {
+  const a = new THREE.Vector3(...p0);
+  const b = new THREE.Vector3(...p1);
+  const dir = b.clone().sub(a);
+  const len = dir.length();
+  if (len < 1e-5) return null;
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(radius, radius, len, seg), mat);
+  m.castShadow = true;
+  m.position.copy(a).addScaledVector(dir, 0.5);
+  m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
+  group.add(m);
+  return m;
+}
+
 /**
  * 色違いのマテリアルは、色ごとに1つだけ作って使い回す。
  * （本1冊ごとにマテリアルを作ると、描画コールが数百に膨らんで一気に重くなる）
@@ -81,18 +96,20 @@ function books(group, { axis, from, to, fixed, y, depth = 0.22 }) {
   }
 }
 
-/** 観葉植物 */
-function plant(group, x, y, z, scale = 1) {
+/** 観葉植物。pot=false なら鉢なし（庭の下草に使う） */
+function plant(group, x, y, z, scale = 1, pot = true) {
   const S = sharedMaterials();
   const g = new THREE.Group();
-  const pot = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.10, 0.26, 20), S.soil);
-  pot.castShadow = true;
-  g.add(pot);
-  pot.position.y = 0.13;
-  for (let i = 0; i < 9; i++) {
+  if (pot) {
+    const p = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.10, 0.26, 20), S.soil);
+    p.castShadow = true;
+    p.position.y = 0.13;
+    g.add(p);
+  }
+  for (let i = 0; i < (pot ? 9 : 6); i++) {
     const leaf = new THREE.Mesh(new THREE.SphereGeometry(rand(0.09, 0.15), 8, 6), S.leaf);
     leaf.scale.set(1, rand(0.35, 0.6), rand(0.5, 0.8));
-    leaf.position.set(rand(-0.16, 0.16), rand(0.34, 0.72), rand(-0.16, 0.16));
+    leaf.position.set(rand(-0.16, 0.16), pot ? rand(0.34, 0.72) : rand(0.05, 0.22), rand(-0.16, 0.16));
     leaf.rotation.set(rand(-0.6, 0.6), rand(0, 6.3), rand(-0.6, 0.6));
     leaf.castShadow = true;
     g.add(leaf);
@@ -111,34 +128,35 @@ function plant(group, x, y, z, scale = 1) {
 const BUILDERS = {
 
   // ── 主寝室 ───────────────────────────────────────────
+  //  扉は東（土間廊下・南寄り）と西（WIC・北寄り）の2か所。
+  //  ベッドは北の壁に頭を付けて east 寄せにし、どちらの扉の前も空ける。
   bedroom(b, y, S) {
     const g = new THREE.Group();
-    // ベッド（1.6 × 2.0）。南寄せ
-    const bedX = b.cx + 0.15;
-    const bedZ = b.z1 - 1.25;
-    put(g, rbox(1.62, 0.28, 2.02, S.walnut, 0.02), bedX, y + 0.14, bedZ);          // ベッドベース
-    put(g, rbox(1.52, 0.20, 1.94, S.fabricPale, 0.05), bedX, y + 0.38, bedZ);      // マットレス
-    put(g, rbox(1.50, 0.06, 1.20, S.white, 0.03), bedX, y + 0.50, bedZ + 0.32);    // 掛け布団
-    for (const dx of [-0.34, 0.34]) {
-      put(g, rbox(0.52, 0.12, 0.32, S.white, 0.05), bedX + dx, y + 0.54, bedZ - 0.78);
-    }
-    // ヘッドボード側のR壁（曲面）＋その裏の間接照明
+    const bedW = 1.4;
+    const bedL = 1.95;
+    const bedX = b.x1 - 0.28 - bedW / 2;   // 東の壁から少し離す
+    const bedZ = b.z0 + 0.08 + bedL / 2;   // 頭は北の壁
+    put(g, rbox(bedW, 0.28, bedL, S.walnut, 0.02), bedX, y + 0.14, bedZ);
+    put(g, rbox(bedW - 0.1, 0.20, bedL - 0.08, S.fabricPale, 0.05), bedX, y + 0.38, bedZ);
+    put(g, rbox(bedW - 0.12, 0.06, 1.1, S.white, 0.03), bedX, y + 0.50, bedZ + 0.32);
+    put(g, rbox(bedW - 0.3, 0.12, 0.32, S.white, 0.05), bedX, y + 0.54, bedZ - bedL / 2 + 0.28);
+    // ヘッドボード側のR壁と、その裏の間接照明
     const rWall = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.55, 0.55, 2.2, 24, 1, true, Math.PI * 0.5, Math.PI),
+      new THREE.CylinderGeometry(0.42, 0.42, 2.2, 24, 1, true, Math.PI * 0.5, Math.PI),
       new THREE.MeshStandardMaterial({ color: 0xd9d2c6, roughness: 0.9, side: THREE.DoubleSide }),
     );
-    put(g, rWall, bedX, y + 1.1, b.z0 + 0.62);
-    const glow = put(g, rbox(1.3, 0.03, 0.05, S.lightWarm, 0.01), bedX, y + 2.16, b.z0 + 0.62);
+    put(g, rWall, bedX, y + 1.1, b.z0 + 0.38);
+    const glow = put(g, rbox(bedW - 0.2, 0.03, 0.05, S.lightWarm, 0.01), bedX, y + 2.16, b.z0 + 0.38);
     glow.castShadow = false;
-    // 造作デスク（北の地窓の前）
-    put(g, rbox(1.5, 0.04, 0.45, S.oak, 0.01), b.x0 + 0.95, y + 0.72, b.z0 + 0.26);
-    put(g, rbox(0.42, 0.44, 0.42, S.oak, 0.02), b.x0 + 0.55, y + 0.22, b.z0 + 0.28);
-    // 椅子
-    put(g, rbox(0.44, 0.05, 0.42, S.oak, 0.02), b.x0 + 1.5, y + 0.44, b.z0 + 0.72);
-    put(g, rbox(0.42, 0.5, 0.05, S.oak, 0.02), b.x0 + 1.5, y + 0.7, b.z0 + 0.92);
-    for (const [dx, dz] of [[-0.18, -0.18], [0.18, -0.18], [-0.18, 0.18], [0.18, 0.18]]) {
-      put(g, rbox(0.03, 0.44, 0.03, S.oak, 0.005), b.x0 + 1.5 + dx, y + 0.22, b.z0 + 0.72 + dz);
+    // ナイトテーブル（西側の余白に）
+    put(g, rbox(0.4, 0.42, 0.36, S.oak, 0.02), b.x0 + 0.32, y + 0.21, b.z0 + 0.35);
+    // 造作デスク（南の壁ぎわ。東の扉の前は空ける）
+    put(g, rbox(1.25, 0.04, 0.42, S.oak, 0.01), b.x0 + 0.75, y + 0.72, b.z1 - 0.24);
+    for (const dx of [-0.55, 0.55]) {
+      put(g, rbox(0.04, 0.7, 0.4, S.oak, 0.01), b.x0 + 0.75 + dx, y + 0.36, b.z1 - 0.24);
     }
+    put(g, rbox(0.42, 0.05, 0.4, S.oak, 0.02), b.x0 + 0.75, y + 0.44, b.z1 - 0.7);
+    put(g, rbox(0.4, 0.46, 0.05, S.oak, 0.02), b.x0 + 0.75, y + 0.69, b.z1 - 0.9);
     return g;
   },
 
@@ -161,38 +179,54 @@ const BUILDERS = {
   },
 
   // ── WIC / ファミリークローゼット ────────────────────
-  wic(b, y, S) { return closetLike(b, y, S, 1); },
-  closet(b, y, S) { return closetLike(b, y, S, 2); },
+  wic(b, y, S, doors) { return closetLike(b, y, S, 1, doors); },
+  closet(b, y, S, doors) { return closetLike(b, y, S, 2, doors); },
 
   // ── 収納室・パントリー ──────────────────────────────
-  storage(b, y, S) { return shelvesLike(b, y, S); },
-  pantry(b, y, S) { return shelvesLike(b, y, S, true); },
+  storage(b, y, S, doors) { return shelvesLike(b, y, S, false, doors); },
+  pantry(b, y, S, doors) { return shelvesLike(b, y, S, true, doors); },
 
   // ── トイレ ──────────────────────────────────────────
-  wc(b, y, S) {
+  //  扉の位置を見て、器具を扉から遠い側に寄せる（扉の前を必ず空ける）
+  wc(b, y, S, doors = []) {
     const g = new THREE.Group();
     const wide = (b.x1 - b.x0) >= (b.z1 - b.z0);
-    // 一枚板のカウンター＋ガラスボウル
-    const cw = wide ? (b.x1 - b.x0) - 0.3 : 0.42;
-    const cd = wide ? 0.42 : (b.z1 - b.z0) - 0.3;
-    const cx = wide ? b.cx : b.x0 + 0.28;
-    const cz = wide ? b.z0 + 0.28 : b.cz;
+    const door = doors[0];
+    // 長手方向の「奥」がどちらか
+    let farAtMax = true;
+    if (door) {
+      const dm = wide ? (door.from[0] + door.to[0]) / 2 : (door.from[1] + door.to[1]) / 2;
+      farAtMax = dm <= (wide ? (b.x0 + b.x1) / 2 : (b.z0 + b.z1) / 2);
+    }
+    const lo = wide ? b.x0 : b.z0;
+    const hi = wide ? b.x1 : b.z1;
+    const far = farAtMax ? hi : lo;      // 器具を寄せる側
+    const sign = farAtMax ? -1 : 1;      // far から室内へ向かう向き
+
+    // 一枚板のカウンター＋ガラスボウル（奥の壁ぎわ）
+    const counterAt = far + sign * 0.26;
+    const cx = wide ? counterAt : b.x0 + 0.26;
+    const cz = wide ? b.z0 + 0.24 : counterAt;
+    const cw = wide ? 0.46 : (b.x1 - b.x0) - 0.3;
+    const cd = wide ? (b.z1 - b.z0) - 0.3 : 0.46;
     put(g, rbox(cw, 0.055, cd, S.walnut, 0.012), cx, y + 0.80, cz);
-    const bowl = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.12, 0.11, 24), S.glass);
-    put(g, bowl, cx - (wide ? cw * 0.24 : 0), y + 0.885, cz + (wide ? 0 : cd * 0.24));
-    // 水栓
+    const bowl = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.115, 0.11, 24), S.glass);
+    put(g, bowl, cx, y + 0.885, cz);
     const tap = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.2, 10), S.chrome);
-    put(g, tap, cx - (wide ? cw * 0.24 : 0), y + 0.95, cz - (wide ? 0.16 : 0));
-    // 便器（壁掛け）
-    const bx = wide ? b.x1 - 0.42 : b.cx;
-    const bz = wide ? b.cz + 0.25 : b.z1 - 0.42;
+    put(g, tap, cx + (wide ? -0.16 : 0), y + 0.95, cz + (wide ? 0 : -0.16));
+
+    // 便器（カウンターの隣、まだ扉から遠い側）
+    const wcAt = far + sign * 0.85;
+    const bx = wide ? wcAt : b.cx;
+    const bz = wide ? b.cz + 0.18 : wcAt;
     put(g, rbox(0.37, 0.32, 0.55, S.porcelain, 0.09), bx, y + 0.42, bz);
     put(g, rbox(0.36, 0.06, 0.44, S.white, 0.03), bx, y + 0.60, bz + 0.03);
-    // バックライトのミラー
-    const mir = put(g, rbox(0.44, 0.6, 0.02, S.chrome, 0.01), cx, y + 1.45, cz - (wide ? 0.19 : 0));
-    if (!wide) { mir.rotation.y = Math.PI / 2; mir.position.set(b.x0 + 0.09, y + 1.45, cz); }
-    const halo = put(g, rbox(0.5, 0.66, 0.012, S.lightWarm, 0.01), mir.position.x, y + 1.45, mir.position.z + (wide ? 0.012 : 0));
-    halo.rotation.copy(mir.rotation);
+
+    // バックライトのミラー（カウンターの上）
+    const mir = rbox(wide ? 0.42 : 0.02, 0.58, wide ? 0.02 : 0.42, S.chrome, 0.01);
+    put(g, mir, wide ? cx : b.x0 + 0.06, y + 1.45, wide ? b.z0 + 0.06 : cz);
+    const halo = rbox(wide ? 0.48 : 0.012, 0.64, wide ? 0.012 : 0.48, S.lightWarm, 0.01);
+    put(g, halo, wide ? cx : b.x0 + 0.072, y + 1.45, wide ? b.z0 + 0.072 : cz);
     halo.castShadow = false;
     return g;
   },
@@ -216,7 +250,7 @@ const BUILDERS = {
     const g = new THREE.Group();
     // 壁一面の造作本棚（東側）。背板＋棚板の抜けた箱にして、中の本が見えるようにする
     const shelfX = b.x1 - 0.18;          // 棚の中心
-    const shelfSpan = b.z1 - b.z0 - 0.3;
+    const shelfSpan = b.z1 - b.z0 - 0.5;
     put(g, rbox(0.03, 2.1, shelfSpan, S.walnut, 0.004), b.x1 - 0.02, y + 1.05, b.cz);   // 背板
     for (const dz of [-shelfSpan / 2, shelfSpan / 2]) {                                  // 側板
       put(g, rbox(0.34, 2.1, 0.03, S.walnut, 0.004), shelfX, y + 1.05, b.cz + dz);
@@ -242,19 +276,24 @@ const BUILDERS = {
     // デスクライト
     const arm = put(g, rbox(0.02, 0.44, 0.02, S.steel, 0.005), b.x0 + 2.15, y + 0.97, b.z1 - 0.6);
     arm.rotation.z = 0.3;
-    plant(g, b.x1 - 0.55, y, b.z0 + 0.35, 0.85);
+    plant(g, b.x0 + 0.42, y, b.z1 - 0.35, 0.85);
     return g;
   },
 
   // ── ヌック／猫スペース ──────────────────────────────
   nook(b, y, S) {
     const g = new THREE.Group();
-    // 造作ベンチ（座面高400）
-    put(g, rbox(b.x1 - b.x0 - 0.3, 0.4, 0.62, S.oak, 0.015), b.cx, y + 0.2, b.z0 + 0.36);
-    // クッション
+    // 造作ベンチ（座面高400・奥行400）。北の壁に寄せ、
+    // 中庭側に 0.6m の通り道を残す（土間廊下 → 洗面 の抜け道を兼ねるため）
+    const benchD = 0.52;
+    const benchZ = b.z0 + benchD / 2;
+    // 西端（土間からのアーチ）と東端（洗面への扉）の前は空け、中央だけベンチにする
+    const bx0 = b.x0 + 0.85;
+    const bx1 = b.x1 - 0.7;
+    put(g, rbox(bx1 - bx0, 0.4, benchD, S.oak, 0.015), (bx0 + bx1) / 2, y + 0.2, benchZ);
     for (let i = 0; i < 3; i++) {
-      put(g, rbox(0.42, 0.12, 0.42, i % 2 ? S.fabricDark : S.fabricPale, 0.06),
-        b.x0 + 0.75 + i * 1.0, y + 0.46, b.z0 + 0.35);
+      put(g, rbox(0.34, 0.1, 0.3, i % 2 ? S.fabricDark : S.fabricPale, 0.05),
+        bx0 + 0.35 + i * 0.66, y + 0.45, benchZ);
     }
     // 猫（丸まっている）
     const cat = new THREE.Group();
@@ -271,60 +310,65 @@ const BUILDERS = {
       ear.position.set(0.14, 0.12, dz);
       cat.add(ear);
     }
-    cat.position.set(b.x0 + 1.9, y + 0.52, b.z0 + 0.35);
+    cat.position.set(b.x0 + 1.75, y + 0.5, benchZ);
     cat.rotation.y = -0.5;
     g.add(cat);
-    plant(g, b.x1 - 0.4, y, b.z0 + 0.3, 0.8);
     return g;
   },
 
   // ── 洗面脱衣＋ランドリー ────────────────────────────
+  //  ヌックからの扉（南西）と浴室への扉（南）の前を空けるため、
+  //  カウンターは北半分にまとめる。
   washroom(b, y, S) {
     const g = new THREE.Group();
     const cx = b.x0 + 0.32;
-    // カウンター一体（洗濯機を下に納める）
-    put(g, rbox(0.58, 0.05, b.z1 - b.z0 - 0.3, S.stoneTop, 0.01), cx, y + 0.85, b.cz);
-    put(g, rbox(0.56, 0.8, b.z1 - b.z0 - 0.3, S.white, 0.01), cx, y + 0.42, b.cz);
+    const cz0 = b.z0 + 0.18;
+    const cz1 = b.z1 - 1.25;          // 南 1.25m は動線として空ける
+    const cLen = cz1 - cz0;
+    const cCz = (cz0 + cz1) / 2;
+    put(g, rbox(0.58, 0.05, cLen, S.stoneTop, 0.01), cx, y + 0.85, cCz);
+    put(g, rbox(0.56, 0.8, cLen, S.white, 0.01), cx, y + 0.42, cCz);
     // 洗面ボウル
     const basin = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.13, 0.36), S.porcelain);
-    put(g, basin, cx, y + 0.93, b.z0 + 0.6);
+    put(g, basin, cx, y + 0.93, cz0 + 0.42);
     const tap = new THREE.Mesh(new THREE.CylinderGeometry(0.013, 0.013, 0.22, 10), S.chrome);
-    put(g, tap, cx - 0.2, y + 1.0, b.z0 + 0.6);
-    // 洗濯機（ドラム式）
-    put(g, rbox(0.5, 0.62, 0.55, S.white, 0.03), cx, y + 0.31, b.z1 - 0.55);
+    put(g, tap, cx - 0.2, y + 1.0, cz0 + 0.42);
+    // 洗濯機（カウンター下、南端）
+    put(g, rbox(0.5, 0.62, 0.55, S.white, 0.03), cx, y + 0.31, cz1 - 0.34);
     const drum = new THREE.Mesh(new THREE.CylinderGeometry(0.19, 0.19, 0.04, 24), S.chrome);
     drum.rotation.z = Math.PI / 2;
-    put(g, drum, cx - 0.27, y + 0.33, b.z1 - 0.55);
+    put(g, drum, cx - 0.27, y + 0.33, cz1 - 0.34);
     // 三面鏡
-    put(g, rbox(0.14, 0.8, 1.1, S.white, 0.01), b.x0 + 0.1, y + 1.55, b.z0 + 0.75);
-    const mir = put(g, rbox(0.012, 0.74, 1.04, S.chrome, 0.005), b.x0 + 0.18, y + 1.55, b.z0 + 0.75);
+    put(g, rbox(0.14, 0.8, 1.0, S.white, 0.01), b.x0 + 0.1, y + 1.55, cz0 + 0.55);
+    const mir = put(g, rbox(0.012, 0.74, 0.94, S.chrome, 0.005), b.x0 + 0.18, y + 1.55, cz0 + 0.55);
     mir.castShadow = false;
-    // 物干しバー
-    const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 1.4, 10), S.steelPale);
+    // 物干しバー（頭上なので動線には当たらない）
+    const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 1.3, 10), S.steelPale);
     bar.rotation.x = Math.PI / 2;
-    put(g, bar, b.x1 - 0.6, y + 2.05, b.cz);
+    put(g, bar, b.x1 - 0.5, y + 2.05, cCz);
     return g;
   },
 
   // ── 浴室 ────────────────────────────────────────────
   bath(b, y, S) {
     const g = new THREE.Group();
-    put(g, rbox(1.6, 0.58, 0.78, S.porcelain, 0.06), b.cx - 0.1, y + 0.29, b.z0 + 0.5);
+    // 扉は北（洗面から）。浴槽は南に寄せて、入ってすぐの床を空ける
+    put(g, rbox(1.7, 0.58, 0.76, S.porcelain, 0.06), b.cx, y + 0.29, b.z1 - 0.48);
     // 湯（水面）
     const water = new THREE.Mesh(
-      new THREE.BoxGeometry(1.44, 0.02, 0.62),
+      new THREE.BoxGeometry(1.54, 0.02, 0.6),
       new THREE.MeshPhysicalMaterial({ color: 0xbfe0e6, roughness: 0.06, transmission: 0.85, transparent: true, opacity: 0.6, thickness: 0.3 }),
     );
-    put(g, water, b.cx - 0.1, y + 0.5, b.z0 + 0.5);
+    put(g, water, b.cx, y + 0.5, b.z1 - 0.48);
     // 洗い場のカラン＋シャワー
     const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 1.1, 10), S.chrome);
-    put(g, pole, b.x1 - 0.16, y + 1.15, b.z1 - 0.5);
+    put(g, pole, b.x1 - 0.16, y + 1.15, b.z0 + 0.62);
     const head = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 0.03, 16), S.chrome);
-    put(g, head, b.x1 - 0.24, y + 1.62, b.z1 - 0.5);
+    put(g, head, b.x1 - 0.24, y + 1.62, b.z0 + 0.62);
     // 風呂椅子
-    put(g, rbox(0.34, 0.05, 0.26, S.white, 0.02), b.x0 + 0.5, y + 0.29, b.z1 - 0.45);
+    put(g, rbox(0.34, 0.05, 0.26, S.white, 0.02), b.x0 + 0.42, y + 0.29, b.z0 + 1.0);
     for (const [dx, dz] of [[-0.13, -0.09], [0.13, -0.09], [-0.13, 0.09], [0.13, 0.09]]) {
-      put(g, rbox(0.03, 0.26, 0.03, S.white, 0.005), b.x0 + 0.5 + dx, y + 0.13, b.z1 - 0.45 + dz);
+      put(g, rbox(0.03, 0.26, 0.03, S.white, 0.005), b.x0 + 0.42 + dx, y + 0.13, b.z0 + 1.0 + dz);
     }
     return g;
   },
@@ -334,14 +378,14 @@ const BUILDERS = {
     const g = new THREE.Group();
     // 上がり框（土間 → 廊下の段差の見切り）
     put(g, rbox(1.0, 0.16, 0.16, S.walnut, 0.01), 3.9, y + 0.08, 7.55);
-    // ベンチ
-    put(g, rbox(1.1, 0.08, 0.36, S.walnut, 0.015), 5.2, y + 0.42, 9.78);
-    for (const dx of [-0.48, 0.48]) put(g, rbox(0.06, 0.42, 0.32, S.steel, 0.01), 5.2 + dx, y + 0.21, 9.78);
-    // 自転車（写真の土間の雰囲気）
-    g.add(buildBicycle(4.9, y, 8.3, S));
-    // 縦格子（玄関とジムの間の見切り）
-    for (let i = 0; i < 7; i++) {
-      put(g, rbox(0.045, 2.2, 0.045, S.walnut, 0.008), 6.52, y + 1.1, 8.15 + i * 0.12);
+    // 玄関ベンチ（玄関ドア x5.4–6.4 の西どなり）
+    put(g, rbox(0.9, 0.08, 0.36, S.walnut, 0.015), 4.78, y + 0.42, 9.78);
+    for (const dx of [-0.38, 0.38]) put(g, rbox(0.06, 0.42, 0.32, S.steel, 0.01), 4.78 + dx, y + 0.21, 9.78);
+    // 自転車
+    g.add(buildBicycle(5.05, y, 8.35, S));
+    // 縦格子（ジムの入口わきの見切り）。玄関からの見通しは塞がない位置に置く
+    for (let i = 0; i < 5; i++) {
+      put(g, rbox(0.045, 2.2, 0.045, S.walnut, 0.008), 6.5, y + 1.1, 7.68 + i * 0.12);
     }
     // 大きな花器と枝もの
     const vase = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.06, 0.42, 18), S.glass);
@@ -351,8 +395,9 @@ const BUILDERS = {
       br.rotation.z = rand(-0.35, 0.35);
       br.rotation.x = rand(-0.35, 0.35);
     }
-    plant(g, 3.9, y, 1.1, 1.05);
-    plant(g, 3.9, y, 5.9, 0.9);
+    // 植栽は廊下（幅1.0m）の中に置かない。広がった階段ホールの東端と、玄関脇に
+    plant(g, 7.0, y, 7.25, 1.0);
+    plant(g, 4.6, y, 9.35, 0.85);
     return g;
   },
 
@@ -405,8 +450,10 @@ const BUILDERS = {
   // ── キッチン ────────────────────────────────────────
   kitchen(b, y, S) {
     const g = new THREE.Group();
-    // 背面の壁付け収納
-    put(g, rbox(0.62, 2.1, b.z1 - b.z0 - 0.4, S.white, 0.015), b.x1 - 0.35, y + 1.05, b.cz);
+    // 背面の壁付け収納。廊下からのアーチ（南寄り）の前は空ける
+    const tallZ0 = b.z0 + 0.1;
+    const tallZ1 = b.z0 + 1.5;
+    put(g, rbox(0.62, 2.1, tallZ1 - tallZ0, S.white, 0.015), b.x1 - 0.35, y + 1.05, (tallZ0 + tallZ1) / 2);
     // アイランド
     const ix = b.x0 + 1.0;
     put(g, rbox(0.9, 0.88, 2.2, S.white, 0.015), ix, y + 0.44, b.cz);
@@ -508,22 +555,26 @@ const BUILDERS = {
   library(b, y, S) {
     const g = new THREE.Group();
     const shelfX = b.x1 - 0.17;
-    const span = b.z1 - b.z0 - 0.3;
-    put(g, rbox(0.03, 2.2, span, S.white, 0.004), b.x1 - 0.02, y + 1.1, b.cz);      // 背板
+    // 北の扉（廊下から）と南の扉（FCへ）の前を空けるため、棚は中央だけにする
+    const shelfZ0 = b.z0 + 0.75;
+    const shelfZ1 = b.z1 - 0.75;
+    const span = shelfZ1 - shelfZ0;
+    const shelfCz = (shelfZ0 + shelfZ1) / 2;
+    put(g, rbox(0.03, 2.2, span, S.white, 0.004), b.x1 - 0.02, y + 1.1, shelfCz);   // 背板
     for (const dz of [-span / 2, span / 2]) {
-      put(g, rbox(0.32, 2.2, 0.03, S.oak, 0.004), shelfX, y + 1.1, b.cz + dz);      // 側板
+      put(g, rbox(0.32, 2.2, 0.03, S.oak, 0.004), shelfX, y + 1.1, shelfCz + dz);   // 側板
     }
     for (let i = 0; i < 6; i++) {
       const sy = y + 0.3 + i * 0.36;
-      put(g, rbox(0.32, 0.026, span, S.oak, 0.004), shelfX, sy, b.cz);
-      books(g, { axis: 'z', from: b.z0 + 0.18, to: b.z1 - 0.18, fixed: shelfX, y: sy + 0.013, depth: 0.24 });
+      put(g, rbox(0.32, 0.026, span, S.oak, 0.004), shelfX, sy, shelfCz);
+      books(g, { axis: 'z', from: shelfZ0 + 0.06, to: shelfZ1 - 0.06, fixed: shelfX, y: sy + 0.013, depth: 0.24 });
     }
     // 吹抜に face するデスク
     put(g, rbox(0.56, 0.045, 1.6, S.oak, 0.01), b.x0 + 0.35, y + 0.72, b.cz - 0.4);
     for (const dz of [-0.7, 0.7]) put(g, rbox(0.05, 0.68, 0.05, S.steel, 0.008), b.x0 + 0.35, y + 0.36, b.cz - 0.4 + dz);
     put(g, rbox(0.44, 0.05, 0.42, S.leather, 0.04), b.x0 + 0.75, y + 0.45, b.cz - 0.4);
     put(g, rbox(0.06, 0.46, 0.4, S.leather, 0.03), b.x0 + 0.96, y + 0.7, b.cz - 0.4);
-    plant(g, b.x0 + 0.4, y, b.z1 - 0.45, 0.95);
+    plant(g, b.x0 + 0.32, y, b.z0 + 0.45, 0.9);
     return g;
   },
 
@@ -546,9 +597,9 @@ const BUILDERS = {
       put(g, lens, b.cx + 0.15 + dx, y + 0.101, b.cz - 0.1 + dz);
       lens.castShadow = false;
     }
-    // 下草
-    for (let i = 0; i < 14; i++) {
-      plant(g, b.x0 + rand(0.35, 3.2), y, b.z0 + rand(0.35, 3.1), rand(0.3, 0.5));
+    // 下草（鉢なし。地面から直接生える）
+    for (let i = 0; i < 22; i++) {
+      plant(g, b.x0 + rand(0.3, b.x1 - b.x0 - 0.3), y, b.z0 + rand(0.3, b.z1 - b.z0 - 0.3), rand(0.5, 0.9), false);
     }
     return g;
   },
@@ -558,7 +609,7 @@ const BUILDERS = {
 //  共通パーツ
 // ---------------------------------------------------------------------------
 
-function closetLike(b, y, S, rods) {
+function closetLike(b, y, S, rods, doors = []) {
   const g = new THREE.Group();
   const long = (b.z1 - b.z0) >= (b.x1 - b.x0);
   const span = (long ? b.z1 - b.z0 : b.x1 - b.x0) - 0.3;
@@ -574,9 +625,12 @@ function closetLike(b, y, S, rods) {
     for (let i = 0; i < n; i++) {
       const t = 0.15 + (i / n) * (span - 0.3);
       const mat = paletteMaterial(CLOTH_COLORS, 0.95);
+      const cx = long ? bx : b.x0 + 0.15 + t;
+      const cz = long ? b.z0 + 0.15 + t : bz;
+      if (nearDoor(doors, cx, cz)) continue;      // 建具の前には掛けない
       const ch = rand(0.7, 1.05);
       const cloth = rbox(long ? 0.32 : 0.05, ch, long ? 0.05 : 0.32, mat, 0.01);
-      put(g, cloth, long ? bx : b.x0 + 0.15 + t, y + 1.72 - ch / 2, long ? b.z0 + 0.15 + t : bz);
+      put(g, cloth, cx, y + 1.72 - ch / 2, cz);
     }
     // 棚板
     put(g, rbox(long ? 0.4 : span, 0.03, long ? span : 0.4, S.oak, 0.006), bx, y + 1.95, bz);
@@ -584,30 +638,67 @@ function closetLike(b, y, S, rods) {
   return g;
 }
 
-function shelvesLike(b, y, S, food = false) {
+/**
+ * [lo, hi] から、建具の前（margin ぶん）を除いた「いちばん長い区間」を返す。
+ * 棚がドアの前をふさがないようにするため。
+ */
+function clearSpan(lo, hi, doors, axis, across, margin = 0.75, pad = 0.25) {
+  let segs = [[lo, hi]];
+  for (const o of doors) {
+    const vertical = Math.abs(o.from[0] - o.to[0]) < 1e-6;
+    const doorAxis = vertical ? 'z' : 'x';
+    const pos = vertical ? o.from[0] : o.from[1];
+    if (Math.abs(pos - across) > margin) continue;      // その壁の建具ではない
+    if (doorAxis !== axis) continue;
+    const s0 = Math.min(o.from[vertical ? 1 : 0], o.to[vertical ? 1 : 0]) - pad;
+    const s1 = Math.max(o.from[vertical ? 1 : 0], o.to[vertical ? 1 : 0]) + pad;
+    segs = segs.flatMap(([a, c]) => {
+      if (s1 <= a || s0 >= c) return [[a, c]];
+      const out = [];
+      if (s0 > a) out.push([a, s0]);
+      if (s1 < c) out.push([s1, c]);
+      return out;
+    });
+  }
+  return segs.reduce((best, seg) => (seg[1] - seg[0] > best[1] - best[0] ? seg : best), [0, 0]);
+}
+
+function shelvesLike(b, y, S, food = false, doors = []) {
   const g = new THREE.Group();
   const long = (b.z1 - b.z0) >= (b.x1 - b.x0);
-  const span = (long ? b.z1 - b.z0 : b.x1 - b.x0) - 0.24;
   const depth = 0.36;
   const wallOff = (long ? b.x1 - b.x0 : b.z1 - b.z0) / 2 - depth / 2 - 0.02;
   for (const side of [-1, 1]) {
     const bx = long ? b.cx + side * wallOff : b.cx;
     const bz = long ? b.cz : b.cz + side * wallOff;
+    // 建具の前を避けた区間にだけ棚を作る
+    const axis = long ? 'z' : 'x';
+    const [lo, hi] = clearSpan(
+      (long ? b.z0 : b.x0) + 0.12, (long ? b.z1 : b.x1) - 0.12,
+      doors, axis, long ? bx : bz,
+    );
+    const span = hi - lo;
+    if (span < 0.45) continue;              // 置ける長さが残っていない
+    const cAlong = (lo + hi) / 2;
+    const sx = long ? bx : cAlong;
+    const sz = long ? cAlong : bz;
     for (let i = 0; i < 5; i++) {
       const sy = y + 0.35 + i * 0.4;
       if (sy > y + 2.1) break;
-      put(g, rbox(long ? depth : span, 0.028, long ? span : depth, S.oak, 0.005), bx, sy, bz);
+      put(g, rbox(long ? depth : span, 0.028, long ? span : depth, S.oak, 0.005), sx, sy, sz);
       // 箱もの／食品
       const n = Math.floor(span / 0.3);
       for (let k = 0; k < n; k++) {
-        const t = 0.15 + k * 0.3 + rand(0, 0.06);
+        const t = lo + 0.15 + k * 0.3 + rand(0, 0.06);
         const col = food
           ? ['#c9b48a', '#8f9c7a', '#b98f6a'][k % 3]
           : ['#9a9287', '#7d7469', '#b3ab9e'][k % 3];
         const mat = paletteMaterial([col], 0.9);
+        const ix = long ? bx : t;
+        const iz = long ? t : bz;
         const ih = rand(0.14, 0.3);
         const item = rbox(long ? 0.26 : 0.2, ih, long ? 0.2 : 0.26, mat, 0.01);
-        put(g, item, long ? bx : b.x0 + 0.12 + t, sy + ih / 2 + 0.015, long ? b.z0 + 0.12 + t : bz);
+        put(g, item, ix, sy + ih / 2 + 0.015, iz);
       }
     }
   }
@@ -619,26 +710,33 @@ function buildCar(x, y, z, S) {
   const g = new THREE.Group();
   const L = 4.75; const W = 1.8;
   // 下まわり
-  const lower = new THREE.Mesh(new RoundedBoxGeometry(W, 0.62, L, 6, 0.24), S.carBody);
-  lower.position.y = 0.62;
+  const lower = new THREE.Mesh(new RoundedBoxGeometry(W, 0.66, L, 4, 0.09), S.carBody);
+  lower.position.y = 0.60;
   lower.castShadow = true;
   g.add(lower);
   // ボンネット／トランク
-  const hood = new THREE.Mesh(new RoundedBoxGeometry(W - 0.08, 0.26, 1.5, 5, 0.16), S.carBody);
-  hood.position.set(0, 0.98, -1.5);
+  const hood = new THREE.Mesh(new RoundedBoxGeometry(W - 0.1, 0.22, 1.45, 4, 0.07), S.carBody);
+  hood.position.set(0, 0.96, -1.55);
   hood.castShadow = true;
   g.add(hood);
-  const trunk = new THREE.Mesh(new RoundedBoxGeometry(W - 0.08, 0.3, 1.2, 5, 0.16), S.carBody);
-  trunk.position.set(0, 1.0, 1.65);
+  const trunk = new THREE.Mesh(new RoundedBoxGeometry(W - 0.1, 0.26, 1.15, 4, 0.07), S.carBody);
+  trunk.position.set(0, 0.98, 1.7);
   trunk.castShadow = true;
   g.add(trunk);
   // キャビン
-  const cabin = new THREE.Mesh(new RoundedBoxGeometry(W - 0.22, 0.62, 2.3, 6, 0.26), S.carGlass);
-  cabin.position.set(0, 1.28, 0.15);
+  const cabin = new THREE.Mesh(new RoundedBoxGeometry(W - 0.2, 0.56, 2.15, 4, 0.1), S.carGlass);
+  cabin.position.set(0, 1.24, 0.1);
   cabin.castShadow = true;
   g.add(cabin);
-  const roof = new THREE.Mesh(new RoundedBoxGeometry(W - 0.34, 0.16, 1.7, 5, 0.12), S.carBody);
-  roof.position.set(0, 1.56, 0.2);
+  const roof = new THREE.Mesh(new RoundedBoxGeometry(W - 0.34, 0.1, 1.55, 4, 0.05), S.carBody);
+  roof.position.set(0, 1.5, 0.18);
+  roof.castShadow = true;
+  // ピラー（キャビンの角を締める）
+  for (const [dx, dz] of [[-0.78, -1.02], [0.78, -1.02], [-0.78, 1.02], [0.78, 1.02]]) {
+    const pillar = new THREE.Mesh(new RoundedBoxGeometry(0.06, 0.56, 0.09, 3, 0.02), S.carBody);
+    pillar.position.set(dx, 1.24, dz);
+    g.add(pillar);
+  }
   g.add(roof);
   // タイヤ
   for (const [dx, dz] of [[-0.86, -1.45], [0.86, -1.45], [-0.86, 1.45], [0.86, 1.45]]) {
@@ -663,38 +761,97 @@ function buildCar(x, y, z, S) {
   return g;
 }
 
-/** 自転車（土間に置くミニベロ） */
+/**
+ * 自転車。前輪が -z を向く向きで組み、最後に全体を回して置く。
+ * 車輪は YZ平面（進行方向×鉛直）に立てる必要があるので、
+ * TorusGeometry（既定は XY平面）を Y軸まわりに90°回してから使う。
+ */
 function buildBicycle(x, y, z, S) {
   const g = new THREE.Group();
-  const wheel = (dz) => {
-    const t = new THREE.Mesh(new THREE.TorusGeometry(0.26, 0.022, 8, 28), S.tyre);
-    t.position.set(0, 0.26, dz);
-    t.castShadow = true;
-    g.add(t);
-    for (let i = 0; i < 10; i++) {
-      const sp = new THREE.Mesh(new THREE.CylinderGeometry(0.004, 0.004, 0.5, 4), S.steelPale);
-      sp.position.set(0, 0.26, dz);
-      sp.rotation.x = Math.PI / 2;
-      sp.rotation.y = (i / 10) * Math.PI;
+  const R = 0.33;                 // 車輪の半径
+  const rearHub = [0, R, 0.52];
+  const frontHub = [0, R, -0.52];
+  const bb = [0, 0.27, 0.17];     // ボトムブラケット（クランク軸）
+  const seatTop = [0, 0.94, 0.30];
+  const headTop = [0, 0.96, -0.28];
+  const headLow = [0, 0.56, -0.40];
+
+  const frameMat = new THREE.MeshStandardMaterial({ color: 0x8f9498, roughness: 0.3, metalness: 0.75 });
+
+  // 車輪（タイヤ＋リム＋スポーク）
+  for (const hub of [rearHub, frontHub]) {
+    const tyre = new THREE.Mesh(new THREE.TorusGeometry(R, 0.021, 8, 32), S.tyre);
+    tyre.rotation.y = Math.PI / 2;          // リングを YZ平面に立てる
+    tyre.position.set(...hub);
+    tyre.castShadow = true;
+    g.add(tyre);
+
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(R - 0.028, 0.009, 6, 32), S.steelPale);
+    rim.rotation.y = Math.PI / 2;
+    rim.position.set(...hub);
+    g.add(rim);
+
+    // スポークは車輪と同じ面内に置く（YZ平面で回す＝X軸まわりの回転）
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI;
+      const sp = new THREE.Mesh(new THREE.CylinderGeometry(0.0035, 0.0035, (R - 0.03) * 2, 4), S.steelPale);
+      sp.position.set(...hub);
+      sp.rotation.x = a;
       g.add(sp);
     }
-  };
-  wheel(-0.52); wheel(0.52);
-  const frameMat = new THREE.MeshStandardMaterial({ color: 0xb8b3a6, roughness: 0.35, metalness: 0.6 });
-  for (const [p, r, len] of [[[0, 0.5, 0.0], [0, 0, 0.5], 0.95], [[0, 0.32, -0.25], [0.9, 0, 0], 0.6], [[0, 0.55, 0.3], [0.5, 0, 0], 0.55]]) {
-    const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, len, 8), frameMat);
-    bar.position.set(p[0], p[1], p[2]);
-    bar.rotation.set(r[0] + Math.PI / 2, r[1], r[2]);
-    bar.castShadow = true;
-    g.add(bar);
+    const hubMesh = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.09, 10), S.steelPale);
+    hubMesh.rotation.z = Math.PI / 2;
+    hubMesh.position.set(...hub);
+    g.add(hubMesh);
   }
-  const saddle = new THREE.Mesh(new RoundedBoxGeometry(0.09, 0.05, 0.24, 3, 0.02), S.leather);
-  saddle.position.set(0, 0.82, 0.16);
+
+  // フレーム
+  tube(g, bb, seatTop, 0.016, frameMat);        // シートチューブ
+  tube(g, bb, headLow, 0.017, frameMat);        // ダウンチューブ
+  tube(g, seatTop, headTop, 0.015, frameMat);   // トップチューブ
+  tube(g, headLow, headTop, 0.016, frameMat);   // ヘッドチューブ
+  for (const dx of [-0.045, 0.045]) {
+    tube(g, [bb[0] + dx, bb[1], bb[2]], [rearHub[0] + dx, rearHub[1], rearHub[2]], 0.010, frameMat);   // チェーンステー
+    tube(g, [seatTop[0] + dx, seatTop[1] - 0.06, seatTop[2]], [rearHub[0] + dx, rearHub[1], rearHub[2]], 0.009, frameMat); // シートステー
+    tube(g, [headLow[0] + dx, headLow[1], headLow[2]], [frontHub[0] + dx, frontHub[1], frontHub[2]], 0.011, frameMat);     // フォーク
+  }
+
+  // サドル・ハンドル・クランク
+  const saddle = new THREE.Mesh(new RoundedBoxGeometry(0.085, 0.045, 0.24, 3, 0.02), S.leather);
+  saddle.position.set(0, seatTop[1] + 0.03, seatTop[2] + 0.02);
+  saddle.castShadow = true;
   g.add(saddle);
-  const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.42, 8), frameMat);
+
+  const barMat = new THREE.MeshStandardMaterial({ color: 0x2b2b2d, roughness: 0.5 });
+  const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.44, 10), barMat);
   bar.rotation.z = Math.PI / 2;
-  bar.position.set(0, 0.86, -0.44);
+  bar.position.set(0, headTop[1] + 0.04, headTop[2] - 0.02);
   g.add(bar);
+  for (const dx of [-0.19, 0.19]) {
+    const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, 0.1, 8), S.leather);
+    grip.rotation.z = Math.PI / 2;
+    grip.position.set(dx, headTop[1] + 0.04, headTop[2] - 0.02);
+    g.add(grip);
+  }
+
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(0.09, 0.006, 6, 20), S.steelPale);
+  ring.rotation.y = Math.PI / 2;
+  ring.position.set(0.05, bb[1], bb[2]);
+  g.add(ring);
+  for (const [dx, dz] of [[0.09, 0.09], [-0.09, -0.09]]) {
+    const crank = new THREE.Mesh(new THREE.BoxGeometry(0.014, 0.02, 0.17), frameMat);
+    crank.position.set(dx, bb[1] + dz * 0.4, bb[2] + dz * 0.5);
+    crank.rotation.x = dz > 0 ? 0.5 : -0.5;
+    g.add(crank);
+  }
+
+  // かご
+  const basket = new THREE.Mesh(new RoundedBoxGeometry(0.26, 0.18, 0.2, 2, 0.03),
+    new THREE.MeshStandardMaterial({ color: 0x6f6a60, roughness: 0.85 }));
+  basket.position.set(0, 0.72, headTop[2] - 0.12);
+  basket.castShadow = true;
+  g.add(basket);
+
   g.position.set(x, y, z);
   g.rotation.y = 0.35;
   return g;
@@ -704,14 +861,45 @@ function buildBicycle(x, y, z, S) {
 //  エントリポイント
 // ---------------------------------------------------------------------------
 
-/** その室の家具グループを作る。furnish が無い／未対応なら null */
-export function furnishRoom(area, level) {
+/**
+ * その室の家具グループを作る。furnish が無い／未対応なら null。
+ * @param openings その階の開口。建具の前を空けるために使う
+ */
+export function furnishRoom(area, level, openings = []) {
   const key = area.furnish;
   if (!key || !BUILDERS[key]) return null;
   const S = sharedMaterials();
   const b = bounds(area.polygon);
   const sunken = area.kind === 'outdoor' ? 0.12 : 0;
-  const g = BUILDERS[key](b, level - sunken, S);
+  // この室の外周にかかる、人が通る開口だけを拾う
+  const doors = openings.filter((o) => DOOR_TYPES.has(o.type) && touchesRoom(o, b));
+  const g = BUILDERS[key](b, level - sunken, S, doors);
   g.name = `furniture-${area.id}`;
   return g;
+}
+
+const DOOR_TYPES = new Set(['door', 'archway', 'entrance', 'glass-door']);
+
+function touchesRoom(o, b) {
+  const pad = 0.05;
+  const x = [Math.min(o.from[0], o.to[0]), Math.max(o.from[0], o.to[0])];
+  const z = [Math.min(o.from[1], o.to[1]), Math.max(o.from[1], o.to[1])];
+  return x[1] >= b.x0 - pad && x[0] <= b.x1 + pad && z[1] >= b.z0 - pad && z[0] <= b.z1 + pad;
+}
+
+/**
+ * (x, z) が、どれかの建具の前の「空けておくべき帯」に入っているか。
+ * 棚やクローゼットは、ここを避けて置く。
+ */
+function nearDoor(doors, x, z, margin = 0.75, side = 0.15) {
+  for (const o of doors) {
+    const vertical = Math.abs(o.from[0] - o.to[0]) < 1e-6;
+    const s = Math.min(o.from[vertical ? 1 : 0], o.to[vertical ? 1 : 0]) - side;
+    const e = Math.max(o.from[vertical ? 1 : 0], o.to[vertical ? 1 : 0]) + side;
+    const pos = vertical ? o.from[0] : o.from[1];
+    const along = vertical ? z : x;
+    const across = vertical ? x : z;
+    if (along >= s && along <= e && Math.abs(across - pos) <= margin) return true;
+  }
+  return false;
 }
