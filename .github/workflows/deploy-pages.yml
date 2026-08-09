@@ -69,7 +69,7 @@ jobs:
           npm ci
           npm run build
 
-      - name: Assemble site (root static page + /mixer/ + /make-medley/ + /media-vault/ + /gkms-sprtcrd/ + /train-sandbox/ + /sensitive-font/ + /dopamine_calc/ + /dopamine-slot/)
+      - name: Assemble site (root static page + /mixer/ + /make-medley/ + /media-vault/ + /gkms-sprtcrd/ + /train-sandbox/ + /sensitive-font/ + /dopamine_calc/ + /dopamine-slot/ + /tmmn-house/)
         run: |
           mkdir -p _site/mixer _site/make-medley _site/media-vault _site/gkms-sprtcrd _site/train-sandbox _site/sensitive-font _site/dopamine_calc _site/dopamine-slot
           cp index.html style.css _site/
@@ -82,6 +82,8 @@ jobs:
           # dopamine_calc / dopamine-slot はビルド不要の静的アプリなのでそのままコピー
           cp dopamine_calc/index.html dopamine_calc/style.css dopamine_calc/app.js _site/dopamine_calc/
           cp dopamine-slot/index.html dopamine-slot/style.css dopamine-slot/app.js _site/dopamine-slot/
+          # tmmn-house もビルド不要。data/ src/ images/ を含むのでディレクトリごとコピーする
+          cp -r tmmn-house _site/tmmn-house
 
       - uses: actions/upload-pages-artifact@v3
         with:

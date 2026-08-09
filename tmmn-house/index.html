@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TMMN HOUSE — 中庭のあるビルトインガレージハウス</title>
+  <meta name="description" content="2層吹抜の中庭を囲む、土間中心の2階建て。間取り図から各室の内装・仕上げ・面積を見られるビューア。">
+  <link rel="stylesheet" href="./style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>🏠</text></svg>">
+</head>
+<body>
+
+<header class="site-head">
+  <div class="site-head__inner">
+    <div class="site-head__titles">
+      <p class="site-head__eyebrow">TMMN HOUSE</p>
+      <h1 id="title"></h1>
+      <p id="subtitle" class="site-head__sub"></p>
+    </div>
+    <dl id="summary" class="summary"></dl>
+  </div>
+</header>
+
+<main class="layout">
+
+  <!-- ── 左：平面図 ─────────────────────────────────── -->
+  <section class="pane pane--plan" aria-label="平面図">
+    <div class="pane__bar">
+      <nav id="floor-tabs" class="tabs tabs--floor" role="tablist" aria-label="階の切り替え"></nav>
+      <ul id="legend" class="legend"></ul>
+    </div>
+
+    <div id="plan-host" class="plan-host"></div>
+
+    <ul id="room-list" class="room-list" aria-label="室の一覧"></ul>
+
+    <p class="pane__hint">
+      平面図の部屋をタップすると詳細が開きます。▲ は視点マーカー（その向きに見た内装写真）です。
+    </p>
+  </section>
+
+  <!-- ── 右：詳細パネル ─────────────────────────────── -->
+  <section class="pane pane--panel" aria-label="詳細">
+    <nav id="panel-tabs" class="tabs tabs--panel" role="tablist" aria-label="表示の切り替え"></nav>
+    <div id="panel" class="panel"></div>
+  </section>
+
+</main>
+
+<footer class="site-foot">
+  <p>
+    面積・坪数・畳数・平面図は、すべて <code>data/house.js</code> のポリゴンから計算しています。
+    数字を手で書いている箇所はありません。
+  </p>
+  <p><a href="../">← tsukuyomip のトップへ</a></p>
+</footer>
+
+<script type="module" src="./app.js"></script>
+</body>
+</html>
