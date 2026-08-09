@@ -10,6 +10,7 @@
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from '../../vendor/addons/RoundedBoxGeometry.js';
 import { sharedMaterials } from './materials.js';
+import { pointInPolygon } from '../geometry.js';
 import { buildTree } from './tree.js';
 
 /** 面取りした箱 */
@@ -26,6 +27,24 @@ function put(group, mesh, x, y, z, ry = 0) {
   mesh.rotation.y = ry;
   group.add(mesh);
   return mesh;
+}
+
+/**
+ * 室の実際の形に沿って、置ける区間を切り出す。
+ * 外接ボックスだけで置くと、L字の室ではポリゴンの外（吹抜など）に
+ * 棒や服がはみ出してしまう。
+ */
+function insideSpan(inside, axis, fixed, lo, hi, step = 0.05) {
+  const at = (t) => (axis === 'x' ? inside(t, fixed) : inside(fixed, t));
+  let best = [0, 0]; let run = null;
+  for (let t = lo; t <= hi + 1e-6; t += step) {
+    if (at(t)) { if (run === null) run = t; } else {
+      if (run !== null && t - run > best[1] - best[0]) best = [run, t - step];
+      run = null;
+    }
+  }
+  if (run !== null && hi - run > best[1] - best[0]) best = [run, hi];
+  return best;
 }
 
 function bounds(polygon) {
@@ -179,12 +198,12 @@ const BUILDERS = {
   },
 
   // ── WIC / ファミリークローゼット ────────────────────
-  wic(b, y, S, doors) { return closetLike(b, y, S, 1, doors); },
-  closet(b, y, S, doors) { return closetLike(b, y, S, 2, doors); },
+  wic(b, y, S, doors, inside) { return closetLike(b, y, S, 1, doors, inside); },
+  closet(b, y, S, doors, inside) { return closetLike(b, y, S, 2, doors, inside); },
 
   // ── 収納室・パントリー ──────────────────────────────
-  storage(b, y, S, doors) { return shelvesLike(b, y, S, false, doors); },
-  pantry(b, y, S, doors) { return shelvesLike(b, y, S, true, doors); },
+  storage(b, y, S, doors, inside) { return shelvesLike(b, y, S, false, doors, inside); },
+  pantry(b, y, S, doors, inside) { return shelvesLike(b, y, S, true, doors, inside); },
 
   // ── トイレ ──────────────────────────────────────────
   //  扉の位置を見て、器具を扉から遠い側に寄せる（扉の前を必ず空ける）
@@ -205,7 +224,8 @@ const BUILDERS = {
 
     // 一枚板のカウンター＋ガラスボウル（奥の壁ぎわ）
     const counterAt = far + sign * 0.26;
-    const cx = wide ? counterAt : b.x0 + 0.26;
+    // 幅方向は室の中心に合わせる（b.x0 起点にすると室の外へ出てしまう）
+    const cx = wide ? counterAt : b.cx;
     const cz = wide ? b.z0 + 0.24 : counterAt;
     const cw = wide ? 0.46 : (b.x1 - b.x0) - 0.3;
     const cd = wide ? (b.z1 - b.z0) - 0.3 : 0.46;
@@ -581,7 +601,11 @@ const BUILDERS = {
   // ── 中庭 ────────────────────────────────────────────
   courtyard(b, y, S) {
     const g = new THREE.Group();
-    g.add(buildTree(b.cx + 0.15, y, b.cz - 0.1));
+    // 樹冠が中庭の壁を突き破らないよう、室の内側の枠を渡す
+    g.add(buildTree(b.cx, y, b.cz, {
+      x: (b.x1 - b.x0) / 2 - 0.3,
+      z: (b.z1 - b.z0) / 2 - 0.3,
+    }));
     // 飛び石
     for (let i = 0; i < 4; i++) {
       const st = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.24, 0.06, 12), S.stoneTop);
@@ -599,7 +623,7 @@ const BUILDERS = {
     }
     // 下草（鉢なし。地面から直接生える）
     for (let i = 0; i < 22; i++) {
-      plant(g, b.x0 + rand(0.3, b.x1 - b.x0 - 0.3), y, b.z0 + rand(0.3, b.z1 - b.z0 - 0.3), rand(0.5, 0.9), false);
+      plant(g, b.x0 + rand(0.45, b.x1 - b.x0 - 0.45), y, b.z0 + rand(0.45, b.z1 - b.z0 - 0.45), rand(0.45, 0.75), false);
     }
     return g;
   },
@@ -609,31 +633,40 @@ const BUILDERS = {
 //  共通パーツ
 // ---------------------------------------------------------------------------
 
-function closetLike(b, y, S, rods, doors = []) {
+function closetLike(b, y, S, rods, doors = [], inside = () => true) {
   const g = new THREE.Group();
   const long = (b.z1 - b.z0) >= (b.x1 - b.x0);
-  const span = (long ? b.z1 - b.z0 : b.x1 - b.x0) - 0.3;
   for (let r = 0; r < rods; r++) {
     const off = rods === 1 ? 0 : (r === 0 ? -1 : 1) * ((long ? b.x1 - b.x0 : b.z1 - b.z0) / 2 - 0.32);
     const bx = long ? b.cx + off : b.cx;
     const bz = long ? b.cz : b.cz + off;
+    // 室の実際の形に収まる範囲だけに掛ける
+    const axis = long ? 'z' : 'x';
+    const [lo, hi] = insideSpan(inside, axis,
+      long ? bx : bz,
+      (long ? b.z0 : b.x0) + 0.15, (long ? b.z1 : b.x1) - 0.15);
+    const span = hi - lo;
+    if (span < 0.5) continue;
+    const cAlong = (lo + hi) / 2;
     const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, span, 10), S.steelPale);
     bar.rotation[long ? 'x' : 'z'] = Math.PI / 2;
-    put(g, bar, bx, y + 1.75, bz);
+    put(g, bar, long ? bx : cAlong, y + 1.75, long ? cAlong : bz);
     // 服
     const n = Math.floor(span / 0.055);
     for (let i = 0; i < n; i++) {
-      const t = 0.15 + (i / n) * (span - 0.3);
+      const t = lo + 0.08 + (i / n) * (span - 0.16);
       const mat = paletteMaterial(CLOTH_COLORS, 0.95);
-      const cx = long ? bx : b.x0 + 0.15 + t;
-      const cz = long ? b.z0 + 0.15 + t : bz;
+      const cx = long ? bx : t;
+      const cz = long ? t : bz;
       if (nearDoor(doors, cx, cz)) continue;      // 建具の前には掛けない
+      if (!inside(cx, cz)) continue;              // 室の外には掛けない
       const ch = rand(0.7, 1.05);
       const cloth = rbox(long ? 0.32 : 0.05, ch, long ? 0.05 : 0.32, mat, 0.01);
       put(g, cloth, cx, y + 1.72 - ch / 2, cz);
     }
     // 棚板
-    put(g, rbox(long ? 0.4 : span, 0.03, long ? span : 0.4, S.oak, 0.006), bx, y + 1.95, bz);
+    put(g, rbox(long ? 0.4 : span, 0.03, long ? span : 0.4, S.oak, 0.006),
+      long ? bx : cAlong, y + 1.95, long ? cAlong : bz);
   }
   return g;
 }
@@ -663,7 +696,7 @@ function clearSpan(lo, hi, doors, axis, across, margin = 0.75, pad = 0.25) {
   return segs.reduce((best, seg) => (seg[1] - seg[0] > best[1] - best[0] ? seg : best), [0, 0]);
 }
 
-function shelvesLike(b, y, S, food = false, doors = []) {
+function shelvesLike(b, y, S, food = false, doors = [], inside = () => true) {
   const g = new THREE.Group();
   const long = (b.z1 - b.z0) >= (b.x1 - b.x0);
   const depth = 0.36;
@@ -673,10 +706,10 @@ function shelvesLike(b, y, S, food = false, doors = []) {
     const bz = long ? b.cz : b.cz + side * wallOff;
     // 建具の前を避けた区間にだけ棚を作る
     const axis = long ? 'z' : 'x';
-    const [lo, hi] = clearSpan(
-      (long ? b.z0 : b.x0) + 0.12, (long ? b.z1 : b.x1) - 0.12,
-      doors, axis, long ? bx : bz,
-    );
+    // まず室の実際の形に収め、そのうえで建具の前を避ける
+    const [iLo, iHi] = insideSpan(inside, axis, long ? bx : bz,
+      (long ? b.z0 : b.x0) + 0.12, (long ? b.z1 : b.x1) - 0.12);
+    const [lo, hi] = clearSpan(iLo, iHi, doors, axis, long ? bx : bz);
     const span = hi - lo;
     if (span < 0.45) continue;              // 置ける長さが残っていない
     const cAlong = (lo + hi) / 2;
@@ -873,8 +906,14 @@ export function furnishRoom(area, level, openings = []) {
   const sunken = area.kind === 'outdoor' ? 0.12 : 0;
   // この室の外周にかかる、人が通る開口だけを拾う
   const doors = openings.filter((o) => DOOR_TYPES.has(o.type) && touchesRoom(o, b));
-  const g = BUILDERS[key](b, level - sunken, S, doors);
+  const inside = (x, z) => pointInPolygon([x, z], area.polygon);
+  const g = BUILDERS[key](b, level - sunken, S, doors, inside);
   g.name = `furniture-${area.id}`;
+
+  // 保険：室の外に出てしまったものは取り除く（L字の室での置き忘れ対策）
+  for (const child of [...g.children]) {
+    if (!inside(child.position.x, child.position.z)) g.remove(child);
+  }
   return g;
 }
 

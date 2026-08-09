@@ -8,7 +8,7 @@ import { Reflector } from '../../vendor/addons/Reflector.js';
 import { OrbitControls } from '../../vendor/addons/OrbitControls.js';
 import { floors, build3d, meta } from '../../data/house.js';
 import { findView } from '../geometry.js';
-import { buildFloorShell, stairProfile, registerFurniture, checkDoorClearance } from './shell.js';
+import { buildFloorShell, stairProfile, registerFurniture, checkDoorClearance, checkFurnitureFit } from './shell.js';
 import { furnishRoom } from './furniture.js';
 import { buildBackgroundTree } from './tree.js';
 import { sharedMaterials, box } from './materials.js';
@@ -139,6 +139,7 @@ export class Walkthrough {
   _house() {
     this.shells = [];
     this.house = new THREE.Group();
+    const fitIssues = [];
 
     floors.forEach((floor, i) => {
       const upper = floors[i + 1];
@@ -161,8 +162,13 @@ export class Walkthrough {
         this.house.add(f);
         // 家具もすり抜けられないようにする
         registerFurniture(f, floor.level, shell.blocked);
+        // 家具が室の外へはみ出していないか（L字の室で吹抜へ飛び出す事故を防ぐ）
+        const fit = checkFurnitureFit(area, f);
+        if (!fit.ok) fitIssues.push(`${floor.name} ${fit.name}: ${fit.detail}`);
       }
     });
+    if (fitIssues.length) console.warn('[tmmn-house] 家具が室からはみ出しています:\n' + fitIssues.join('\n'));
+    else console.info('[tmmn-house] 家具の収まり: すべてOK');
 
     // 家具を置いたあとで、建具の前後がふさがっていないかを実測する
     this.clearance = floors.map((floor, i) => ({
