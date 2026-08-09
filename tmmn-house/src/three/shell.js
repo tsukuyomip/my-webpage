@@ -112,7 +112,8 @@ function openingsOnRun(run, openings) {
  * 1フロア分の躯体を作る。
  * @returns {{ group: THREE.Group, blocked: Uint8Array, walkable: Uint8Array }}
  */
-export function buildFloorShell(floor, { isTop, holesAbove = [] }) {
+export function buildFloorShell(floor, opt = {}) {
+  const { isTop, holesAbove = [] } = opt;
   const S = sharedMaterials();
   const group = new THREE.Group();
   group.name = `shell-${floor.id}`;
@@ -198,7 +199,8 @@ export function buildFloorShell(floor, { isTop, holesAbove = [] }) {
   // ── 階段 ──────────────────────────────────────────────
   for (const st of floor.stairs ?? []) {
     if (st.dir !== 'up') continue;   // 上り側の階でだけ実体を作る
-    group.add(skeletonStair(st, level, floor.ceiling + build3d.slab));
+    // 上り切りが上階の床とぴったり合うように、階高そのものを渡す
+    group.add(skeletonStair(st, level, opt.riseToNext ?? (floor.ceiling + build3d.slab)));
   }
 
   return { group, blocked, walkable, owner, areas };
@@ -432,106 +434,200 @@ function skeletonStair(st, level, rise) {
   const g = new THREE.Group();
   g.name = 'stair';
 
+  const geo = stairGeometry(st, level, rise);
+  const { vertical, cross, width, run, steps, riser, going, dir, startAlong, angle } = geo;
+
+  // 踏面の先端（段鼻）を結んだ線 = 下端の床から上端の床まで
+  const nosingCenter = {
+    along: startAlong + dir * run / 2,
+    y: level + rise / 2,
+  };
+  const flightLen = Math.hypot(run, rise);
+
+  const place = (mesh, along, y, offCross = 0) => {
+    mesh.position.set(
+      vertical ? cross + offCross : along,
+      y,
+      vertical ? along : cross + offCross,
+    );
+    g.add(mesh);
+    return mesh;
+  };
+
+  // ── 中央のスチール芯梁（踏面のすぐ下を通す） ──
+  const spine = vertical
+    ? box(0.1, 0.22, flightLen, S.steel)
+    : box(flightLen, 0.22, 0.1, S.steel);
+  place(spine, nosingCenter.along, nosingCenter.y - 0.17);
+  if (vertical) spine.rotation.x = angle; else spine.rotation.z = angle;
+
+  // ── 踏板（段鼻が芯梁から片持ちで出る） ──
+  const depth = going + 0.04;
+  for (let i = 1; i <= steps; i++) {
+    const yTop = level + riser * i;
+    const nosing = startAlong + dir * going * i;
+    const tread = new THREE.Mesh(
+      new RoundedBoxGeometry(vertical ? width : depth, 0.05, vertical ? depth : width, 2, 0.012),
+      S.oak,
+    );
+    tread.castShadow = true;
+    tread.receiveShadow = true;
+    place(tread, nosing - dir * (depth / 2 - 0.03), yTop - 0.025);
+
+    // 踏板の裏のライン照明（浮いて見せる）
+    const strip = vertical
+      ? box(width * 0.72, 0.01, 0.018, S.lightWarm)
+      : box(0.018, 0.01, width * 0.72, S.lightWarm);
+    strip.castShadow = false;
+    place(strip, nosing - dir * (depth - 0.05), yTop - 0.056);
+  }
+
+  // ── 手すり（西側。踏面の外に出す） ──
+  const railOff = -(width / 2 + 0.04);
+  for (let i = 0; i <= steps; i += 3) {
+    const along = startAlong + dir * going * i;
+    const y = level + riser * i;
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.9, 6), S.steel);
+    post.castShadow = true;
+    place(post, along, y + 0.45, railOff);
+  }
+  const hand = vertical
+    ? box(0.035, 0.035, flightLen, S.steel)
+    : box(flightLen, 0.035, 0.035, S.steel);
+  place(hand, nosingCenter.along, nosingCenter.y + 0.9, railOff);
+  if (vertical) hand.rotation.x = angle; else hand.rotation.z = angle;
+
+  return g;
+}
+
+/**
+ * 階段の寸法を1か所で求める。3Dの実体（skeletonStair）と
+ * 歩行時の高さ（stairProfile）が、必ず同じ数字を使うようにするため。
+ */
+function stairGeometry(st, level, rise) {
   const x0 = Math.min(st.from[0], st.to[0]);
   const x1 = Math.max(st.from[0], st.to[0]);
   const z0 = Math.min(st.from[1], st.to[1]);
   const z1 = Math.max(st.from[1], st.to[1]);
   const vertical = (z1 - z0) >= (x1 - x0);
+
   const width = vertical ? x1 - x0 : z1 - z0;
   const run = vertical ? z1 - z0 : x1 - x0;
-  const steps = st.steps;
-  const riser = rise / steps;
-  const going = run / (steps - 1);
-
-  // 進行方向（from → to）
-  const dir = vertical ? Math.sign(st.to[1] - st.from[1]) : Math.sign(st.to[0] - st.from[0]);
-  const startAlong = vertical ? st.from[1] : st.from[0];
   const cross = vertical ? (x0 + x1) / 2 : (z0 + z1) / 2;
+  const startAlong = vertical ? st.from[1] : st.from[0];
+  const endAlong = vertical ? st.to[1] : st.to[0];
+  const dir = Math.sign(endAlong - startAlong);
+  const steps = st.steps;                 // 蹴上げの数
+  const riser = rise / steps;             // 蹴上げ
+  const going = run / steps;              // 踏面の出
 
-  // 中央のスチール梁
-  const beamLen = Math.hypot(run, rise) + 0.3;
-  const beam = box(vertical ? 0.1 : beamLen, 0.24, vertical ? beamLen : 0.1, S.steel);
-  beam.position.set(
-    vertical ? cross : (x0 + x1) / 2,
-    level + rise / 2 - 0.2,
-    vertical ? (z0 + z1) / 2 : cross,
-  );
-  const angle = Math.atan2(rise, run) * (dir > 0 ? -1 : 1);
-  if (vertical) beam.rotation.x = -angle; else beam.rotation.z = angle;
-  g.add(beam);
+  // 段鼻を結んだ線の傾き。箱の長辺をこの向きに合わせる回転角。
+  //   vertical（長辺 = +z）… X軸まわりの回転で +z は (0, -sinθ, cosθ) に写るので符号が反転する
+  //   horizontal（長辺 = +x）… Z軸まわりの回転で +x は (cosφ, sinφ, 0) に写る
+  const delta = endAlong - startAlong;
+  const angle = vertical ? -Math.atan2(rise, delta) : Math.atan2(rise, delta);
 
-  // 踏板
-  for (let i = 0; i < steps; i++) {
-    const along = startAlong + dir * going * i;
-    const y = level + riser * (i + 1) - 0.025;
-    const tread = new THREE.Mesh(
-      new RoundedBoxGeometry(vertical ? width : 0.30, 0.05, vertical ? 0.30 : width, 2, 0.012),
-      S.oak,
-    );
-    tread.castShadow = true;
-    tread.receiveShadow = true;
-    tread.position.set(vertical ? cross : along, y, vertical ? along : cross);
-    g.add(tread);
-
-    // 踏板の下のライン照明（写真の「浮いている」感じ）
-    const strip = box(vertical ? width * 0.8 : 0.02, 0.012, vertical ? 0.02 : width * 0.8, S.lightWarm);
-    strip.castShadow = false;
-    strip.position.set(
-      vertical ? cross : along - dir * 0.14,
-      y - 0.035,
-      vertical ? along - dir * 0.14 : cross,
-    );
-    g.add(strip);
-  }
-
-  // 手すり（縦のスチール棒＋横バー）
-  const railSide = vertical ? x0 - 0.02 : cross;
-  for (let i = 0; i <= steps; i += 3) {
-    const along = startAlong + dir * going * i;
-    const y = level + riser * i;
-    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.95, 6), S.steel);
-    post.position.set(vertical ? railSide : along, y + 0.48, vertical ? along : z0 - 0.02);
-    g.add(post);
-  }
-  const handLen = Math.hypot(run, rise);
-  const hand = box(vertical ? 0.035 : handLen, 0.035, vertical ? handLen : 0.035, S.steel);
-  hand.position.set(
-    vertical ? railSide : (x0 + x1) / 2,
-    level + rise / 2 + 0.95,
-    vertical ? (z0 + z1) / 2 : z0 - 0.02,
-  );
-  if (vertical) hand.rotation.x = -angle; else hand.rotation.z = angle;
-  g.add(hand);
-
-  return g;
+  return { x0, x1, z0, z1, vertical, width, run, cross, startAlong, endAlong, dir, steps, riser, going, angle };
 }
 
 /** 階段の踏面をたどって高さを返す（歩行時に使う） */
 export function stairProfile(floor, nextLevel) {
   const st = (floor.stairs ?? []).find((s) => s.dir === 'up');
   if (!st) return null;
-  const x0 = Math.min(st.from[0], st.to[0]);
-  const x1 = Math.max(st.from[0], st.to[0]);
-  const z0 = Math.min(st.from[1], st.to[1]);
-  const z1 = Math.max(st.from[1], st.to[1]);
-  const vertical = (z1 - z0) >= (x1 - x0);
+  const rise = nextLevel - floor.level;
+  const geo = stairGeometry(st, floor.level, rise);
   return {
-    x0, x1, z0, z1, vertical,
-    from: vertical ? st.from[1] : st.from[0],
-    to: vertical ? st.to[1] : st.to[0],
+    ...geo,
     base: floor.level,
     top: nextLevel,
+    /** 階段として扱う範囲。左右は踏面のすぐ外、前後は上り口・下り口の踏み込み分 */
     contains(x, z) {
-      // 左右は踏面のすぐ外まで。前後は上り口・下り口の踏み込み分だけ広げる
-      return x >= this.x0 - 0.05 && x <= this.x1 + 0.05
-          && z >= this.z0 - 0.30 && z <= this.z1 + 0.40;
+      const along = this.vertical ? z : x;
+      const cross = this.vertical ? x : z;
+      const lo = Math.min(this.startAlong, this.endAlong);
+      const hi = Math.max(this.startAlong, this.endAlong);
+      return cross >= (this.vertical ? this.x0 : this.z0) - 0.05
+          && cross <= (this.vertical ? this.x1 : this.z1) + 0.05
+          && along >= lo - 0.25 && along <= hi + 0.45;
     },
+    /** その位置の踏面の高さ。実体の踏板と同じ計算にしてある */
     heightAt(x, z) {
       const along = this.vertical ? z : x;
-      const t = (along - this.from) / (this.to - this.from);
-      return this.base + Math.max(0, Math.min(1, t)) * (this.top - this.base);
+      const t = (along - this.startAlong) / (this.endAlong - this.startAlong);
+      const step = Math.round(Math.max(0, Math.min(1, t)) * this.steps);
+      return this.base + step * this.riser;
     },
   };
+}
+
+// ---------------------------------------------------------------------------
+//  家具を当たり判定に取り込む＋建具まわりの空きを検査する
+// ---------------------------------------------------------------------------
+
+/**
+ * 家具のうち「人がぶつかる高さ」にあるものを、当たり判定の格子に焼き込む。
+ * これで、ベッドや棚をすり抜けて歩けなくなる。
+ */
+export function registerFurniture(group, level, blocked) {
+  const bbox = new THREE.Box3();
+  group.updateMatrixWorld(true);
+  group.traverse((o) => {
+    if (!o.isMesh) return;
+    bbox.setFromObject(o);
+    // 足元すれすれ（ラグ）や頭上（照明・棚の上段）は通れるので除く
+    if (bbox.max.y < level + 0.12 || bbox.min.y > level + 1.35) return;
+    const i0 = Math.floor(bbox.min.x / GRID);
+    const i1 = Math.ceil(bbox.max.x / GRID);
+    const j0 = Math.floor(bbox.min.z / GRID);
+    const j1 = Math.ceil(bbox.max.z / GRID);
+    for (let j = Math.max(0, j0); j < Math.min(CELLS, j1); j++) {
+      for (let i = Math.max(0, i0); i < Math.min(CELLS, i1); i++) blocked[j * CELLS + i] = 1;
+    }
+  });
+}
+
+/**
+ * 建具の前後に人が立てる空きがあるかを実測する。
+ * 家具を置いた結果、扉が開かない／通れない、という事故をここで捕まえる。
+ * @returns {{label:string, ok:boolean, detail:string}[]}
+ */
+export function checkDoorClearance(floor, blocked) {
+  const results = [];
+  const DEPTH = 0.45;   // 扉の前後にこれだけの奥行きが要る
+  for (const o of floor.openings ?? []) {
+    const spec = openingSpecs[o.type];
+    if (!spec?.pass) continue;
+    // 'open' は壁のない一体空間の境界なので、幅いっぱいの空きは要らない
+    if (o.type === 'open') continue;
+    const vertical = Math.abs(o.from[0] - o.to[0]) < 1e-6;   // x一定＝縦壁の開口
+    const s = Math.min(o.from[vertical ? 1 : 0], o.to[vertical ? 1 : 0]);
+    const e = Math.max(o.from[vertical ? 1 : 0], o.to[vertical ? 1 : 0]);
+    const pos = vertical ? o.from[0] : o.from[1];
+
+    const blockedSides = [];
+    for (const side of [-1, 1]) {
+      let hit = 0; let total = 0;
+      for (let t = s + 0.1; t < e - 0.1; t += 0.1) {
+        for (let d = 0.12; d <= DEPTH; d += 0.1) {
+          const x = vertical ? pos + side * d : t;
+          const z = vertical ? t : pos + side * d;
+          const i = Math.floor(x / GRID);
+          const j = Math.floor(z / GRID);
+          // 建物の外は検査しない（玄関ドアやガレージの外側）
+          if (i < 0 || j < 0 || i >= CELLS || j >= CELLS) continue;
+          total++;
+          if (blocked[j * CELLS + i]) hit++;
+        }
+      }
+      if (total >= 6 && hit / total > 0.34) blockedSides.push(side < 0 ? '手前' : '奥');
+    }
+    results.push({
+      label: o.label ?? o.type,
+      ok: blockedSides.length === 0,
+      detail: blockedSides.length === 0 ? '前後とも空いている' : `${blockedSides.join('・')}側がふさがっている`,
+    });
+  }
+  return results;
 }
 
 export { RoundedBoxGeometry, scaleBoxUVs };

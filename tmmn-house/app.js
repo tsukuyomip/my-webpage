@@ -98,9 +98,19 @@ function renderModeTabs() {
   });
 
   $('#three-start').addEventListener('click', () => startWalkthrough());
+  // 画面に触れた／クリックした時点で、案内オーバーレイは引っ込める
+  $('#three-host').addEventListener('pointerdown', () => {
+    $('#three-start').hidden = true;
+    if (!isTouchDevice()) walkthrough?.walker.requestLock();
+  });
   $('#hud-jump').addEventListener('change', (e) => {
     if (e.target.value) gotoView3d(e.target.value);
   });
+}
+
+/** 指で操作する端末か（マウスが無い端末ではポインタロックを使わない） */
+function isTouchDevice() {
+  return matchMedia('(pointer: coarse)').matches || navigator.maxTouchPoints > 0;
 }
 
 function setMode(mode) {
@@ -111,7 +121,9 @@ function setMode(mode) {
   $('#room-list').hidden = is3d;
   $('#three-wrap').hidden = !is3d;
   $('.pane__hint').textContent = is3d
-    ? 'クリック（スマホは画面をなぞって）で歩けます。WASD／矢印で移動、Shiftで速歩き、Escで解除。'
+    ? (isTouchDevice()
+      ? '画面の左半分をなぞると移動、右半分をなぞると視線が動きます。上の「視点へ移動」で見どころに飛べます。'
+      : 'クリックで視点操作を開始。WASD／矢印で移動、Shiftで速歩き、Escで解除。')
     : '平面図の部屋をタップすると詳細が開きます。▲ は視点マーカー（その向きに見た内装写真）です。';
 
   if (is3d) {
@@ -135,9 +147,11 @@ async function ensureWalkthrough() {
     walkthrough = new Walkthrough($('#three-host'));
     window.__tmmnWalk = walkthrough;   // 動作確認用
     walkthrough.onFrame = updateHud;
+    // ポインタロックが解けたら、また案内を出す（マウス操作の端末だけ）
     walkthrough.walker.onLockChange = (locked) => {
-      $('#three-start').hidden = locked;
+      $('#three-start').hidden = locked || isTouchDevice();
     };
+    setupHelp();
     fillJumpList();
     walkthrough.resize();
     walkthrough.start();
@@ -149,7 +163,8 @@ async function ensureWalkthrough() {
   } finally {
     walkthroughLoading = false;
     $('#three-loading').hidden = true;
-    $('#three-start').hidden = false;
+    // 指で操作する端末では、中央の大きな案内は出さない
+    $('#three-start').hidden = isTouchDevice();
   }
   updateHud();
 }
@@ -157,7 +172,22 @@ async function ensureWalkthrough() {
 function startWalkthrough() {
   if (!walkthrough) { ensureWalkthrough(); return; }
   walkthrough.start();
-  walkthrough.walker.requestLock();
+  $('#three-start').hidden = true;
+  if (!isTouchDevice()) walkthrough.walker.requestLock();
+}
+
+/**
+ * 操作案内。指で操作する端末では、画面中央の大きなボタンは出さず
+ * （タップしても解除する相手がいないので出しっぱなしになる）、
+ * 上端の一行だけにする。
+ */
+function setupHelp() {
+  const touch = isTouchDevice();
+  $('#hud-help').textContent = touch
+    ? '左半分をなぞる＝移動／右半分をなぞる＝視線'
+    : 'クリックで視点操作 ／ WASD・矢印で移動 ／ Shiftで速歩き ／ Escで解除';
+  $('#three-start').hidden = touch;
+  $('.three-start__desc').textContent = 'クリックすると視点操作が始まります';
 }
 
 function fillJumpList() {

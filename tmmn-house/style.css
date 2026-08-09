@@ -632,7 +632,20 @@ code { font-family: var(--mono); font-size: .92em; }
   backdrop-filter: blur(4px);
 }
 .hud__select option, .hud__select optgroup { color: #1c1a17; background: #fff; }
-.hud__help { margin: 0; font-size: .7rem; color: rgb(255 255 255 / .8); }
+.hud__help {
+  margin: 0;
+  font-size: .7rem;
+  color: rgb(255 255 255 / .88);
+  text-shadow: 0 1px 3px rgb(0 0 0 / .6);
+  pointer-events: none;
+}
+@media (max-width: 900px) {
+  .three-hud { padding: .45rem; gap: .3rem; }
+  .hud__row { flex-wrap: nowrap; }
+  .hud__select { max-width: none; flex: 1 1 0; min-width: 0; font-size: .72rem; padding: .28rem .5rem; }
+  .hud__chip { font-size: .64rem; padding: .28rem .5rem; flex: none; }
+  .hud__help { font-size: .64rem; }
+}
 
 .three-start {
   position: absolute;
