@@ -21,9 +21,14 @@ const state = {
   floorId: '1f',
   roomId: 'doma',
   viewId: null,
+  mode: 'plan',    // 'plan' | '3d'
   tab: 'room',     // 'room' | 'tour' | 'notes' | 'audit'
   tourIndex: 0,
 };
+
+/** 3Dウォークスルー（初めて開いたときだけ読み込む） */
+let walkthrough = null;
+let walkthroughLoading = false;
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -33,6 +38,7 @@ const $ = (sel) => document.querySelector(sel);
 function init() {
   renderSummary();
   renderFloorTabs();
+  renderModeTabs();
   renderTabs();
   renderLegend();
   applyHash();
@@ -80,6 +86,118 @@ function renderFloorTabs() {
   });
 }
 
+function renderModeTabs() {
+  const nav = $('#mode-tabs');
+  nav.innerHTML = `
+    <button type="button" role="tab" data-mode="plan">平面図</button>
+    <button type="button" role="tab" data-mode="3d">3Dウォークスルー</button>
+  `;
+  nav.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-mode]');
+    if (btn) setMode(btn.dataset.mode);
+  });
+
+  $('#three-start').addEventListener('click', () => startWalkthrough());
+  $('#hud-jump').addEventListener('change', (e) => {
+    if (e.target.value) gotoView3d(e.target.value);
+  });
+}
+
+function setMode(mode) {
+  state.mode = mode;
+  const is3d = mode === '3d';
+  $('#plan-host').hidden = is3d;
+  $('#legend').hidden = is3d;
+  $('#room-list').hidden = is3d;
+  $('#three-wrap').hidden = !is3d;
+  $('.pane__hint').textContent = is3d
+    ? 'クリック（スマホは画面をなぞって）で歩けます。WASD／矢印で移動、Shiftで速歩き、Escで解除。'
+    : '平面図の部屋をタップすると詳細が開きます。▲ は視点マーカー（その向きに見た内装写真）です。';
+
+  if (is3d) {
+    ensureWalkthrough();
+  } else if (walkthrough) {
+    walkthrough.stop();
+  }
+  render();
+}
+
+/** three.js とモデルの読み込みは、3Dを開いた時点で初めて行う */
+async function ensureWalkthrough() {
+  if (walkthrough || walkthroughLoading) { walkthrough?.resize(); return; }
+  walkthroughLoading = true;
+  $('#three-loading').hidden = false;
+  $('#three-start').hidden = true;
+  try {
+    const { Walkthrough } = await import('./src/three/scene.js');
+    // 組み立ては重いので、ローディング表示を1フレーム描かせてから走らせる
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+    walkthrough = new Walkthrough($('#three-host'));
+    window.__tmmnWalk = walkthrough;   // 動作確認用
+    walkthrough.onFrame = updateHud;
+    walkthrough.walker.onLockChange = (locked) => {
+      $('#three-start').hidden = locked;
+    };
+    fillJumpList();
+    walkthrough.resize();
+    walkthrough.start();
+    if (state.viewId) walkthrough.gotoView(state.viewId);
+    else walkthrough.gotoFloor(state.floorId);
+  } catch (err) {
+    $('#three-loading').textContent = `3Dの読み込みに失敗しました: ${err.message}`;
+    return;
+  } finally {
+    walkthroughLoading = false;
+    $('#three-loading').hidden = true;
+    $('#three-start').hidden = false;
+  }
+  updateHud();
+}
+
+function startWalkthrough() {
+  if (!walkthrough) { ensureWalkthrough(); return; }
+  walkthrough.start();
+  walkthrough.walker.requestLock();
+}
+
+function fillJumpList() {
+  const opts = ['<option value="">視点へ移動…</option>'];
+  for (const floor of floors) {
+    const views = allAreas(floor).flatMap((a) => (a.views ?? []).map((v) => ({ a, v })));
+    if (!views.length) continue;
+    opts.push(`<optgroup label="${escapeHtml(floor.name)}">`);
+    for (const { a, v } of views) {
+      opts.push(`<option value="${escapeHtml(v.id)}">${escapeHtml(a.name)} — ${escapeHtml(v.label)}</option>`);
+    }
+    opts.push('</optgroup>');
+  }
+  $('#hud-jump').innerHTML = opts.join('');
+}
+
+let hudFloorCache = null;
+function updateHud() {
+  if (!walkthrough) return;
+  const id = walkthrough.currentFloorId;
+  if (id === hudFloorCache) return;
+  hudFloorCache = id;
+  const floor = floors.find((f) => f.id === id);
+  $('#hud-floor').textContent = floor ? `${floor.name} を歩いています` : '';
+  // 平面図側の階も合わせておく
+  if (floor && state.floorId !== floor.id) {
+    state.floorId = floor.id;
+    writeHash();
+  }
+}
+
+/** 詳細パネルの「3Dでこの視点に立つ」から呼ばれる */
+export function gotoView3d(viewId) {
+  state.viewId = viewId;
+  if (state.mode !== '3d') setMode('3d');
+  const go = () => walkthrough?.gotoView(viewId);
+  if (walkthrough) { go(); walkthrough.start(); } else { ensureWalkthrough().then(go); }
+}
+window.__tmmnGotoView3d = gotoView3d;
+
 function renderTabs() {
   const nav = $('#panel-tabs');
   const tabs = [['room', '部屋'], ['tour', '動線ツアー'], ['notes', '設計メモ'], ['audit', '検算']];
@@ -118,11 +236,13 @@ function selectView(viewId, roomId) {
   state.tab = 'room';
   writeHash();
   render();
+  if (state.mode === '3d') walkthrough?.gotoView(viewId);
 }
 
 function goTour(index) {
   const stop = resolveStop(index);
   if (!stop) return;
+  if (state.mode === '3d') walkthrough?.gotoView(stop.view.id);
   state.tourIndex = wrapIndex(index);
   state.floorId = stop.floor.id;
   state.roomId = stop.room.id;
@@ -162,8 +282,15 @@ function render() {
     state.roomId = room.id;
   }
 
-  // 平面図
+  for (const btn of document.querySelectorAll('#mode-tabs [data-mode]')) {
+    const on = btn.dataset.mode === state.mode;
+    btn.classList.toggle('is-active', on);
+    btn.setAttribute('aria-selected', String(on));
+  }
+
+  // 平面図（3Dモードのときは組み直さない）
   const planHost = $('#plan-host');
+  if (state.mode === '3d') { renderRoomList(floor); renderPanel(floor, room); return; }
   planHost.replaceChildren(renderPlan(floor, {
     selectedRoomId: state.roomId,
     selectedViewId: state.viewId,
@@ -183,15 +310,16 @@ function render() {
     btn.setAttribute('aria-selected', String(on));
   }
 
-  // パネル
+  renderPanel(floor, room);
+  renderRoomList(floor);
+}
+
+function renderPanel(floor, room) {
   const panel = $('#panel');
   if (state.tab === 'room') panel.replaceChildren(renderDetail(room, floor, state.viewId));
   else if (state.tab === 'tour') panel.replaceChildren(renderTour(state.tourIndex, goTour));
   else if (state.tab === 'notes') panel.replaceChildren(renderDesignNotes());
   else panel.replaceChildren(renderAudit());
-
-  // 室の一覧
-  renderRoomList(floor);
 }
 
 function renderRoomList(floor) {
@@ -257,6 +385,28 @@ function renderAudit() {
       </table>
     `;
     wrapEl.append(sec);
+  }
+
+  // 階またぎの検査
+  if (result.cross?.checks?.length) {
+    const cs = document.createElement('section');
+    cs.className = 'detail__section';
+    cs.innerHTML = `
+      <h3>階またぎ
+        <span class="audit__pill ${result.cross.ok ? 'is-ok' : 'is-ng'}">${result.cross.ok ? 'OK' : 'NG'}</span>
+      </h3>
+      <table class="audit__table">
+        <tbody>
+          ${result.cross.checks.map((c) => `
+            <tr class="${c.ok ? 'is-ok' : 'is-ng'}">
+              <td class="audit__mark">${c.ok ? '✓' : '×'}</td>
+              <td class="audit__label">${escapeHtml(c.label)}</td>
+              <td class="audit__detail">${escapeHtml(c.detail)}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    `;
+    wrapEl.append(cs);
   }
 
   // 全体の集計

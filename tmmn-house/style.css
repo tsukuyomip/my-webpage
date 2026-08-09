@@ -259,6 +259,15 @@ code { font-family: var(--mono); font-size: .92em; }
 .opening--interior-window { stroke: var(--accent); stroke-width: 5; stroke-dasharray: 6 3; }
 .opening--entrance        { stroke: var(--accent); stroke-width: 6; }
 .opening--garage-door     { stroke: var(--ink-3); stroke-width: 6; stroke-dasharray: 2 3; }
+.opening--glass-door      { stroke: #6fa8c7; stroke-width: 6; }
+.opening--window          { stroke: #6fa8c7; stroke-width: 3.5; }
+.opening--low-window      { stroke: #6fa8c7; stroke-width: 3.5; stroke-dasharray: 8 4; }
+.opening--high-window     { stroke: #9dc3d6; stroke-width: 3; stroke-dasharray: 3 3; }
+/* 建具は「壁が切れている」ことが分かればよいので、地色で抜いて見せる */
+.opening--door            { stroke: var(--paper-2); stroke-width: 5.5; }
+.opening--archway         { stroke: var(--paper-2); stroke-width: 5.5; stroke-dasharray: 7 4; }
+.opening--open            { stroke: var(--paper-2); stroke-width: 6; }
+.opening--railing         { stroke: var(--ink-3); stroke-width: 2.5; stroke-dasharray: 1 3; stroke-linecap: round; }
 
 .stair-run   { fill: none; stroke: var(--ink-3); stroke-width: 1.4; vector-effect: non-scaling-stroke; }
 .stair-tread { stroke: var(--ink-3); stroke-width: 1.2; vector-effect: non-scaling-stroke; }
@@ -570,3 +579,109 @@ code { font-family: var(--mono); font-size: .92em; }
 }
 .site-foot p { margin: .2rem 0; }
 .site-foot a { color: var(--accent); }
+
+/* ==========================================================================
+   3Dウォークスルー
+   ========================================================================== */
+
+.tabs--mode button { font-size: .8rem; }
+.legend[hidden], .room-list[hidden], .plan-host[hidden] { display: none; }
+
+.three-wrap {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #1b1a18;
+  border: 1px solid var(--line);
+}
+@media (max-width: 900px) { .three-wrap { aspect-ratio: 3 / 4; } }
+
+.three-host { position: absolute; inset: 0; }
+.three-host canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+
+.three-hud {
+  position: absolute;
+  left: 0; right: 0; top: 0;
+  padding: .6rem;
+  display: grid;
+  gap: .4rem;
+  pointer-events: none;
+  background: linear-gradient(to bottom, rgb(0 0 0 / .45), transparent);
+}
+.hud__row { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; pointer-events: auto; }
+.hud__chip {
+  font: 700 .74rem/1 var(--mono);
+  color: #fff;
+  background: rgb(0 0 0 / .45);
+  border: 1px solid rgb(255 255 255 / .25);
+  border-radius: 999px;
+  padding: .34rem .7rem;
+  backdrop-filter: blur(4px);
+}
+.hud__select {
+  font: inherit;
+  font-size: .78rem;
+  color: #fff;
+  background: rgb(0 0 0 / .5);
+  border: 1px solid rgb(255 255 255 / .25);
+  border-radius: 999px;
+  padding: .3rem .7rem;
+  max-width: min(20rem, 60%);
+  backdrop-filter: blur(4px);
+}
+.hud__select option, .hud__select optgroup { color: #1c1a17; background: #fff; }
+.hud__help { margin: 0; font-size: .7rem; color: rgb(255 255 255 / .8); }
+
+.three-start {
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: max-content;
+  height: max-content;
+  display: grid;
+  gap: .25rem;
+  place-content: center;
+  text-align: center;
+  padding: 1rem 1.6rem;
+  border-radius: 10px;
+  border: 1px solid rgb(255 255 255 / .3);
+  background: rgb(20 18 16 / .62);
+  backdrop-filter: blur(6px);
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+}
+.three-start:hover { background: rgb(20 18 16 / .78); }
+.three-start__title { font-weight: 700; font-size: .96rem; }
+.three-start__desc { font-size: .74rem; opacity: .8; }
+
+.three-loading[hidden], .three-start[hidden] { display: none; }
+
+.three-loading {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-content: center;
+  color: #fff;
+  font-size: .84rem;
+  background: rgb(20 18 16 / .8);
+  text-align: center;
+  padding: 1rem;
+}
+
+.view-3d {
+  justify-self: start;
+  margin-top: .3rem;
+  appearance: none;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--accent);
+  border-radius: 999px;
+  padding: .18rem .7rem;
+  font: inherit;
+  font-size: .72rem;
+  cursor: pointer;
+}
+.view-3d:hover { border-color: var(--accent); background: var(--paper); }

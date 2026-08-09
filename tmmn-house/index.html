@@ -7,6 +7,17 @@
   <meta name="description" content="2層吹抜の中庭を囲む、土間中心の2階建て。間取り図から各室の内装・仕上げ・面積を見られるビューア。">
   <link rel="stylesheet" href="./style.css">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>🏠</text></svg>">
+
+  <!-- three.js はリポジトリ内に同梱（vendor/）。CDNに依存しません。
+       3Dモードを開いたときだけ動的importで読み込みます。 -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "./vendor/three.module.min.js",
+      "three/": "./vendor/"
+    }
+  }
+  </script>
 </head>
 <body>
 
@@ -27,10 +38,28 @@
   <section class="pane pane--plan" aria-label="平面図">
     <div class="pane__bar">
       <nav id="floor-tabs" class="tabs tabs--floor" role="tablist" aria-label="階の切り替え"></nav>
-      <ul id="legend" class="legend"></ul>
+      <nav id="mode-tabs" class="tabs tabs--mode" role="tablist" aria-label="表示モード"></nav>
     </div>
+    <ul id="legend" class="legend"></ul>
 
     <div id="plan-host" class="plan-host"></div>
+
+    <!-- 3Dウォークスルー -->
+    <div id="three-wrap" class="three-wrap" hidden>
+      <div id="three-host" class="three-host"></div>
+      <div id="three-hud" class="three-hud">
+        <div class="hud__row">
+          <span id="hud-floor" class="hud__chip"></span>
+          <select id="hud-jump" class="hud__select" aria-label="視点へ移動"></select>
+        </div>
+        <p id="hud-help" class="hud__help"></p>
+      </div>
+      <button id="three-start" type="button" class="three-start">
+        <span class="three-start__title">3Dウォークスルーを始める</span>
+        <span class="three-start__desc"></span>
+      </button>
+      <div id="three-loading" class="three-loading" hidden>3Dモデルを組み立てています…</div>
+    </div>
 
     <ul id="room-list" class="room-list" aria-label="室の一覧"></ul>
 
