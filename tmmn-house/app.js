@@ -22,6 +22,7 @@ const state = {
   roomId: 'doma',
   viewId: null,
   mode: 'plan',    // 'plan' | '3d'
+  view: 'walk',    // 3Dモードの見方: 'walk'（歩く） | 'overview'（俯瞰）
   tab: 'room',     // 'room' | 'tour' | 'notes' | 'audit'
   tourIndex: 0,
 };
@@ -83,6 +84,9 @@ function renderFloorTabs() {
     const floor = floors.find((f) => f.id === btn.dataset.floor);
     // 階を変えたら、その階の最初の室を選んでおく
     selectRoom(floor.id, floor.rooms[0].id, null);
+    if (state.mode !== '3d' || !walkthrough) return;
+    if (state.view === 'overview') { walkthrough.setOverviewFloor(floor.id); applyViewUi(); }
+    else walkthrough.gotoFloor(floor.id);
   });
 }
 
@@ -101,11 +105,67 @@ function renderModeTabs() {
   // 画面に触れた／クリックした時点で、案内オーバーレイは引っ込める
   $('#three-host').addEventListener('pointerdown', () => {
     $('#three-start').hidden = true;
-    if (!isTouchDevice()) walkthrough?.walker.requestLock();
+    if (state.view === 'walk' && !isTouchDevice()) walkthrough?.walker.requestLock();
+  });
+
+  const seg = $('#view-toggle');
+  seg.innerHTML = `
+    <button type="button" role="tab" data-view="walk">歩く</button>
+    <button type="button" role="tab" data-view="overview">俯瞰</button>
+  `;
+  seg.addEventListener('click', (e) => {
+    const btn = e.target.closest('[data-view]');
+    if (btn) setView(btn.dataset.view);
   });
   $('#hud-jump').addEventListener('change', (e) => {
     if (e.target.value) gotoView3d(e.target.value);
   });
+}
+
+/**
+ * 3Dの見方を切り替える。
+ * 'overview' は、その階の天井のすぐ下で水平に切って上から覗き込むモード。
+ */
+function setView(view) {
+  state.view = view;
+  walkthrough?.setView(view);
+  if (view === 'overview') {
+    walkthrough?.setOverviewFloor(state.floorId);
+    walkthrough?.walker.releaseLock();
+    $('#three-start').hidden = true;
+  } else {
+    $('#three-start').hidden = isTouchDevice();
+  }
+  applyViewUi();
+  render();
+}
+
+function applyViewUi() {
+  for (const btn of document.querySelectorAll('#view-toggle [data-view]')) {
+    const on = btn.dataset.view === state.view;
+    btn.classList.toggle('is-active', on);
+    btn.setAttribute('aria-selected', String(on));
+  }
+  const overview = state.view === 'overview';
+  const touch = isTouchDevice();
+  // 「視点へ移動」は歩くモードのためのものなので、俯瞰では隠す
+  $('#hud-jump').closest('.hud__row').hidden = overview;
+  $('#hud-help').textContent = overview
+    ? (touch ? 'なぞって回転／2本指で拡大・移動' : 'ドラッグで回転／ホイールで拡大／右ドラッグで移動')
+    : (touch ? '左半分をなぞる＝移動／右半分をなぞる＝視線'
+      : 'クリックで視点操作 ／ WASD・矢印で移動 ／ Shiftで速歩き ／ Escで解除');
+  if (overview) {
+    const floor = floors.find((f) => f.id === state.floorId);
+    $('#hud-floor').textContent = floor ? `${floor.name} を見下ろしています` : '';
+    hudFloorCache = null;
+  }
+  if (state.mode === '3d') {
+    $('.pane__hint').textContent = overview
+      ? '天井を抜いて、その階だけを上から見ています。1F／2F のタブで階を切り替えられます。'
+      : (touch
+        ? '画面の左半分をなぞると移動、右半分をなぞると視線が動きます。上の「視点へ移動」で見どころに飛べます。'
+        : 'クリックで視点操作を開始。WASD／矢印で移動、Shiftで速歩き、Escで解除。');
+  }
 }
 
 /** 指で操作する端末か（マウスが無い端末ではポインタロックを使わない） */
@@ -151,7 +211,10 @@ async function ensureWalkthrough() {
     walkthrough.walker.onLockChange = (locked) => {
       $('#three-start').hidden = locked || isTouchDevice();
     };
+    walkthrough.setView(state.view);
+    if (state.view === 'overview') walkthrough.setOverviewFloor(state.floorId);
     setupHelp();
+    applyViewUi();
     fillJumpList();
     walkthrough.resize();
     walkthrough.start();
@@ -206,7 +269,7 @@ function fillJumpList() {
 
 let hudFloorCache = null;
 function updateHud() {
-  if (!walkthrough) return;
+  if (!walkthrough || state.view === 'overview') return;
   const id = walkthrough.currentFloorId;
   if (id === hudFloorCache) return;
   hudFloorCache = id;
@@ -223,6 +286,7 @@ function updateHud() {
 export function gotoView3d(viewId) {
   state.viewId = viewId;
   if (state.mode !== '3d') setMode('3d');
+  if (state.view !== 'walk') setView('walk');
   const go = () => walkthrough?.gotoView(viewId);
   if (walkthrough) { go(); walkthrough.start(); } else { ensureWalkthrough().then(go); }
 }

@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from '../../vendor/addons/RoomEnvironment.js';
 import { Reflector } from '../../vendor/addons/Reflector.js';
+import { OrbitControls } from '../../vendor/addons/OrbitControls.js';
 import { floors, build3d, meta } from '../../data/house.js';
 import { findView } from '../geometry.js';
 import { buildFloorShell, stairProfile, registerFurniture, checkDoorClearance } from './shell.js';
@@ -54,6 +55,9 @@ export class Walkthrough {
 
     // 玄関に立たせる
     this.walker.teleport(0, 5.9, 9.4, 0);
+
+    this.view = 'walk';           // 'walk' | 'overview'
+    this.overviewFloor = 0;       // 俯瞰で見ている階
 
     this._resize = () => this.resize();
     addEventListener('resize', this._resize);
@@ -254,10 +258,12 @@ export class Walkthrough {
       g.add(m);
     }
 
-    // 植栽
+    // 植栽と遠景は、俯瞰モードでは切断面が汚くなるので別グループにして隠せるようにする
+    const tall = new THREE.Group();
+    tall.name = 'site-tall';
     for (const [x, z, s] of [[-1.2, 1.5, 1.0], [-1.3, 6.5, 0.85], [11.4, 2.0, 0.95],
       [11.2, 7.5, 1.1], [2.0, -1.2, 0.9], [8.4, -1.3, 1.0]]) {
-      g.add(buildBackgroundTree(x, GL, z, s));
+      tall.add(buildBackgroundTree(x, GL, z, s));
     }
 
     // 遠景の家並み（輪郭だけ）
@@ -269,14 +275,94 @@ export class Walkthrough {
       const a = (i / 14) * Math.PI * 2;
       m.position.set(w / 2 + Math.cos(a) * (26 + Math.random() * 14), GL + bh / 2, d / 2 + Math.sin(a) * (26 + Math.random() * 14));
       m.rotation.y = Math.random() * Math.PI;
-      g.add(m);
+      tall.add(m);
     }
+    g.add(tall);
 
     this.scene.add(g);
     this.site = g;
+    this.siteTall = tall;
   }
 
   // ── 公開API ─────────────────────────────────────────────
+
+  // ── 俯瞰（天井を抜いた見下ろし） ────────────────────────
+
+  /**
+   * 表示モードを切り替える。
+   * 'overview' では、その階の天井のすぐ下で全体を水平に切って、
+   * 上から間取りごと覗き込めるようにする。
+   */
+  setView(mode) {
+    if (mode === this.view) return;
+    this.view = mode;
+    if (mode === 'overview') {
+      this.walker.enabled = false;
+      if (this.siteTall) this.siteTall.visible = false;
+      this._ensureOrbit();
+      this.orbit.enabled = true;
+      this._applyCut();
+      this._frameFloor(this.overviewFloor, true);
+    } else {
+      if (this.orbit) this.orbit.enabled = false;
+      if (this.siteTall) this.siteTall.visible = true;
+      this.renderer.clippingPlanes = [];
+      this.walker.enabled = this.running;
+      this.walker._apply();
+    }
+  }
+
+  /** 俯瞰で見る階を変える */
+  setOverviewFloor(floorId) {
+    const idx = floors.findIndex((f) => f.id === floorId);
+    if (idx < 0) return;
+    this.overviewFloor = idx;
+    if (this.view !== 'overview') return;
+    this._applyCut();
+    this._frameFloor(idx, false);
+  }
+
+  /** その階の天井のすぐ下で水平に切る */
+  _applyCut() {
+    const floor = floors[this.overviewFloor];
+    const y = floor.level + Math.min(floor.ceiling - 0.4, 2.1);
+    this.renderer.clippingPlanes = [new THREE.Plane(new THREE.Vector3(0, -1, 0), y)];
+  }
+
+  _ensureOrbit() {
+    if (this.orbit) return;
+    const o = new OrbitControls(this.camera, this.renderer.domElement);
+    o.enableDamping = true;
+    o.dampingFactor = 0.08;
+    o.minDistance = 5;
+    o.maxDistance = 30;
+    o.maxPolarAngle = Math.PI * 0.46;   // 床より下に潜らせない
+    o.minPolarAngle = 0.12;
+    o.enablePan = true;
+    o.screenSpacePanning = false;
+    o.enabled = false;
+    this.orbit = o;
+  }
+
+  /** 指定の階が画面に収まる位置にカメラを置く */
+  _frameFloor(idx, reset) {
+    const { w, d } = meta.footprint;
+    const floor = floors[idx];
+    const target = new THREE.Vector3(w / 2, floor.level + 1.0, d / 2);
+    this.orbit.target.copy(target);
+    if (reset || !this._framedOnce) {
+      this.camera.fov = 46;
+      this.camera.updateProjectionMatrix();
+      this.camera.position.set(w / 2 + 4.6, floor.level + 12.4, d / 2 + 9.6);
+      this._framedOnce = true;
+    } else {
+      // 階だけ変えたときは、いまの見え方を保ったまま上下に平行移動する
+      const prev = floors[this._lastFramed ?? idx];
+      this.camera.position.y += floor.level - prev.level;
+    }
+    this._lastFramed = idx;
+    this.orbit.update();
+  }
 
   /** 平面図の視点マーカーと同じ位置・向きに立たせる */
   gotoView(viewId) {
@@ -301,13 +387,14 @@ export class Walkthrough {
   start() {
     if (this.running) return;
     this.running = true;
-    this.walker.enabled = true;
+    this.walker.enabled = this.view !== 'overview';
     this.clock = new THREE.Clock();
     const loop = () => {
       if (!this.running || this.disposed) return;
       this.raf = requestAnimationFrame(loop);
       const dt = Math.min(0.05, this.clock.getDelta());
-      this.walker.update(dt);
+      if (this.view === 'overview') this.orbit?.update();
+      else this.walker.update(dt);
       this.renderer.render(this.scene, this.camera);
       this.onFrame?.();
     };
@@ -334,6 +421,7 @@ export class Walkthrough {
     this.stop();
     this.disposed = true;
     removeEventListener('resize', this._resize);
+    this.orbit?.dispose();
     this.walker.dispose();
     this.scene.traverse((o) => {
       if (o.geometry) o.geometry.dispose();
