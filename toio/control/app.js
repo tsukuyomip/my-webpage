@@ -1021,6 +1021,22 @@
     requestAnimationFrame(loop);
   }
 
+  // ------------------------------------------------ ダブルタップズーム対策
+  // user-scalable=no を無視するブラウザ（アクセシビリティ設定で強制的に
+  // 拡大を許可している場合を含む）向けの保険。2 回目のタップの既定動作を
+  // 潰すとズームが起きない。ボタンや入力欄はクリックが消えると困るので除く。
+  let lastTouchEnd = 0;
+  document.addEventListener('touchend', (e) => {
+    const now = Date.now();
+    if (now - lastTouchEnd <= 350 && e.cancelable) {
+      const t = e.target;
+      if (!(t && t.closest && t.closest('button, input, select, textarea, a, .key, .cube-tab, .swatches button'))) {
+        e.preventDefault();
+      }
+    }
+    lastTouchEnd = now;
+  }, { passive: false });
+
   // ---------------------------------------------------------------- 起動
   if (!navigator.bluetooth) {
     $('unsupported').classList.remove('hidden');
