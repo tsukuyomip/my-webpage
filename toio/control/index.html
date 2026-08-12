@@ -9,7 +9,7 @@
   <meta name="description" content="Web Bluetooth で toio コアキューブの BLE 機能をひととおり操作できるコントロールパネル。">
   <!-- ?v= はキャッシュ避け。HTML だけ更新されて CSS/JS が古いままだと
        レイアウトが崩れるので、これらを変更したら必ず上げること -->
-  <link rel="stylesheet" href="style.css?v=20260813">
+  <link rel="stylesheet" href="style.css?v=20260813b">
 </head>
 <body>
 
@@ -280,13 +280,8 @@
     <h3>効果音</h3>
     <div class="se-grid" id="seGrid"></div>
     <h3>MIDI（半音単位・最大59音）</h3>
-    <div class="row octave-row">
-      <button class="btn ghost" id="btnOctDown">◀</button>
-      <span class="mono" id="octLabel">C4</span>
-      <button class="btn ghost" id="btnOctUp">▶</button>
-    </div>
     <div class="keyboard" id="keyboard"></div>
-    <p class="hint">鍵盤タップで単音を鳴らします。下のシーケンスに音を並べて再生もできます。</p>
+    <p class="hint">鍵盤は押している間だけ鳴ります。横スクロールで全音域（C0〜G10）に届きます。下のシーケンスに音を並べて再生することもできます。</p>
     <div id="melodyList" class="melody-list"></div>
     <div class="row">
       <button class="btn ghost" id="btnMelodyAdd">音を追加</button>
@@ -434,7 +429,7 @@
   </p>
 </footer>
 
-<script src="toio.js?v=20260813"></script>
-<script src="app.js?v=20260813"></script>
+<script src="toio.js?v=20260813b"></script>
+<script src="app.js?v=20260813b"></script>
 </body>
 </html>

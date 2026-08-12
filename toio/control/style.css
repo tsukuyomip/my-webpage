@@ -410,22 +410,24 @@ output { color: var(--text); font-variant-numeric: tabular-nums; }
 .se-grid .btn { padding: 0.35rem 0.3rem; font-size: 0.75rem; }
 
 /* ---------- 鍵盤 ---------- */
-.octave-row { align-items: center; gap: 0.5rem; }
-.octave-row .btn { min-width: 3rem; }
-.octave-row .mono { color: var(--muted); font-size: 0.8rem; }
-
 .keyboard {
   position: relative;
   display: flex;
-  height: 90px;
+  height: 100px;
   user-select: none;
   margin-bottom: 0.5rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  /* 横スクロールは許すが、ダブルタップ拡大は許さない */
+  touch-action: pan-x pan-y;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+  border-radius: 4px;
 }
 
 .key {
   position: relative;
-  flex: 1 1 0;
-  min-width: 0;
+  flex: 0 0 40px;
   background: #e6edf3;
   border: 1px solid #30363d;
   border-radius: 0 0 4px 4px;
@@ -442,8 +444,8 @@ output { color: var(--text); font-variant-numeric: tabular-nums; }
   background: #21262d;
   color: #8b949e;
   height: 58%;
-  flex: 0 0 22px;
-  margin: 0 -11px;
+  flex: 0 0 24px;
+  margin: 0 -12px;
   z-index: 2;
   border-color: #0d1117;
 }
@@ -511,9 +513,9 @@ output { color: var(--text); font-variant-numeric: tabular-nums; }
   input[type="number"] { max-width: 6.5rem; }
   input[type="color"] { width: 3.4rem; height: 2.6rem; }
 
-  .keyboard { height: 120px; }
-  .key { font-size: 0.65rem; }
-  .key.black { flex: 0 0 26px; width: 26px; margin: 0 -13px; }
+  .keyboard { height: 130px; }
+  .key { flex: 0 0 46px; font-size: 0.7rem; }
+  .key.black { flex: 0 0 28px; margin: 0 -14px; }
 
   .log { height: 200px; font-size: 0.68rem; }
   /* 桁の多い行が横にはみ出さないように折り返す */
