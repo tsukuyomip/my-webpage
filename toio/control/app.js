@@ -699,42 +699,55 @@
     $('seGrid').appendChild(b);
   });
 
-  // 鍵盤。スマホでも指が入るよう 1 オクターブぶんだけ出し、オクターブは切り替える
+  // 鍵盤。全音域を並べて横スクロールで辿る。押している間だけ鳴らす。
   const BLACK = [1, 3, 6, 8, 10];
-  let octaveBase = 48; // C4
+  const DEFAULT_NOTE = 60; // C5
+
+  let heldKey = null;
+
+  function noteOn(note, el) {
+    if (heldKey) noteOff();
+    heldKey = el;
+    el.classList.add('on');
+    // キューブ側は長さを指定して鳴らす方式しかないので、最長(2550ms)を
+    // 繰り返し 255 回ぶん予約しておき、離したときに停止コマンドで止める
+    send((c) => c.soundMidi([{ note, durationMs: 2550, volume: Number($('sVolume').value) }], 255));
+  }
+
+  function noteOff() {
+    if (!heldKey) return;
+    heldKey.classList.remove('on');
+    heldKey = null;
+    send((c) => c.soundStop());
+  }
 
   function renderKeyboard() {
     const wrap = $('keyboard');
     wrap.textContent = '';
-    $('octLabel').textContent = T.noteName(octaveBase) + ' – ' + T.noteName(octaveBase + 12);
-    for (let i = 0; i <= 12; i++) {
-      const note = octaveBase + i;
-      if (note > 127) break;
+    for (let note = 0; note <= 127; note++) {
+      const black = BLACK.includes(note % 12);
       const key = document.createElement('div');
-      key.className = 'key' + (BLACK.includes(note % 12) ? ' black' : '');
-      key.textContent = BLACK.includes(note % 12) ? '' : T.noteName(note);
+      key.className = 'key' + (black ? ' black' : '');
+      key.dataset.note = note;
+      key.textContent = black ? '' : T.noteName(note);
       key.title = `${T.noteName(note)} (${note})`;
       key.addEventListener('pointerdown', (e) => {
         e.preventDefault();
-        key.classList.add('on');
-        const vol = Number($('sVolume').value);
-        send((c) => c.soundMidi([{ note, durationMs: 500, volume: vol }], 1));
+        noteOn(note, key);
       });
-      const off = () => key.classList.remove('on');
-      key.addEventListener('pointerup', off);
-      key.addEventListener('pointerleave', off);
-      key.addEventListener('pointercancel', off);
+      key.addEventListener('pointerup', noteOff);
+      key.addEventListener('pointerleave', noteOff);
+      // 横スクロールとして扱われたときはブラウザが pointercancel を投げてくる
+      key.addEventListener('pointercancel', noteOff);
       wrap.appendChild(key);
     }
+    // 初期表示は C5 のあたり
+    const target = wrap.querySelector(`[data-note="${DEFAULT_NOTE}"]`);
+    if (target) wrap.scrollLeft = Math.max(0, target.offsetLeft - 12);
   }
 
-  function shiftOctave(delta) {
-    octaveBase = Math.max(0, Math.min(115, octaveBase + delta * 12));
-    renderKeyboard();
-  }
-
-  $('btnOctDown').addEventListener('click', () => shiftOctave(-1));
-  $('btnOctUp').addEventListener('click', () => shiftOctave(1));
+  window.addEventListener('pointerup', noteOff);
+  window.addEventListener('blur', noteOff);
 
   const melody = [];
 
