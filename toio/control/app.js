@@ -703,22 +703,38 @@
   const BLACK = [1, 3, 6, 8, 10];
   const DEFAULT_NOTE = 60; // C5
 
-  let heldKey = null;
+  // 押されている鍵を押した順に持つ。末尾が「いま鳴っている音」。
+  // キューブは同時に 1 音しか鳴らせないので、複数押されたら最後の音を優先する。
+  const held = [];
 
-  function noteOn(note, el) {
-    if (heldKey) noteOff();
-    heldKey = el;
-    el.classList.add('on');
+  function playHeld(entry) {
     // キューブ側は長さを指定して鳴らす方式しかないので、最長(2550ms)を
     // 繰り返し 255 回ぶん予約しておき、離したときに停止コマンドで止める
-    send((c) => c.soundMidi([{ note, durationMs: 2550, volume: Number($('sVolume').value) }], 255));
+    send((c) => c.soundMidi(
+      [{ note: entry.note, durationMs: 2550, volume: Number($('sVolume').value) }], 255));
   }
 
-  function noteOff() {
-    if (!heldKey) return;
-    heldKey.classList.remove('on');
-    heldKey = null;
-    send((c) => c.soundStop());
+  function noteOn(pointerId, note, el) {
+    if (held.some((h) => h.pointerId === pointerId)) return;
+    const entry = { pointerId, note, el };
+    held.push(entry);
+    el.classList.add('on');
+    playHeld(entry); // 新しい再生指示が前の音を上書きするので、止めてから鳴らす必要はない
+  }
+
+  function noteOff(pointerId) {
+    const i = held.findIndex((h) => h.pointerId === pointerId);
+    if (i < 0) return;
+    const wasSounding = i === held.length - 1;
+    held[i].el.classList.remove('on');
+    held.splice(i, 1);
+    if (!wasSounding) return; // 鳴っていない指を離しただけなら何もしない
+    if (held.length) playHeld(held[held.length - 1]); // まだ押されている音に戻す
+    else send((c) => c.soundStop());
+  }
+
+  function allNotesOff() {
+    while (held.length) noteOff(held[0].pointerId);
   }
 
   function renderKeyboard() {
@@ -733,12 +749,12 @@
       key.title = `${T.noteName(note)} (${note})`;
       key.addEventListener('pointerdown', (e) => {
         e.preventDefault();
-        noteOn(note, key);
+        noteOn(e.pointerId, note, key);
       });
-      key.addEventListener('pointerup', noteOff);
-      key.addEventListener('pointerleave', noteOff);
+      key.addEventListener('pointerup', (e) => noteOff(e.pointerId));
+      key.addEventListener('pointerleave', (e) => noteOff(e.pointerId));
       // 横スクロールとして扱われたときはブラウザが pointercancel を投げてくる
-      key.addEventListener('pointercancel', noteOff);
+      key.addEventListener('pointercancel', (e) => noteOff(e.pointerId));
       wrap.appendChild(key);
     }
     // 初期表示は C5 のあたり
@@ -746,8 +762,10 @@
     if (target) wrap.scrollLeft = Math.max(0, target.offsetLeft - 12);
   }
 
-  window.addEventListener('pointerup', noteOff);
-  window.addEventListener('blur', noteOff);
+  // 鍵の外で指を離した場合の取りこぼしを拾う
+  window.addEventListener('pointerup', (e) => noteOff(e.pointerId));
+  window.addEventListener('pointercancel', (e) => noteOff(e.pointerId));
+  window.addEventListener('blur', allNotesOff);
 
   const melody = [];
 
