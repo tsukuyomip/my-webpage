@@ -27,6 +27,95 @@
     return v === 'auto' ? autoMat : MATS[v];
   }
 
+  // ---- 推測航法（マットなしで軌跡を見るモード） ----------------------
+  // モーターへの指示を積算して位置を推定する。単位は mm、角度は度で
+  // 位置IDと同じ向き（x が右、y が下、0°が +x 方向で時計回りに増える）。
+  const estimates = new WeakMap();  // cube -> {x, y, angle}
+  const estTrails = new WeakMap();  // cube -> [[x, y], ...]
+
+  function isDeadReckoning() {
+    return $('trailSource').value === 'dead';
+  }
+
+  function estimateOf(cube) {
+    let e = estimates.get(cube);
+    if (!e) { e = { x: 0, y: 0, angle: 0 }; estimates.set(cube, e); }
+    return e;
+  }
+
+  let drLast = performance.now();
+
+  function stepDeadReckoning() {
+    const now = performance.now();
+    const dt = Math.min(0.25, (now - drLast) / 1000); // タブが止まっていた分は捨てる
+    drLast = now;
+    const k = Number($('drScale').value) || 1;
+    const tread = Number($('drTread').value) || 27;
+
+    for (const cube of cubes) {
+      if (!cube.connected) continue;
+      const s = cube.speedEstimate || { left: 0, right: 0 };
+      if (!s.left && !s.right) continue;
+      const vl = s.left * k, vr = s.right * k;     // mm/s
+      const v = (vl + vr) / 2;
+      // 画面は y が下向きなので、左が速いほど時計回り（角度が増える）
+      const omega = (vl - vr) / tread;             // rad/s
+      const e = estimateOf(cube);
+      e.angle = (e.angle + omega * dt * 180 / Math.PI) % 360;
+      const rad = e.angle * Math.PI / 180;
+      e.x += v * dt * Math.cos(rad);
+      e.y += v * dt * Math.sin(rad);
+
+      const tr = estTrails.get(cube) || [];
+      const last = tr[tr.length - 1];
+      if (!last || Math.hypot(e.x - last[0], e.y - last[1]) > 1) {
+        tr.push([e.x, e.y]);
+        if (tr.length > 1200) tr.shift();
+        estTrails.set(cube, tr);
+      }
+      if (cube === selected && isDeadReckoning()) syncReadouts();
+    }
+  }
+
+  setInterval(stepDeadReckoning, 40);
+
+  function updateTrailSourceUI() {
+    const dead = isDeadReckoning();
+    $('drOptions').classList.toggle('hidden', !dead);
+    $('drHint').classList.toggle('hidden', !dead);
+    $('matSelectWrap').classList.toggle('hidden', dead);
+    $('roEstCell').classList.toggle('hidden', !dead);
+    $('roEstAngleCell').classList.toggle('hidden', !dead);
+    drLast = performance.now();
+    syncReadouts();
+  }
+
+  $('trailSource').addEventListener('change', updateTrailSourceUI);
+
+  $('btnDrReset').addEventListener('click', () => {
+    for (const c of cubes) {
+      estimates.set(c, { x: 0, y: 0, angle: 0 });
+      estTrails.set(c, []);
+    }
+    syncReadouts();
+  });
+
+  /** 推測航法モードでの表示範囲。実測の軌跡に合わせて広げる */
+  function deadView() {
+    let minX = -150, minY = -150, maxX = 150, maxY = 150;
+    for (const c of cubes) {
+      const pts = (estTrails.get(c) || []).slice();
+      const e = estimates.get(c);
+      if (e) pts.push([e.x, e.y]);
+      for (const [x, y] of pts) {
+        minX = Math.min(minX, x); maxX = Math.max(maxX, x);
+        minY = Math.min(minY, y); maxY = Math.max(maxY, y);
+      }
+    }
+    const pad = 40;
+    return { name: '推測航法', minX: minX - pad, minY: minY - pad, maxX: maxX + pad, maxY: maxY + pad };
+  }
+
   /** コマンドの送信先 */
   function targets() {
     if ($('sendTarget').value === 'all') return cubes.filter((c) => c.connected);
@@ -95,6 +184,8 @@
   });
 
   function hookCube(cube) {
+    estimates.set(cube, { x: 0, y: 0, angle: 0 });
+    estTrails.set(cube, []);
     cube.on('log', (entry) => appendLog(cube, entry));
     cube.on('disconnect', () => {
       renderTabs();
@@ -196,6 +287,10 @@
     }
 
     set('roMotorSpeed', c && c.motorSpeed ? `左 ${c.motorSpeed.left} / 右 ${c.motorSpeed.right}` : null);
+
+    const est = c && estimates.get(c);
+    set('roEst', est ? `${Math.round(est.x)}, ${Math.round(est.y)}` : null);
+    set('roEstAngle', est ? `${Math.round((est.angle + 360) % 360)}°` : null);
   }
 
   function quatToEuler(q) {
@@ -931,8 +1026,9 @@
     const dpr = fitCanvas(canvas);
     const w = canvas.width, h = canvas.height;
     ctx.clearRect(0, 0, w, h);
-    updateAutoMat();
-    const mat = currentMat();
+    const dead = isDeadReckoning();
+    if (!dead) updateAutoMat();
+    const mat = dead ? deadView() : currentMat();
     const tf = matTransform(mat, w, h);
     const X = (x) => x * tf.scale + tf.ox;
     const Y = (y) => y * tf.scale + tf.oy;
@@ -963,22 +1059,32 @@
     ctx.textAlign = 'left';
     ctx.textBaseline = 'alphabetic';
 
-    // 目標マーカー
-    ctx.strokeStyle = '#d29922';
-    ctx.fillStyle = '#d29922';
-    multiTargets.forEach((t, i) => {
+    if (dead) {
+      // 原点の目印
+      ctx.strokeStyle = '#8b949e';
       ctx.beginPath();
-      ctx.arc(X(t.x), Y(t.y), 5 * dpr, 0, Math.PI * 2);
+      ctx.moveTo(X(-12), Y(0)); ctx.lineTo(X(12), Y(0));
+      ctx.moveTo(X(0), Y(-12)); ctx.lineTo(X(0), Y(12));
       ctx.stroke();
-      ctx.fillText(String(i + 1), X(t.x) + 8 * dpr, Y(t.y) - 8 * dpr);
-    });
+      ctx.fillText('原点', X(0) + 6 * dpr, Y(0) - 6 * dpr);
+    } else {
+      // 目標マーカー
+      ctx.strokeStyle = '#d29922';
+      ctx.fillStyle = '#d29922';
+      multiTargets.forEach((t, i) => {
+        ctx.beginPath();
+        ctx.arc(X(t.x), Y(t.y), 5 * dpr, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.fillText(String(i + 1), X(t.x) + 8 * dpr, Y(t.y) - 8 * dpr);
+      });
+    }
 
     // 軌跡とキューブ
     const showTrail = $('showTrail').checked;
     for (const cube of cubes) {
       const isSel = cube === selected;
       const color = isSel ? '#58a6ff' : '#3fb950';
-      const tr = trails.get(cube);
+      const tr = dead ? estTrails.get(cube) : trails.get(cube);
       if (showTrail && tr && tr.length > 1) {
         ctx.strokeStyle = isSel ? 'rgba(88,166,255,0.45)' : 'rgba(63,185,80,0.35)';
         ctx.lineWidth = 2 * dpr;
@@ -987,9 +1093,10 @@
         for (let i = 1; i < tr.length; i++) ctx.lineTo(X(tr[i][0]), Y(tr[i][1]));
         ctx.stroke();
       }
-      if (!cube.position || !cube.onMat) continue;
-      const px = X(cube.position.x), py = Y(cube.position.y);
-      const rad = cube.position.angle * Math.PI / 180;
+      const pose = dead ? estimates.get(cube) : (cube.onMat ? cube.position : null);
+      if (!pose) continue;
+      const px = X(pose.x), py = Y(pose.y);
+      const rad = pose.angle * Math.PI / 180;
       ctx.save();
       ctx.translate(px, py);
       ctx.rotate(rad);
@@ -1030,6 +1137,7 @@
     const start = tapStart;
     tapStart = null;
     if (!start) return;
+    if (isDeadReckoning()) return; // 推定座標に向けて動かしても意味がない
     if (Math.hypot(e.clientX - start.x, e.clientY - start.y) > 12) return;
     if (Date.now() - start.t > 700) return;
     if (!$('tapToMove').checked) return;
@@ -1054,7 +1162,10 @@
   });
 
   $('btnClearTrail').addEventListener('click', () => {
-    for (const c of cubes) trails.set(c, []);
+    for (const c of cubes) {
+      if (isDeadReckoning()) estTrails.set(c, []);
+      else trails.set(c, []);
+    }
   });
 
   // ---------------------------------------------------------- 姿勢角の描画
@@ -1162,6 +1273,7 @@
   }
 
   renderTabs();
+  updateTrailSourceUI();
   renderKeyboard();
   renderScenario();
   renderMelody();

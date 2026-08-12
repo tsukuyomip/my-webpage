@@ -91,6 +91,9 @@
       this.magnet = null;         // {id, force, x, y, z}
       this.attitude = null;       // {format, ...}
       this.motorSpeed = null;     // {left, right}
+      // 推測航法用。指示した速度を覚えておき、速度情報の通知が来たらそちらで上書きする
+      this.speedEstimate = { left: 0, right: 0 };
+      this._speedTimer = 0;
 
       this._queue = [];
       this._running = false;
@@ -175,7 +178,18 @@
       else this._handleDisconnected();
     }
 
+    /** 推測航法のもとになる速度を更新する。durationMs を渡すとその後 0 に戻す */
+    _setSpeedEstimate(left, right, durationMs) {
+      clearTimeout(this._speedTimer);
+      this.speedEstimate = { left, right };
+      if (durationMs) {
+        this._speedTimer = setTimeout(() => { this.speedEstimate = { left: 0, right: 0 }; }, durationMs);
+      }
+    }
+
     _handleDisconnected() {
+      clearTimeout(this._speedTimer);
+      this.speedEstimate = { left: 0, right: 0 };
       this.connected = false;
       this._queue.length = 0;
       this._running = false;
@@ -398,6 +412,11 @@
       }
       if (type === 0xe0) {
         this.motorSpeed = { left: dv.getUint8(1), right: dv.getUint8(2) };
+        // 通知には向きが入っていないので、直前に指示した向きを流用する
+        const sl = Math.sign(this.speedEstimate.left) || 1;
+        const sr = Math.sign(this.speedEstimate.right) || 1;
+        clearTimeout(this._speedTimer);
+        this.speedEstimate = { left: sl * this.motorSpeed.left, right: sr * this.motorSpeed.right };
         this.emit('motorSpeed', this.motorSpeed);
         return `モーター速度 左=${this.motorSpeed.left} 右=${this.motorSpeed.right}`;
       }
@@ -419,6 +438,7 @@
     /** 基本のモーター制御（0x01）。left/right は -115〜115 */
     motor(left, right, opt) {
       const l = clamp(Math.abs(left), 0, 115), r = clamp(Math.abs(right), 0, 115);
+      this._setSpeedEstimate(left < 0 ? -l : l, right < 0 ? -r : r);
       return this.write('motor', [0x01, 0x01, left < 0 ? 2 : 1, l, 0x02, right < 0 ? 2 : 1, r],
         Object.assign({ key: 'motor', note: `基本制御 L=${left} R=${right}` }, opt));
     }
@@ -427,6 +447,7 @@
     motorTimed(left, right, durationMs) {
       const l = clamp(Math.abs(left), 0, 115), r = clamp(Math.abs(right), 0, 115);
       const d = clamp(durationMs / 10, 0, 255);
+      this._setSpeedEstimate(left < 0 ? -l : l, right < 0 ? -r : r, d ? d * 10 : 0);
       return this.write('motor', [0x02, 0x01, left < 0 ? 2 : 1, l, 0x02, right < 0 ? 2 : 1, r, d],
         { note: `時間指定 L=${left} R=${right} ${d * 10}ms` });
     }

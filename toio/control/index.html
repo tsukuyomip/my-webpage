@@ -9,7 +9,7 @@
   <meta name="description" content="Web Bluetooth で toio コアキューブの BLE 機能をひととおり操作できるコントロールパネル。">
   <!-- ?v= はキャッシュ避け。HTML だけ更新されて CSS/JS が古いままだと
        レイアウトが崩れるので、これらを変更したら必ず上げること -->
-  <link rel="stylesheet" href="style.css?v=20260813d">
+  <link rel="stylesheet" href="style.css?v=20260813e">
 </head>
 <body>
 
@@ -219,7 +219,13 @@
   <section class="panel wide">
     <h2>読み取りセンサー<span class="sub">位置ID / 標準ID</span></h2>
     <div class="mat-toolbar">
-      <label>マット
+      <label>軌跡の元
+        <select id="trailSource">
+          <option value="id">位置ID（マットが必要）</option>
+          <option value="dead">推測航法（マットなし）</option>
+        </select>
+      </label>
+      <label id="matSelectWrap">マット
         <select id="matSelect">
           <option value="ring">リング 45–455</option>
           <option value="colortile">カラータイル 545–955</option>
@@ -235,12 +241,27 @@
       <label class="check"><input type="checkbox" id="tapToMove" checked> タップで移動</label>
       <button class="btn ghost" id="btnClearTrail">軌跡クリア</button>
     </div>
+    <div class="row hidden" id="drOptions">
+      <label>速度係数 (mm/s ÷ 指示値)
+        <input type="number" id="drScale" value="1" min="0.1" max="5" step="0.1">
+      </label>
+      <label>輪距 (mm)
+        <input type="number" id="drTread" value="27" min="5" max="200" step="1">
+      </label>
+      <button class="btn ghost" id="btnDrReset">原点に戻す</button>
+    </div>
+    <p class="hint hidden" id="drHint">
+      モーターへの指示から位置を積算した推定値です。滑りや誤差が積み重なるので、
+      進む距離や回り方が合わない場合は速度係数と輪距を調整してください。
+    </p>
     <canvas id="matCanvas"></canvas>
     <div class="readout" id="idReadout">
       <div><span>位置ID</span><b id="roPos">—</b></div>
       <div><span>角度</span><b id="roAngle">—</b></div>
       <div><span>センサー座標</span><b id="roSensor">—</b></div>
       <div><span>標準ID</span><b id="roStd">—</b></div>
+      <div class="hidden" id="roEstCell"><span>推定座標 (mm)</span><b id="roEst">—</b></div>
+      <div class="hidden" id="roEstAngleCell"><span>推定角度</span><b id="roEstAngle">—</b></div>
     </div>
   </section>
 
@@ -429,7 +450,7 @@
   </p>
 </footer>
 
-<script src="toio.js?v=20260813d"></script>
-<script src="app.js?v=20260813d"></script>
+<script src="toio.js?v=20260813e"></script>
+<script src="app.js?v=20260813e"></script>
 </body>
 </html>
