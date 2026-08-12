@@ -366,18 +366,48 @@
     if (keysDown.size) { keysDown.clear(); setSliders(0, 0); send((c) => c.stop()); }
   });
 
-  // ------------------------------------------------------ ジョイスティック
-  const joyEl = $('joystick'), joyKnob = $('joyKnob');
-  const joy = { active: false, l: 0, r: 0, sent: null, timer: 0 };
+  // ------------------------------------ ジョイスティック（ラジコン方式・2本）
+  // 左スティックが前後、右スティックが旋回。2本同時に操作できる。
+  const joy = { fwd: 0, turn: 0, l: 0, r: 0, sent: null, timer: 0, active: 0 };
 
-  $('joyMax').addEventListener('input', (e) => { $('outJoyMax').textContent = e.target.value; });
-  $('joyTurn').addEventListener('input', (e) => { $('outJoyTurn').textContent = e.target.value; });
+  const bindOut = (id, outId, fmt) => {
+    const el = $(id);
+    const upd = () => { $(outId).textContent = fmt ? fmt(el.value) : el.value; };
+    el.addEventListener('input', () => { upd(); joyCompute(); joyFlush(); });
+    upd();
+  };
 
-  function joySet(l, r) {
-    joy.l = l; joy.r = r;
-    $('joyL').textContent = l;
-    $('joyR').textContent = r;
-    setSliders(l, r); // 「基本」タブのスライダーとも揃えておく
+  bindOut('joyMax', 'outJoyMax');
+  bindOut('joyTurn', 'outJoyTurn');
+  bindOut('joyExpo', 'outJoyExpo', (v) => v + '%');
+  bindOut('joyDead', 'outJoyDead', (v) => v + '%');
+  $('joyInvert').addEventListener('change', () => { joyCompute(); joyFlush(); });
+
+  /** 倒し量(-1〜1)を不感帯と反応カーブに通す */
+  function shape(v) {
+    const dead = Number($('joyDead').value) / 100;
+    const a = Math.abs(v);
+    if (a <= dead) return 0;
+    // 不感帯の外側を 0〜1 に伸ばし直してから、カーブをかける
+    const t = (a - dead) / (1 - dead);
+    const e = Number($('joyExpo').value) / 100;
+    const shaped = (1 - e) * t + e * t * t * t;
+    return Math.sign(v) * shaped;
+  }
+
+  /** 2本のスティックの状態から左右のモーター速度を作る */
+  function joyCompute() {
+    const fwd = shape(joy.fwd) * Number($('joyMax').value) * ($('joyInvert').checked ? -1 : 1);
+    const turn = shape(joy.turn) * Number($('joyTurn').value);
+    let l = fwd + turn, r = fwd - turn;
+    // 片側だけ頭打ちにすると曲がり方が変わるので、比を保ったまま縮める
+    const peak = Math.max(Math.abs(l), Math.abs(r));
+    if (peak > 115) { l = l * 115 / peak; r = r * 115 / peak; }
+    joy.l = Math.round(l);
+    joy.r = Math.round(r);
+    $('joyL').textContent = joy.l;
+    $('joyR').textContent = joy.r;
+    setSliders(joy.l, joy.r); // 「基本」タブのスライダーとも揃えておく
   }
 
   /** 値が変わったときだけ実際に送る */
@@ -387,59 +417,80 @@
     send((c) => c.motor(joy.l, joy.r));
   }
 
-  function joyFromPointer(e) {
-    const rect = joyEl.getBoundingClientRect();
-    const radius = rect.width / 2;
-    let dx = (e.clientX - (rect.left + radius)) / radius;
-    let dy = (e.clientY - (rect.top + radius)) / radius;
-    const mag = Math.hypot(dx, dy);
-    if (mag > 1) { dx /= mag; dy /= mag; } // 円の外は縁に貼りつける
-
-    joyKnob.style.transform = `translate(${dx * radius * 0.62}px, ${dy * radius * 0.62}px)`;
-
-    if (Math.hypot(dx, dy) < 0.12) { joySet(0, 0); return; } // 中心は不感帯
-
-    const fwd = ($('joyInvert').checked ? dy : -dy) * Number($('joyMax').value);
-    const turn = dx * Number($('joyTurn').value);
-    let l = fwd + turn, r = fwd - turn;
-    // 片側だけ頭打ちにすると曲がり方が変わるので、比を保ったまま縮める
-    const peak = Math.max(Math.abs(l), Math.abs(r));
-    if (peak > 115) { l = l * 115 / peak; r = r * 115 / peak; }
-    joySet(Math.round(l), Math.round(r));
-  }
-
-  function joyRelease() {
-    if (!joy.active) return;
-    joy.active = false;
-    joyEl.classList.remove('active');
-    clearInterval(joy.timer);
-    joy.timer = 0;
-    if (!$('joyHold').checked) {
-      joyKnob.style.transform = '';
-      joySet(0, 0);
-      joyFlush();
+  function joyTick(on) {
+    if (on) {
+      if (!joy.timer) joy.timer = setInterval(joyFlush, 50); // BLE が詰まらない間隔
+    } else if (!joy.active && joy.timer) {
+      clearInterval(joy.timer);
+      joy.timer = 0;
     }
   }
 
-  joyEl.addEventListener('pointerdown', (e) => {
-    e.preventDefault();
-    joy.active = true;
-    joyEl.setPointerCapture(e.pointerId);
-    joyEl.classList.add('active');
-    joyFromPointer(e);
-    joyFlush();
-    clearInterval(joy.timer);
-    // 指の動きのたびに書くと BLE が詰まるので、送信は 50ms 間隔にまとめる
-    joy.timer = setInterval(joyFlush, 50);
-  });
+  /**
+   * 1本ぶんのスティックを組み立てる。
+   * @param {string} axis 'y' なら前後、'x' なら旋回
+   * @param {string} key  joy 側のプロパティ名
+   */
+  function setupStick(elId, knobId, axis, key) {
+    const el = $(elId), knob = $(knobId);
+    let holding = false;
 
-  joyEl.addEventListener('pointermove', (e) => { if (joy.active) joyFromPointer(e); });
-  joyEl.addEventListener('pointerup', joyRelease);
-  joyEl.addEventListener('pointercancel', joyRelease);
+    const move = (e) => {
+      const rect = el.getBoundingClientRect();
+      const half = (axis === 'y' ? rect.height : rect.width) / 2;
+      const center = axis === 'y' ? rect.top + half : rect.left + half;
+      const pos = axis === 'y' ? e.clientY : e.clientX;
+      const v = Math.max(-1, Math.min(1, (pos - center) / half));
+      knob.style.transform = axis === 'y'
+        ? `translateY(${v * half * 0.55}px)`
+        : `translateX(${v * half * 0.55}px)`;
+      joy[key] = axis === 'y' ? -v : v; // 上（と右）を正にする
+      joyCompute();
+    };
+
+    const release = () => {
+      if (!holding) return;
+      holding = false;
+      joy.active--;
+      el.classList.remove('active');
+      if (!$('joyHold').checked) {
+        knob.style.transform = '';
+        joy[key] = 0;
+        joyCompute();
+        joyFlush();
+      }
+      joyTick(false);
+    };
+
+    el.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      holding = true;
+      joy.active++;
+      el.setPointerCapture(e.pointerId);
+      el.classList.add('active');
+      move(e);
+      joyFlush();
+      joyTick(true);
+    });
+    el.addEventListener('pointermove', (e) => { if (holding) move(e); });
+    el.addEventListener('pointerup', release);
+    el.addEventListener('pointercancel', release);
+
+    return { release, reset: () => { knob.style.transform = ''; joy[key] = 0; } };
+  }
+
+  const stickFwd = setupStick('stickFwd', 'stickFwdKnob', 'y', 'fwd');
+  const stickTurn = setupStick('stickTurn', 'stickTurnKnob', 'x', 'turn');
+
+  function joyRelease() {
+    stickFwd.release();
+    stickTurn.release();
+  }
 
   $('btnJoyStop').addEventListener('click', () => {
-    joyKnob.style.transform = '';
-    joySet(0, 0);
+    stickFwd.reset();
+    stickTurn.reset();
+    joyCompute();
     joyFlush();
   });
 
