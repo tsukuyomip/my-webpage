@@ -1138,13 +1138,17 @@
   // ------------------------------------------------ ダブルタップズーム対策
   // user-scalable=no を無視するブラウザ（アクセシビリティ設定で強制的に
   // 拡大を許可している場合を含む）向けの保険。2 回目のタップの既定動作を
-  // 潰すとズームが起きない。ボタンや入力欄はクリックが消えると困るので除く。
+  // 潰すと、拡大や「ダブルタップした要素を中央に寄せるスクロール」が起きない。
+  //
+  // 除外しているのはクリックで動く UI だけ。touchend の既定動作を潰すと
+  // 合成される click が飛ばなくなるため。鍵盤は pointerdown/up で鳴らしていて
+  // click に依存していないので、除外しない（横スクロールが勝手に動くのを防ぐ）。
   let lastTouchEnd = 0;
   document.addEventListener('touchend', (e) => {
     const now = Date.now();
     if (now - lastTouchEnd <= 350 && e.cancelable) {
       const t = e.target;
-      if (!(t && t.closest && t.closest('button, input, select, textarea, a, .key, .cube-tab, .swatches button'))) {
+      if (!(t && t.closest && t.closest('button, input, select, textarea, a, .cube-tab'))) {
         e.preventDefault();
       }
     }

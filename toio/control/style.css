@@ -418,8 +418,8 @@ output { color: var(--text); font-variant-numeric: tabular-nums; }
   margin-bottom: 0.5rem;
   overflow-x: auto;
   overflow-y: hidden;
-  /* 横スクロールは許すが、ダブルタップ拡大は許さない */
-  touch-action: pan-x pan-y;
+  /* 横スクロールは許すが、ダブルタップ由来の操作は許さない */
+  touch-action: manipulation;
   overscroll-behavior-x: contain;
   scrollbar-width: thin;
   border-radius: 4px;
