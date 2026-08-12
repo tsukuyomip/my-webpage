@@ -988,6 +988,97 @@
   // ------------------------------------------------------------ マット描画
   const canvas = $('matCanvas');
   const ctx = canvas.getContext('2d');
+  const miniCanvas = $('miniCanvas');
+  const miniCtx = miniCanvas.getContext('2d');
+
+  // ---- ミニマップ（浮かせて表示する軌跡） ----------------------------
+  const MINI_SIZES = [130, 170, 230];
+  const miniEl = $('minimap');
+  const miniState = { visible: false, size: 1, left: null, top: null };
+
+  try {
+    Object.assign(miniState, JSON.parse(localStorage.getItem('toio-minimap') || '{}'));
+  } catch (e) { /* 壊れていたら初期値のまま */ }
+
+  function saveMiniState() {
+    try { localStorage.setItem('toio-minimap', JSON.stringify(miniState)); } catch (e) { /* noop */ }
+  }
+
+  function applyMiniState() {
+    miniEl.classList.toggle('hidden', !miniState.visible);
+    miniEl.style.width = MINI_SIZES[miniState.size % MINI_SIZES.length] + 'px';
+    if (miniState.left !== null && miniState.top !== null) {
+      clampMini();
+      miniEl.style.left = miniState.left + 'px';
+      miniEl.style.top = miniState.top + 'px';
+      miniEl.style.right = 'auto';
+      miniEl.style.bottom = 'auto';
+    }
+    $('btnMiniToggle').textContent = miniState.visible ? 'ミニマップを隠す' : 'ミニマップ';
+  }
+
+  /** 画面の外に出て掴めなくなるのを防ぐ */
+  function clampMini() {
+    if (miniState.left === null) return;
+    const r = miniEl.getBoundingClientRect();
+    const w = r.width || MINI_SIZES[miniState.size % MINI_SIZES.length];
+    const h = r.height || w;
+    miniState.left = Math.max(4, Math.min(window.innerWidth - w - 4, miniState.left));
+    miniState.top = Math.max(4, Math.min(window.innerHeight - h - 4, miniState.top));
+  }
+
+  $('btnMiniToggle').addEventListener('click', () => {
+    miniState.visible = !miniState.visible;
+    applyMiniState();
+    saveMiniState();
+  });
+
+  $('btnMiniHide').addEventListener('click', (e) => {
+    e.stopPropagation();
+    miniState.visible = false;
+    applyMiniState();
+    saveMiniState();
+  });
+
+  $('btnMiniSize').addEventListener('click', (e) => {
+    e.stopPropagation();
+    miniState.size = (miniState.size + 1) % MINI_SIZES.length;
+    applyMiniState();
+    saveMiniState();
+  });
+
+  // ドラッグで好きな位置へ動かす
+  let miniDrag = null;
+  miniEl.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('.minimap-btn')) return;
+    const r = miniEl.getBoundingClientRect();
+    miniDrag = { dx: e.clientX - r.left, dy: e.clientY - r.top };
+    miniState.left = r.left;
+    miniState.top = r.top;
+    miniEl.classList.add('dragging');
+    try { miniEl.setPointerCapture(e.pointerId); } catch (err) { /* noop */ }
+    e.preventDefault();
+  });
+
+  miniEl.addEventListener('pointermove', (e) => {
+    if (!miniDrag) return;
+    miniState.left = e.clientX - miniDrag.dx;
+    miniState.top = e.clientY - miniDrag.dy;
+    applyMiniState();
+  });
+
+  const endMiniDrag = () => {
+    if (!miniDrag) return;
+    miniDrag = null;
+    miniEl.classList.remove('dragging');
+    saveMiniState();
+  };
+
+  miniEl.addEventListener('pointerup', endMiniDrag);
+  miniEl.addEventListener('pointercancel', endMiniDrag);
+  window.addEventListener('resize', () => { clampMini(); applyMiniState(); });
+
+  applyMiniState();
 
   function fitCanvas(cv) {
     const dpr = window.devicePixelRatio || 1;
@@ -999,9 +1090,9 @@
   }
 
   /** マット座標 → キャンバス座標の変換係数（w, h はデバイスピクセル） */
-  function matTransform(mat, w, h) {
+  function matTransform(mat, w, h, padCss) {
     // 余白もデバイスピクセルで取らないと、高 DPI 端末で目盛りの文字が枠外にはみ出す
-    const pad = 26 * (window.devicePixelRatio || 1);
+    const pad = (padCss === undefined ? 26 : padCss) * (window.devicePixelRatio || 1);
     const mw = mat.maxX - mat.minX, mh = mat.maxY - mat.minY;
     const scale = Math.min((w - pad * 2) / mw, (h - pad * 2) / mh);
     return {
@@ -1028,14 +1119,20 @@
     autoMat.minY = minY - margin; autoMat.maxY = Math.max(maxY + margin, minY - margin + 50);
   }
 
-  function drawMat() {
-    const dpr = fitCanvas(canvas);
-    const w = canvas.width, h = canvas.height;
+  /**
+   * マット（または推測航法）の様子を描く。ミニマップからも同じ関数を使う。
+   * @param {HTMLCanvasElement} cv 描画先
+   * @param {CanvasRenderingContext2D} ctx 描画先のコンテキスト
+   * @param {boolean} compact 目盛りや名前を省いて小さく描く
+   */
+  function renderMap(cv, ctx, compact) {
+    const dpr = fitCanvas(cv);
+    const w = cv.width, h = cv.height;
     ctx.clearRect(0, 0, w, h);
     const dead = isDeadReckoning();
     if (!dead) updateAutoMat();
     const mat = dead ? deadView() : currentMat();
-    const tf = matTransform(mat, w, h);
+    const tf = matTransform(mat, w, h, compact ? 8 : 26);
     const X = (x) => x * tf.scale + tf.ox;
     const Y = (y) => y * tf.scale + tf.oy;
 
@@ -1056,14 +1153,16 @@
     // 目盛りはマット枠の内側に描く。外側だと端末によっては canvas からはみ出る
     ctx.fillStyle = '#8b949e';
     ctx.font = `${11 * dpr}px ui-monospace, monospace`;
-    ctx.textBaseline = 'top';
-    ctx.textAlign = 'left';
-    ctx.fillText(`${mat.minX}, ${mat.minY}`, X(mat.minX) + 4 * dpr, Y(mat.minY) + 4 * dpr);
-    ctx.textBaseline = 'bottom';
-    ctx.textAlign = 'right';
-    ctx.fillText(`${mat.maxX}, ${mat.maxY}`, X(mat.maxX) - 4 * dpr, Y(mat.maxY) - 4 * dpr);
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'alphabetic';
+    if (!compact) {
+      ctx.textBaseline = 'top';
+      ctx.textAlign = 'left';
+      ctx.fillText(`${mat.minX}, ${mat.minY}`, X(mat.minX) + 4 * dpr, Y(mat.minY) + 4 * dpr);
+      ctx.textBaseline = 'bottom';
+      ctx.textAlign = 'right';
+      ctx.fillText(`${mat.maxX}, ${mat.maxY}`, X(mat.maxX) - 4 * dpr, Y(mat.maxY) - 4 * dpr);
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'alphabetic';
+    }
 
     if (dead) {
       // 原点の目印
@@ -1072,16 +1171,16 @@
       ctx.moveTo(X(-12), Y(0)); ctx.lineTo(X(12), Y(0));
       ctx.moveTo(X(0), Y(-12)); ctx.lineTo(X(0), Y(12));
       ctx.stroke();
-      ctx.fillText('原点', X(0) + 6 * dpr, Y(0) - 6 * dpr);
+      if (!compact) ctx.fillText('原点', X(0) + 6 * dpr, Y(0) - 6 * dpr);
     } else {
       // 目標マーカー
       ctx.strokeStyle = '#d29922';
       ctx.fillStyle = '#d29922';
       multiTargets.forEach((t, i) => {
         ctx.beginPath();
-        ctx.arc(X(t.x), Y(t.y), 5 * dpr, 0, Math.PI * 2);
+        ctx.arc(X(t.x), Y(t.y), (compact ? 3 : 5) * dpr, 0, Math.PI * 2);
         ctx.stroke();
-        ctx.fillText(String(i + 1), X(t.x) + 8 * dpr, Y(t.y) - 8 * dpr);
+        if (!compact) ctx.fillText(String(i + 1), X(t.x) + 8 * dpr, Y(t.y) - 8 * dpr);
       });
     }
 
@@ -1103,17 +1202,19 @@
       if (!pose) continue;
       const px = X(pose.x), py = Y(pose.y);
       const rad = pose.angle * Math.PI / 180;
+      const s = compact ? 0.6 : 1;
       ctx.save();
       ctx.translate(px, py);
       ctx.rotate(rad);
       ctx.fillStyle = color;
       ctx.beginPath();
-      ctx.moveTo(14 * dpr, 0);
-      ctx.lineTo(-9 * dpr, 8 * dpr);
-      ctx.lineTo(-9 * dpr, -8 * dpr);
+      ctx.moveTo(14 * dpr * s, 0);
+      ctx.lineTo(-9 * dpr * s, 8 * dpr * s);
+      ctx.lineTo(-9 * dpr * s, -8 * dpr * s);
       ctx.closePath();
       ctx.fill();
       ctx.restore();
+      if (compact) continue;
       // 名前は狭い画面だとはみ出すので短縮し、右端に寄ったら左側に出す
       ctx.fillStyle = color;
       ctx.font = `${11 * dpr}px ui-monospace, monospace`;
@@ -1127,6 +1228,11 @@
         ctx.fillText(label, px + 14 * dpr, py + 4 * dpr);
       }
     }
+  }
+
+  function drawMat() {
+    renderMap(canvas, ctx, false);
+    if (!$('minimap').classList.contains('hidden')) renderMap(miniCanvas, miniCtx, true);
   }
 
   // canvas 上でも縦スクロールできるようにしてあるので、pointerdown ではなく
