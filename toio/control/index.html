@@ -37,35 +37,6 @@
 
 <main id="main" class="grid">
 
-  <!-- ============ 位置・マット ============ -->
-  <section class="panel wide">
-    <h2>読み取りセンサー<span class="sub">位置ID / 標準ID</span></h2>
-    <div class="mat-toolbar">
-      <label>マット
-        <select id="matSelect">
-          <option value="ring">リング 45–455</option>
-          <option value="colortile">カラータイル 545–955</option>
-          <option value="simple">シンプル 98–402 / 142–358</option>
-          <option value="dev1">開発用 #1</option>
-          <option value="dev2">開発用 #2</option>
-          <option value="dev3">開発用 #3</option>
-          <option value="dev4">開発用 #4</option>
-          <option value="auto">自動（実測範囲）</option>
-        </select>
-      </label>
-      <label class="check"><input type="checkbox" id="showTrail" checked> 軌跡</label>
-      <label class="check"><input type="checkbox" id="tapToMove" checked> タップで移動</label>
-      <button class="btn ghost" id="btnClearTrail">軌跡クリア</button>
-    </div>
-    <canvas id="matCanvas"></canvas>
-    <div class="readout" id="idReadout">
-      <div><span>位置ID</span><b id="roPos">—</b></div>
-      <div><span>角度</span><b id="roAngle">—</b></div>
-      <div><span>センサー座標</span><b id="roSensor">—</b></div>
-      <div><span>標準ID</span><b id="roStd">—</b></div>
-    </div>
-  </section>
-
   <!-- ============ モーター ============ -->
   <section class="panel">
     <h2>モーター</h2>
@@ -241,6 +212,35 @@
         <label>優先 <select id="aPriority"><option value="0">並進速度</option><option value="1">回転速度</option></select></label>
       </div>
       <button class="btn primary" id="btnAccelRun">実行</button>
+    </div>
+  </section>
+
+  <!-- ============ 位置・マット ============ -->
+  <section class="panel wide">
+    <h2>読み取りセンサー<span class="sub">位置ID / 標準ID</span></h2>
+    <div class="mat-toolbar">
+      <label>マット
+        <select id="matSelect">
+          <option value="ring">リング 45–455</option>
+          <option value="colortile">カラータイル 545–955</option>
+          <option value="simple">シンプル 98–402 / 142–358</option>
+          <option value="dev1">開発用 #1</option>
+          <option value="dev2">開発用 #2</option>
+          <option value="dev3">開発用 #3</option>
+          <option value="dev4">開発用 #4</option>
+          <option value="auto">自動（実測範囲）</option>
+        </select>
+      </label>
+      <label class="check"><input type="checkbox" id="showTrail" checked> 軌跡</label>
+      <label class="check"><input type="checkbox" id="tapToMove" checked> タップで移動</label>
+      <button class="btn ghost" id="btnClearTrail">軌跡クリア</button>
+    </div>
+    <canvas id="matCanvas"></canvas>
+    <div class="readout" id="idReadout">
+      <div><span>位置ID</span><b id="roPos">—</b></div>
+      <div><span>角度</span><b id="roAngle">—</b></div>
+      <div><span>センサー座標</span><b id="roSensor">—</b></div>
+      <div><span>標準ID</span><b id="roStd">—</b></div>
     </div>
   </section>
 
