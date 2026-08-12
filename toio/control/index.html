@@ -39,14 +39,14 @@
     <div class="mat-toolbar">
       <label>マット
         <select id="matSelect">
-          <option value="ring">トイオ・コレクション リング（45–455）</option>
-          <option value="colortile">トイオ・コレクション カラータイル（545–955）</option>
-          <option value="simple">シンプルプレイマット（98–402 / 142–358）</option>
-          <option value="dev1">開発用マット #1</option>
-          <option value="dev2">開発用マット #2</option>
-          <option value="dev3">開発用マット #3</option>
-          <option value="dev4">開発用マット #4</option>
-          <option value="auto">自動（実測範囲に合わせる）</option>
+          <option value="ring">リング 45–455</option>
+          <option value="colortile">カラータイル 545–955</option>
+          <option value="simple">シンプル 98–402 / 142–358</option>
+          <option value="dev1">開発用 #1</option>
+          <option value="dev2">開発用 #2</option>
+          <option value="dev3">開発用 #3</option>
+          <option value="dev4">開発用 #4</option>
+          <option value="auto">自動（実測範囲）</option>
         </select>
       </label>
       <label class="check"><input type="checkbox" id="showTrail" checked> 軌跡</label>
@@ -214,6 +214,11 @@
     <h3>効果音</h3>
     <div class="se-grid" id="seGrid"></div>
     <h3>MIDI（半音単位・最大59音）</h3>
+    <div class="row octave-row">
+      <button class="btn ghost" id="btnOctDown">◀</button>
+      <span class="mono" id="octLabel">C4</span>
+      <button class="btn ghost" id="btnOctUp">▶</button>
+    </div>
     <div class="keyboard" id="keyboard"></div>
     <p class="hint">鍵盤タップで単音を鳴らします。下のシーケンスに音を並べて再生もできます。</p>
     <div id="melodyList" class="melody-list"></div>
