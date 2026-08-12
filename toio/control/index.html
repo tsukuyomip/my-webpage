@@ -67,6 +67,7 @@
     <h2>モーター</h2>
     <div class="tabs" data-tabs="motor">
       <button class="tab active" data-tab="basic">基本 / 時間指定</button>
+      <button class="tab" data-tab="joy">ジョイスティック</button>
       <button class="tab" data-tab="target">目標指定</button>
       <button class="tab" data-tab="multi">複数目標</button>
       <button class="tab" data-tab="accel">加速度指定</button>
@@ -96,6 +97,31 @@
         </label>
         <button class="btn" id="btnMotorTimed">時間指定で実行</button>
       </div>
+    </div>
+
+    <div class="tabpane" data-pane="joy">
+      <div class="joystick" id="joystick">
+        <div class="joy-ring"></div>
+        <div class="joy-knob" id="joyKnob"></div>
+      </div>
+      <p class="hint">ドラッグした方向と量で左右のモーターを連続的に動かします。離すと停止します。</p>
+      <div class="row">
+        <label>前後の最大速度 <output id="outJoyMax">80</output>
+          <input type="range" id="joyMax" min="10" max="115" value="80">
+        </label>
+        <label>旋回の強さ <output id="outJoyTurn">70</output>
+          <input type="range" id="joyTurn" min="0" max="115" value="70">
+        </label>
+      </div>
+      <div class="row">
+        <label class="check"><input type="checkbox" id="joyHold"> 離しても速度を保つ</label>
+        <label class="check"><input type="checkbox" id="joyInvert"> 前後を反転</label>
+      </div>
+      <div class="readout">
+        <div><span>左モーター</span><b id="joyL">0</b></div>
+        <div><span>右モーター</span><b id="joyR">0</b></div>
+      </div>
+      <button class="btn danger" id="btnJoyStop">停止</button>
     </div>
 
     <div class="tabpane" data-pane="target">
