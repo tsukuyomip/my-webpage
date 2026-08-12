@@ -341,15 +341,25 @@ output { color: var(--text); font-variant-numeric: tabular-nums; }
 
 .stick.active { cursor: grabbing; border-color: var(--accent); }
 
-/* 動かせる向きを示す線 */
-.stick-guide {
+/* 動かせる向きを示す線。縦・横のどちらを出すかはスティックの種類で決まる */
+.stick-guide { position: absolute; inset: 12%; pointer-events: none; }
+
+.stick-guide::before, .stick-guide::after {
+  content: '';
   position: absolute;
   background: var(--border);
-  pointer-events: none;
+  border-radius: 2px;
 }
 
-.stick.vertical .stick-guide { left: 50%; top: 12%; bottom: 12%; width: 2px; margin-left: -1px; border-radius: 2px; }
-.stick.horizontal .stick-guide { top: 50%; left: 12%; right: 12%; height: 2px; margin-top: -1px; border-radius: 2px; }
+.stick-guide::before { left: 50%; top: 0; bottom: 0; width: 2px; margin-left: -1px; }
+.stick-guide::after { top: 50%; left: 0; right: 0; height: 2px; margin-top: -1px; }
+.stick.vertical .stick-guide::after { display: none; }
+.stick.horizontal .stick-guide::before { display: none; }
+
+.stick.round { border-radius: 50%; }
+.sticks.single { justify-content: center; }
+.sticks.single .stick-wrap { max-width: 250px; }
+.joy-mode { gap: 1rem; }
 
 .stick-knob {
   position: absolute;

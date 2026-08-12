@@ -7,7 +7,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>toio コントロールパネル</title>
   <meta name="description" content="Web Bluetooth で toio コアキューブの BLE 機能をひととおり操作できるコントロールパネル。">
-  <link rel="stylesheet" href="style.css">
+  <!-- ?v= はキャッシュ避け。HTML だけ更新されて CSS/JS が古いままだと
+       レイアウトが崩れるので、これらを変更したら必ず上げること -->
+  <link rel="stylesheet" href="style.css?v=20260813">
 </head>
 <body>
 
@@ -102,7 +104,12 @@
     </div>
 
     <div class="tabpane" data-pane="joy">
-      <div class="sticks">
+      <div class="row joy-mode">
+        <label class="check"><input type="radio" name="joyMode" value="dual" checked> 2本（ラジコン方式）</label>
+        <label class="check"><input type="radio" name="joyMode" value="single"> 1本</label>
+      </div>
+
+      <div class="sticks" id="sticksDual">
         <div class="stick-wrap">
           <div class="stick vertical" id="stickFwd">
             <div class="stick-guide"></div>
@@ -118,7 +125,18 @@
           <span class="stick-label">右：旋回</span>
         </div>
       </div>
-      <p class="hint">2本のスティックを同時に操作できます。倒した量に応じて連続的に変化し、離すと中央に戻ります。</p>
+
+      <div class="sticks single hidden" id="sticksSingle">
+        <div class="stick-wrap">
+          <div class="stick both round" id="stickSingle">
+            <div class="stick-guide"></div>
+            <div class="stick-knob" id="stickSingleKnob"></div>
+          </div>
+          <span class="stick-label">前後 ＋ 旋回</span>
+        </div>
+      </div>
+
+      <p class="hint" id="joyHint">2本のスティックを同時に操作できます。倒した量に応じて連続的に変化し、離すと中央に戻ります。</p>
       <div class="row">
         <label>前後の感度 <output id="outJoyMax">80</output>
           <input type="range" id="joyMax" min="10" max="115" value="80">
@@ -416,7 +434,7 @@
   </p>
 </footer>
 
-<script src="toio.js"></script>
-<script src="app.js"></script>
+<script src="toio.js?v=20260813"></script>
+<script src="app.js?v=20260813"></script>
 </body>
 </html>
