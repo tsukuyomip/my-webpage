@@ -9,7 +9,7 @@
   <meta name="description" content="Web Bluetooth で toio コアキューブの BLE 機能をひととおり操作できるコントロールパネル。">
   <!-- ?v= はキャッシュ避け。HTML だけ更新されて CSS/JS が古いままだと
        レイアウトが崩れるので、これらを変更したら必ず上げること -->
-  <link rel="stylesheet" href="style.css?v=20260813e">
+  <link rel="stylesheet" href="style.css?v=20260813f">
 </head>
 <body>
 
@@ -125,6 +125,7 @@
         </label>
       </div>
       <div class="row">
+        <label class="check"><input type="checkbox" id="joyRcReverse" checked> 後退時は舵を反転（ラジコン風）</label>
         <label class="check"><input type="checkbox" id="joyHold"> 離しても速度を保つ</label>
         <label class="check"><input type="checkbox" id="joyInvert"> 前後を反転</label>
       </div>
@@ -450,7 +451,7 @@
   </p>
 </footer>
 
-<script src="toio.js?v=20260813e"></script>
-<script src="app.js?v=20260813e"></script>
+<script src="toio.js?v=20260813f"></script>
+<script src="app.js?v=20260813f"></script>
 </body>
 </html>

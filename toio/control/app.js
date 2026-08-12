@@ -476,7 +476,9 @@
   bindOut('joyTurn', 'outJoyTurn');
   bindOut('joyExpo', 'outJoyExpo', (v) => v + '%');
   bindOut('joyDead', 'outJoyDead', (v) => v + '%');
-  $('joyInvert').addEventListener('change', () => { joyCompute(); joyFlush(); });
+  for (const id of ['joyInvert', 'joyRcReverse']) {
+    $(id).addEventListener('change', () => { joyCompute(); joyFlush(); });
+  }
 
   /** 倒し量(-1〜1)を不感帯と反応カーブに通す */
   function shape(v) {
@@ -493,7 +495,10 @@
   /** 2本のスティックの状態から左右のモーター速度を作る */
   function joyCompute() {
     const fwd = shape(joy.fwd) * Number($('joyMax').value) * ($('joyInvert').checked ? -1 : 1);
-    const turn = shape(joy.turn) * Number($('joyTurn').value);
+    let turn = shape(joy.turn) * Number($('joyTurn').value);
+    // 後退中は舵を逆に効かせる。ラジコンで下がるときと同じ感覚にするため
+    // （その場旋回のときは前後が 0 なので反転しない）
+    if (fwd < 0 && $('joyRcReverse').checked) turn = -turn;
     let l = fwd + turn, r = fwd - turn;
     // 片側だけ頭打ちにすると曲がり方が変わるので、比を保ったまま縮める
     const peak = Math.max(Math.abs(l), Math.abs(r));
@@ -576,7 +581,8 @@
       e.preventDefault();
       holding = true;
       joy.active++;
-      el.setPointerCapture(e.pointerId);
+      // 合成イベントなど、捕捉できないポインタでも操作自体は続けられるようにする
+      try { el.setPointerCapture(e.pointerId); } catch (err) { /* noop */ }
       el.classList.add('active');
       move(e);
       joyFlush();
