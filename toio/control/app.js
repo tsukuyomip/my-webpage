@@ -256,6 +256,8 @@
       panel.querySelectorAll('.tabpane').forEach((p) => {
         p.classList.toggle('active', p.dataset.pane === btn.dataset.tab);
       });
+      // ジョイスティックを掴んだままタブを離れると走り続けてしまう
+      joyRelease();
     });
   });
 
@@ -360,7 +362,85 @@
   });
 
   window.addEventListener('blur', () => {
+    joyRelease();
     if (keysDown.size) { keysDown.clear(); setSliders(0, 0); send((c) => c.stop()); }
+  });
+
+  // ------------------------------------------------------ ジョイスティック
+  const joyEl = $('joystick'), joyKnob = $('joyKnob');
+  const joy = { active: false, l: 0, r: 0, sent: null, timer: 0 };
+
+  $('joyMax').addEventListener('input', (e) => { $('outJoyMax').textContent = e.target.value; });
+  $('joyTurn').addEventListener('input', (e) => { $('outJoyTurn').textContent = e.target.value; });
+
+  function joySet(l, r) {
+    joy.l = l; joy.r = r;
+    $('joyL').textContent = l;
+    $('joyR').textContent = r;
+    setSliders(l, r); // 「基本」タブのスライダーとも揃えておく
+  }
+
+  /** 値が変わったときだけ実際に送る */
+  function joyFlush() {
+    if (joy.sent && joy.sent[0] === joy.l && joy.sent[1] === joy.r) return;
+    joy.sent = [joy.l, joy.r];
+    send((c) => c.motor(joy.l, joy.r));
+  }
+
+  function joyFromPointer(e) {
+    const rect = joyEl.getBoundingClientRect();
+    const radius = rect.width / 2;
+    let dx = (e.clientX - (rect.left + radius)) / radius;
+    let dy = (e.clientY - (rect.top + radius)) / radius;
+    const mag = Math.hypot(dx, dy);
+    if (mag > 1) { dx /= mag; dy /= mag; } // 円の外は縁に貼りつける
+
+    joyKnob.style.transform = `translate(${dx * radius * 0.62}px, ${dy * radius * 0.62}px)`;
+
+    if (Math.hypot(dx, dy) < 0.12) { joySet(0, 0); return; } // 中心は不感帯
+
+    const fwd = ($('joyInvert').checked ? dy : -dy) * Number($('joyMax').value);
+    const turn = dx * Number($('joyTurn').value);
+    let l = fwd + turn, r = fwd - turn;
+    // 片側だけ頭打ちにすると曲がり方が変わるので、比を保ったまま縮める
+    const peak = Math.max(Math.abs(l), Math.abs(r));
+    if (peak > 115) { l = l * 115 / peak; r = r * 115 / peak; }
+    joySet(Math.round(l), Math.round(r));
+  }
+
+  function joyRelease() {
+    if (!joy.active) return;
+    joy.active = false;
+    joyEl.classList.remove('active');
+    clearInterval(joy.timer);
+    joy.timer = 0;
+    if (!$('joyHold').checked) {
+      joyKnob.style.transform = '';
+      joySet(0, 0);
+      joyFlush();
+    }
+  }
+
+  joyEl.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    joy.active = true;
+    joyEl.setPointerCapture(e.pointerId);
+    joyEl.classList.add('active');
+    joyFromPointer(e);
+    joyFlush();
+    clearInterval(joy.timer);
+    // 指の動きのたびに書くと BLE が詰まるので、送信は 50ms 間隔にまとめる
+    joy.timer = setInterval(joyFlush, 50);
+  });
+
+  joyEl.addEventListener('pointermove', (e) => { if (joy.active) joyFromPointer(e); });
+  joyEl.addEventListener('pointerup', joyRelease);
+  joyEl.addEventListener('pointercancel', joyRelease);
+
+  $('btnJoyStop').addEventListener('click', () => {
+    joyKnob.style.transform = '';
+    joySet(0, 0);
+    joyFlush();
   });
 
   // 目標指定
