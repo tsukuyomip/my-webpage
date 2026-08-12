@@ -428,24 +428,40 @@
 
   /**
    * 1本ぶんのスティックを組み立てる。
-   * @param {string} axis 'y' なら前後、'x' なら旋回
-   * @param {string} key  joy 側のプロパティ名
+   * @param {string} axis 'y'=前後専用 / 'x'=旋回専用 / 'xy'=1本で両方
    */
-  function setupStick(elId, knobId, axis, key) {
+  function setupStick(elId, knobId, axis) {
     const el = $(elId), knob = $(knobId);
+    const lim = (v) => Math.max(-1, Math.min(1, v));
     let holding = false;
 
     const move = (e) => {
       const rect = el.getBoundingClientRect();
-      const half = (axis === 'y' ? rect.height : rect.width) / 2;
-      const center = axis === 'y' ? rect.top + half : rect.left + half;
-      const pos = axis === 'y' ? e.clientY : e.clientX;
-      const v = Math.max(-1, Math.min(1, (pos - center) / half));
-      knob.style.transform = axis === 'y'
-        ? `translateY(${v * half * 0.55}px)`
-        : `translateX(${v * half * 0.55}px)`;
-      joy[key] = axis === 'y' ? -v : v; // 上（と右）を正にする
+      const halfW = rect.width / 2, halfH = rect.height / 2;
+      let dx = (e.clientX - (rect.left + halfW)) / halfW;
+      let dy = (e.clientY - (rect.top + halfH)) / halfH;
+      if (axis === 'xy') {
+        const mag = Math.hypot(dx, dy);
+        if (mag > 1) { dx /= mag; dy /= mag; } // 円の外は縁に貼りつける
+        knob.style.transform = `translate(${dx * halfW * 0.55}px, ${dy * halfH * 0.55}px)`;
+        joy.turn = dx;
+        joy.fwd = -dy;
+      } else if (axis === 'y') {
+        dy = lim(dy);
+        knob.style.transform = `translateY(${dy * halfH * 0.55}px)`;
+        joy.fwd = -dy; // 上を正にする
+      } else {
+        dx = lim(dx);
+        knob.style.transform = `translateX(${dx * halfW * 0.55}px)`;
+        joy.turn = dx;
+      }
       joyCompute();
+    };
+
+    const zero = () => {
+      knob.style.transform = '';
+      if (axis !== 'x') joy.fwd = 0;
+      if (axis !== 'y') joy.turn = 0;
     };
 
     const release = () => {
@@ -454,8 +470,7 @@
       joy.active--;
       el.classList.remove('active');
       if (!$('joyHold').checked) {
-        knob.style.transform = '';
-        joy[key] = 0;
+        zero();
         joyCompute();
         joyFlush();
       }
@@ -476,23 +491,40 @@
     el.addEventListener('pointerup', release);
     el.addEventListener('pointercancel', release);
 
-    return { release, reset: () => { knob.style.transform = ''; joy[key] = 0; } };
+    return { release, reset: zero };
   }
 
-  const stickFwd = setupStick('stickFwd', 'stickFwdKnob', 'y', 'fwd');
-  const stickTurn = setupStick('stickTurn', 'stickTurnKnob', 'x', 'turn');
+  // 2本モードと1本モードのスティックは同時に置いておき、表示だけ切り替える
+  const allSticks = [
+    setupStick('stickFwd', 'stickFwdKnob', 'y'),
+    setupStick('stickTurn', 'stickTurnKnob', 'x'),
+    setupStick('stickSingle', 'stickSingleKnob', 'xy'),
+  ];
 
   function joyRelease() {
-    stickFwd.release();
-    stickTurn.release();
+    for (const s of allSticks) s.release();
   }
 
-  $('btnJoyStop').addEventListener('click', () => {
-    stickFwd.reset();
-    stickTurn.reset();
+  function joyResetAll() {
+    for (const s of allSticks) s.reset();
     joyCompute();
     joyFlush();
+  }
+
+  document.querySelectorAll('input[name="joyMode"]').forEach((radio) => {
+    radio.addEventListener('change', () => {
+      const dual = document.querySelector('input[name="joyMode"]:checked').value === 'dual';
+      $('sticksDual').classList.toggle('hidden', !dual);
+      $('sticksSingle').classList.toggle('hidden', dual);
+      $('joyHint').textContent = dual
+        ? '2本のスティックを同時に操作できます。倒した量に応じて連続的に変化し、離すと中央に戻ります。'
+        : '1本で前後と旋回をまとめて操作します。倒した量に応じて連続的に変化し、離すと中央に戻ります。';
+      joyRelease();
+      joyResetAll(); // モードをまたいで動きっぱなしにならないようにする
+    });
   });
+
+  $('btnJoyStop').addEventListener('click', joyResetAll);
 
   // 目標指定
   function targetOptions() {
