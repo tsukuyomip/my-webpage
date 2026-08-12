@@ -536,26 +536,42 @@
     $('seGrid').appendChild(b);
   });
 
-  // 鍵盤（C4 = ノート番号 48 から 2 オクターブ）
-  const KEY_START = 48;
+  // 鍵盤。スマホでも指が入るよう 1 オクターブぶんだけ出し、オクターブは切り替える
   const BLACK = [1, 3, 6, 8, 10];
-  for (let i = 0; i < 25; i++) {
-    const note = KEY_START + i;
-    const key = document.createElement('div');
-    key.className = 'key' + (BLACK.includes(note % 12) ? ' black' : '');
-    key.textContent = note % 12 === 0 ? T.noteName(note) : '';
-    key.title = `${T.noteName(note)} (${note})`;
-    key.addEventListener('pointerdown', (e) => {
-      e.preventDefault();
-      key.classList.add('on');
-      const vol = Number($('sVolume').value);
-      send((c) => c.soundMidi([{ note, durationMs: 500, volume: vol }], 1));
-    });
-    const off = () => key.classList.remove('on');
-    key.addEventListener('pointerup', off);
-    key.addEventListener('pointerleave', off);
-    $('keyboard').appendChild(key);
+  let octaveBase = 48; // C4
+
+  function renderKeyboard() {
+    const wrap = $('keyboard');
+    wrap.textContent = '';
+    $('octLabel').textContent = T.noteName(octaveBase) + ' – ' + T.noteName(octaveBase + 12);
+    for (let i = 0; i <= 12; i++) {
+      const note = octaveBase + i;
+      if (note > 127) break;
+      const key = document.createElement('div');
+      key.className = 'key' + (BLACK.includes(note % 12) ? ' black' : '');
+      key.textContent = BLACK.includes(note % 12) ? '' : T.noteName(note);
+      key.title = `${T.noteName(note)} (${note})`;
+      key.addEventListener('pointerdown', (e) => {
+        e.preventDefault();
+        key.classList.add('on');
+        const vol = Number($('sVolume').value);
+        send((c) => c.soundMidi([{ note, durationMs: 500, volume: vol }], 1));
+      });
+      const off = () => key.classList.remove('on');
+      key.addEventListener('pointerup', off);
+      key.addEventListener('pointerleave', off);
+      key.addEventListener('pointercancel', off);
+      wrap.appendChild(key);
+    }
   }
+
+  function shiftOctave(delta) {
+    octaveBase = Math.max(0, Math.min(115, octaveBase + delta * 12));
+    renderKeyboard();
+  }
+
+  $('btnOctDown').addEventListener('click', () => shiftOctave(-1));
+  $('btnOctUp').addEventListener('click', () => shiftOctave(1));
 
   const melody = [];
 
@@ -687,9 +703,10 @@
     return dpr;
   }
 
-  /** マット座標 → キャンバス座標の変換係数 */
+  /** マット座標 → キャンバス座標の変換係数（w, h はデバイスピクセル） */
   function matTransform(mat, w, h) {
-    const pad = 24;
+    // 余白もデバイスピクセルで取らないと、高 DPI 端末で目盛りの文字が枠外にはみ出す
+    const pad = 26 * (window.devicePixelRatio || 1);
     const mw = mat.maxX - mat.minX, mh = mat.maxY - mat.minY;
     const scale = Math.min((w - pad * 2) / mw, (h - pad * 2) / mh);
     return {
@@ -740,10 +757,17 @@
       ctx.beginPath(); ctx.moveTo(X(mat.minX), Y(y)); ctx.lineTo(X(mat.maxX), Y(y)); ctx.stroke();
     }
 
+    // 目盛りはマット枠の内側に描く。外側だと端末によっては canvas からはみ出る
     ctx.fillStyle = '#8b949e';
     ctx.font = `${11 * dpr}px ui-monospace, monospace`;
-    ctx.fillText(`${mat.minX}, ${mat.minY}`, X(mat.minX), Y(mat.minY) - 6 * dpr);
-    ctx.fillText(`${mat.maxX}, ${mat.maxY}`, X(mat.maxX) - 60 * dpr, Y(mat.maxY) + 16 * dpr);
+    ctx.textBaseline = 'top';
+    ctx.textAlign = 'left';
+    ctx.fillText(`${mat.minX}, ${mat.minY}`, X(mat.minX) + 4 * dpr, Y(mat.minY) + 4 * dpr);
+    ctx.textBaseline = 'bottom';
+    ctx.textAlign = 'right';
+    ctx.fillText(`${mat.maxX}, ${mat.maxY}`, X(mat.maxX) - 4 * dpr, Y(mat.maxY) - 4 * dpr);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
 
     // 目標マーカー
     ctx.strokeStyle = '#d29922';
@@ -783,13 +807,37 @@
       ctx.closePath();
       ctx.fill();
       ctx.restore();
+      // 名前は狭い画面だとはみ出すので短縮し、右端に寄ったら左側に出す
       ctx.fillStyle = color;
       ctx.font = `${11 * dpr}px ui-monospace, monospace`;
-      ctx.fillText(cube.name, px + 14 * dpr, py + 4 * dpr);
+      const label = cube.name.replace(/^toio Core Cube[-\s]*/i, '') || cube.name;
+      const tw = ctx.measureText(label).width;
+      if (px + 14 * dpr + tw > w) {
+        ctx.textAlign = 'right';
+        ctx.fillText(label, px - 14 * dpr, py + 4 * dpr);
+        ctx.textAlign = 'left';
+      } else {
+        ctx.fillText(label, px + 14 * dpr, py + 4 * dpr);
+      }
     }
   }
 
+  // canvas 上でも縦スクロールできるようにしてあるので、pointerdown ではなく
+  // 「ほとんど動かずに離した」ときだけタップとして扱う
+  let tapStart = null;
+
   canvas.addEventListener('pointerdown', (e) => {
+    tapStart = { x: e.clientX, y: e.clientY, t: Date.now() };
+  });
+
+  canvas.addEventListener('pointercancel', () => { tapStart = null; });
+
+  canvas.addEventListener('pointerup', (e) => {
+    const start = tapStart;
+    tapStart = null;
+    if (!start) return;
+    if (Math.hypot(e.clientX - start.x, e.clientY - start.y) > 12) return;
+    if (Date.now() - start.t > 700) return;
     if (!$('tapToMove').checked) return;
     const dpr = window.devicePixelRatio || 1;
     const rect = canvas.getBoundingClientRect();
@@ -900,6 +948,7 @@
   }
 
   renderTabs();
+  renderKeyboard();
   renderScenario();
   renderMelody();
   renderTargetList();
