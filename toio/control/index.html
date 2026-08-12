@@ -9,7 +9,7 @@
   <meta name="description" content="Web Bluetooth で toio コアキューブの BLE 機能をひととおり操作できるコントロールパネル。">
   <!-- ?v= はキャッシュ避け。HTML だけ更新されて CSS/JS が古いままだと
        レイアウトが崩れるので、これらを変更したら必ず上げること -->
-  <link rel="stylesheet" href="style.css?v=20260813f">
+  <link rel="stylesheet" href="style.css?v=20260813g">
 </head>
 <body>
 
@@ -241,6 +241,7 @@
       <label class="check"><input type="checkbox" id="showTrail" checked> 軌跡</label>
       <label class="check"><input type="checkbox" id="tapToMove" checked> タップで移動</label>
       <button class="btn ghost" id="btnClearTrail">軌跡クリア</button>
+      <button class="btn ghost" id="btnMiniToggle">ミニマップ</button>
     </div>
     <div class="row hidden" id="drOptions">
       <label>速度係数 (mm/s ÷ 指示値)
@@ -451,7 +452,17 @@
   </p>
 </footer>
 
-<script src="toio.js?v=20260813f"></script>
-<script src="app.js?v=20260813f"></script>
+<!-- 軌跡のミニマップ。画面のどこにいても見えるよう浮かせる -->
+<div id="minimap" class="minimap hidden">
+  <div class="minimap-bar" id="minimapBar">
+    <span class="minimap-title">軌跡</span>
+    <button class="minimap-btn" id="btnMiniSize" title="大きさを変える">⤢</button>
+    <button class="minimap-btn" id="btnMiniHide" title="閉じる">✕</button>
+  </div>
+  <canvas id="miniCanvas"></canvas>
+</div>
+
+<script src="toio.js?v=20260813g"></script>
+<script src="app.js?v=20260813g"></script>
 </body>
 </html>

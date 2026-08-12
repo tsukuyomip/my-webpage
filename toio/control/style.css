@@ -260,6 +260,59 @@ output { color: var(--text); font-variant-numeric: tabular-nums; }
   margin-top: 0.6rem;
 }
 
+/* ---------- ミニマップ ---------- */
+.minimap {
+  position: fixed;
+  right: calc(12px + env(safe-area-inset-right));
+  bottom: calc(12px + env(safe-area-inset-bottom));
+  width: 170px;
+  z-index: 60;
+  background: rgba(22, 27, 34, 0.92);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+  backdrop-filter: blur(6px);
+  overflow: hidden;
+  /* ドラッグで動かすので、ここではスクロールさせない */
+  touch-action: none;
+  cursor: grab;
+}
+
+.minimap.dragging { cursor: grabbing; opacity: 0.85; }
+
+.minimap-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.2rem 0.25rem 0.55rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+
+.minimap-title { flex: 1; }
+
+.minimap-btn {
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 0.85rem;
+  line-height: 1;
+  padding: 0.35rem 0.4rem;
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.minimap-btn:hover { color: var(--text); background: var(--surface2); }
+
+#miniCanvas {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  background: var(--bg);
+}
+
 /* ---------- 読み出し表示 ---------- */
 .readout {
   display: grid;
