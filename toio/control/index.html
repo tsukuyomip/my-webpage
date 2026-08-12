@@ -102,17 +102,37 @@
     </div>
 
     <div class="tabpane" data-pane="joy">
-      <div class="joystick" id="joystick">
-        <div class="joy-ring"></div>
-        <div class="joy-knob" id="joyKnob"></div>
+      <div class="sticks">
+        <div class="stick-wrap">
+          <div class="stick vertical" id="stickFwd">
+            <div class="stick-guide"></div>
+            <div class="stick-knob" id="stickFwdKnob"></div>
+          </div>
+          <span class="stick-label">左：前後</span>
+        </div>
+        <div class="stick-wrap">
+          <div class="stick horizontal" id="stickTurn">
+            <div class="stick-guide"></div>
+            <div class="stick-knob" id="stickTurnKnob"></div>
+          </div>
+          <span class="stick-label">右：旋回</span>
+        </div>
       </div>
-      <p class="hint">ドラッグした方向と量で左右のモーターを連続的に動かします。離すと停止します。</p>
+      <p class="hint">2本のスティックを同時に操作できます。倒した量に応じて連続的に変化し、離すと中央に戻ります。</p>
       <div class="row">
-        <label>前後の最大速度 <output id="outJoyMax">80</output>
+        <label>前後の感度 <output id="outJoyMax">80</output>
           <input type="range" id="joyMax" min="10" max="115" value="80">
         </label>
-        <label>旋回の強さ <output id="outJoyTurn">70</output>
+        <label>旋回の感度 <output id="outJoyTurn">70</output>
           <input type="range" id="joyTurn" min="0" max="115" value="70">
+        </label>
+      </div>
+      <div class="row">
+        <label>反応カーブ <output id="outJoyExpo">0%</output>
+          <input type="range" id="joyExpo" min="0" max="100" value="0">
+        </label>
+        <label>不感帯 <output id="outJoyDead">8%</output>
+          <input type="range" id="joyDead" min="0" max="30" value="8">
         </label>
       </div>
       <div class="row">

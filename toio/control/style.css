@@ -307,48 +307,57 @@ output { color: var(--text); font-variant-numeric: tabular-nums; }
 
 .dpad .btn { padding: 0.7rem 0; font-size: 1rem; }
 
-/* ---------- ジョイスティック ---------- */
-.joystick {
-  position: relative;
-  width: min(260px, 80vw);
-  aspect-ratio: 1 / 1;
-  margin: 0.4rem auto 0.8rem;
-  border-radius: 50%;
-  background:
-    radial-gradient(circle at 50% 50%, var(--surface2) 0%, var(--bg) 72%);
-  border: 1px solid var(--border);
-  /* ドラッグでページがスクロールしないよう、この要素だけは触覚操作を独占する */
-  touch-action: none;
-  cursor: grab;
+/* ---------- ジョイスティック（ラジコン方式・2本） ---------- */
+.sticks {
+  display: flex;
+  gap: 0.8rem;
+  justify-content: center;
+  margin: 0.4rem 0 0.6rem;
 }
 
-.joystick.active { cursor: grabbing; border-color: var(--accent); }
+.stick-wrap {
+  flex: 1 1 0;
+  max-width: 210px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+}
 
-/* 中央の目印（十字と内側の円） */
-.joy-ring {
+.stick-label { font-size: 0.75rem; color: var(--muted); }
+
+.stick {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border-radius: 16px;
+  background: radial-gradient(circle at 50% 50%, var(--surface2) 0%, var(--bg) 78%);
+  border: 1px solid var(--border);
+  /* ドラッグでページがスクロールしないよう、ここだけは触覚操作を独占する */
+  touch-action: none;
+  cursor: grab;
+  overflow: hidden;
+}
+
+.stick.active { cursor: grabbing; border-color: var(--accent); }
+
+/* 動かせる向きを示す線 */
+.stick-guide {
   position: absolute;
-  inset: 26%;
-  border-radius: 50%;
-  border: 1px dashed var(--border);
+  background: var(--border);
   pointer-events: none;
 }
 
-.joy-ring::before, .joy-ring::after {
-  content: '';
-  position: absolute;
-  background: var(--border);
-}
+.stick.vertical .stick-guide { left: 50%; top: 12%; bottom: 12%; width: 2px; margin-left: -1px; border-radius: 2px; }
+.stick.horizontal .stick-guide { top: 50%; left: 12%; right: 12%; height: 2px; margin-top: -1px; border-radius: 2px; }
 
-.joy-ring::before { left: 50%; top: -18%; bottom: -18%; width: 1px; }
-.joy-ring::after { top: 50%; left: -18%; right: -18%; height: 1px; }
-
-.joy-knob {
+.stick-knob {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 33%;
-  height: 33%;
-  margin: -16.5% 0 0 -16.5%;
+  width: 42%;
+  height: 42%;
+  margin: -21% 0 0 -21%;
   border-radius: 50%;
   background: var(--accent);
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
@@ -356,7 +365,7 @@ output { color: var(--text); font-variant-numeric: tabular-nums; }
   transition: transform 0.12s ease-out;
 }
 
-.joystick.active .joy-knob { transition: none; }
+.stick.active .stick-knob { transition: none; }
 
 /* ---------- リスト系 ---------- */
 .target-list { list-style: decimal inside; font-size: 0.8rem; margin-bottom: 0.6rem; }
