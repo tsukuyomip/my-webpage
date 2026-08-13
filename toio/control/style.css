@@ -268,17 +268,21 @@ output { color: var(--text); font-variant-numeric: tabular-nums; }
   bottom: calc(12px + env(safe-area-inset-bottom));
   width: 170px;
   z-index: 60;
-  background: rgba(22, 27, 34, 0.92);
+  /* 後ろのコンテンツを塞がないよう、背景は半透明にしてぼかしだけかける */
+  background: rgba(22, 27, 34, 0.72);
   border: 1px solid var(--border);
   border-radius: 10px;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
   backdrop-filter: blur(6px);
   overflow: hidden;
   /* ドラッグで動かすので、ここではスクロールさせない */
   touch-action: none;
   cursor: grab;
+  transition: opacity 0.4s;
 }
 
+/* しばらく触っていないときは薄くして、下の操作パネルを読めるようにする */
+.minimap.idle { opacity: 0.45; }
 .minimap.dragging { cursor: grabbing; opacity: 0.85; }
 
 .minimap-bar {
@@ -307,12 +311,23 @@ output { color: var(--text); font-variant-numeric: tabular-nums; }
 
 .minimap-btn:hover { color: var(--text); background: var(--surface2); }
 
+/* 背景を塗らないので、描いた線以外は下が透ける */
 #miniCanvas {
   display: block;
   width: 100%;
   aspect-ratio: 1 / 1;
-  background: var(--bg);
+  background: transparent;
 }
+
+#miniAttCanvas {
+  display: block;
+  width: 100%;
+  aspect-ratio: 2.4 / 1;
+  background: transparent;
+  border-top: 1px solid var(--border);
+}
+
+.minimap-btn.on { color: var(--accent); background: var(--surface2); }
 
 /* ---------- 読み出し表示 ---------- */
 .readout {
