@@ -71,6 +71,63 @@
 .role .btn { flex: 0 0 auto; padding: 0.25rem 0.6rem; font-size: 0.75rem; }
 .swap { flex: 0 0 auto; font-size: 1.1rem; padding: 0 0.6rem; }
 
+/* ---------- 前後の操作モード ---------- */
+.mode-switch {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.8rem;
+}
+
+.mode-label { font-size: 0.75rem; color: var(--muted); margin-right: 0.1rem; }
+
+/* ラジオそのものは隠して、押せる札として見せる */
+.seg { flex: 1 1 auto; min-width: 8rem; cursor: pointer; }
+.seg input { position: absolute; opacity: 0; pointer-events: none; }
+
+.seg span {
+  display: block;
+  text-align: center;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.seg input:checked + span {
+  border-color: var(--accent);
+  color: var(--text);
+  background: var(--surface2);
+  font-weight: 600;
+}
+
+.seg input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* ---------- 画面のスライダー（前後） ---------- */
+.throttle { display: flex; gap: 0.9rem; align-items: center; margin-bottom: 0.9rem; }
+
+.throttle .stick {
+  flex: 0 0 auto;
+  width: 108px;
+  height: 176px;
+  aspect-ratio: auto;    /* 縦長にするので共有側の 1:1 は使わない */
+  border-radius: 14px;
+}
+
+/* 縦長の枠でも丸いつまみにする */
+.throttle .stick-knob {
+  width: 68px;
+  height: 68px;
+  margin: -34px 0 0 -34px;
+}
+
+.throttle-side { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 0.4rem; }
+.throttle-readout { margin-top: 0; }
+
 /* ---------- 走行の状態 ---------- */
 .state-line {
   display: flex;

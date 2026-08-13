@@ -275,6 +275,77 @@ output { color: var(--text); font-variant-numeric: tabular-nums; }
 
 .ev.fire { background: var(--accent); border-color: var(--accent); color: #0d1117; font-weight: 600; }
 
+/* ---------- スティック（指で倒す操作子） ---------- */
+/* コントロールパネルのジョイスティックと、リンクコントロールの
+   前後スライダーで共有している。大きさは使う側で決める */
+.sticks {
+  display: flex;
+  gap: 0.8rem;
+  justify-content: center;
+  margin: 0.4rem 0 0.6rem;
+}
+
+.stick-wrap {
+  flex: 1 1 0;
+  max-width: 210px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.stick-label { font-size: 0.75rem; color: var(--muted); }
+
+.stick {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border-radius: 16px;
+  background: radial-gradient(circle at 50% 50%, var(--surface2) 0%, var(--bg) 78%);
+  border: 1px solid var(--border);
+  /* ドラッグでページがスクロールしないよう、ここだけは触覚操作を独占する */
+  touch-action: none;
+  cursor: grab;
+  overflow: hidden;
+}
+
+.stick.active { cursor: grabbing; border-color: var(--accent); }
+
+/* 動かせる向きを示す線。縦・横のどちらを出すかはスティックの種類で決まる */
+.stick-guide { position: absolute; inset: 12%; pointer-events: none; }
+
+.stick-guide::before, .stick-guide::after {
+  content: '';
+  position: absolute;
+  background: var(--border);
+  border-radius: 2px;
+}
+
+.stick-guide::before { left: 50%; top: 0; bottom: 0; width: 2px; margin-left: -1px; }
+.stick-guide::after { top: 50%; left: 0; right: 0; height: 2px; margin-top: -1px; }
+.stick.vertical .stick-guide::after { display: none; }
+.stick.horizontal .stick-guide::before { display: none; }
+
+.stick.round { border-radius: 50%; }
+.sticks.single { justify-content: center; }
+.sticks.single .stick-wrap { max-width: 250px; }
+
+.stick-knob {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 42%;
+  height: 42%;
+  margin: -21% 0 0 -21%;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+  transition: transform 0.12s ease-out;
+}
+
+.stick.active .stick-knob { transition: none; }
+
 /* ---------- 浮かせて常時表示するパネル（ミニマップ） ---------- */
 /* 画面のどこにいても見えるよう固定配置する。中身は各ページが決める */
 .minimap {

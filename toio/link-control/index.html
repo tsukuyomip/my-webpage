@@ -9,8 +9,8 @@
   <meta name="description" content="toio コアキューブ 2 台を Web Bluetooth で接続し、片方を手に持つコントローラ、もう片方を操作対象にして、ヨー角の追従とピッチ角のスロットルで走らせるページ。">
   <!-- ?v= はキャッシュ避け。HTML だけ更新されて CSS/JS が古いままだと
        レイアウトが崩れるので、これらを変更したら必ず上げること -->
-  <link rel="stylesheet" href="../shared/base.css?v=20260813s">
-  <link rel="stylesheet" href="style.css?v=20260813s">
+  <link rel="stylesheet" href="../shared/base.css?v=20260813t">
+  <link rel="stylesheet" href="style.css?v=20260813t">
 </head>
 <body>
 
@@ -61,6 +61,30 @@
       <span id="stateText">キューブを 2 台接続してください</span>
     </div>
 
+    <!-- 前後をどちらで操作するか。ヨー（向き）は常にキューブから取る -->
+    <div class="mode-switch" id="fwdModeSwitch">
+      <span class="mode-label">前後の操作</span>
+      <label class="seg"><input type="radio" name="fwdSource" id="radFwdPitch" value="pitch" data-setting checked>
+        <span>キューブを傾ける</span></label>
+      <label class="seg"><input type="radio" name="fwdSource" id="radFwdStick" value="stick" data-setting>
+        <span>画面のスライダー</span></label>
+    </div>
+
+    <div class="throttle hidden" id="throttleWrap">
+      <div class="stick vertical" id="stickFwd">
+        <div class="stick-guide"></div>
+        <div class="stick-knob" id="stickFwdKnob"></div>
+      </div>
+      <div class="throttle-side">
+        <div class="readout compact throttle-readout">
+          <div><span>スライダー</span><b id="throttleVal">0%</b></div>
+        </div>
+        <label class="check"><input type="checkbox" id="chkThrottleHold" data-setting> 離しても速度を保つ</label>
+        <button class="btn ghost" id="btnThrottleZero">中立に戻す</button>
+        <p class="hint nomargin">上へ倒すと前進、下へ倒すと後退。指を離すと中立に戻ります。</p>
+      </div>
+    </div>
+
     <canvas id="levelCanvas"></canvas>
 
     <div class="cmd-bars">
@@ -94,9 +118,10 @@
     </div>
     <label class="check"><input type="checkbox" id="chkDeadman" data-setting> コントローラのボタンを押している間だけ走らせる</label>
     <p class="hint">
-      コントローラを手に持ち、<b>基準にする</b>を押してから走行開始。そこからのヨー角の変化に操作対象の向きが追従し、
-      前に傾ける（ピッチ）と前進、後ろに傾けると後退します。倒した角度で速度が無段階に変わります。
-      ロール（左右の傾き）は今のところ未使用です。
+      コントローラを手に持ち、<b>基準にする</b>を押してから走行開始。そこからのヨー角の変化に操作対象の向きが追従します。
+      前後は上の切り替えで、<b>キューブを傾ける</b>（前に傾けると前進・後ろで後退）か
+      <b>画面のスライダー</b>かを選べます。どちらも倒した量で速度が無段階に変わります。
+      向き（ヨー）はどちらのモードでもキューブから取ります。ロール（左右の傾き）は今のところ未使用です。
     </p>
   </section>
 
@@ -268,6 +293,7 @@
         <label class="check"><input type="checkbox" id="chkZeroPitch" data-setting checked> 基準にピッチも含める</label>
       </div>
       <p class="hint">
+        ここの設定は<b>キューブを傾ける</b>モードのものです（最大速度と反応カーブは画面のスライダーにも効きます）。
         キューブのピッチは<b>上向きが正、下向きが負</b>です。前に傾ける（下向き）と前進、
         後ろに傾ける（上向き）と後退します。逆のほうが好みなら「前後を反転」を入れてください。
         反応カーブを上げるほど、中央付近がゆるやかになって微速が出しやすくなります。
@@ -405,7 +431,7 @@
   </div>
 </div>
 
-<script src="../shared/toio.js?v=20260813s"></script>
-<script src="app.js?v=20260813s"></script>
+<script src="../shared/toio.js?v=20260813t"></script>
+<script src="app.js?v=20260813t"></script>
 </body>
 </html>

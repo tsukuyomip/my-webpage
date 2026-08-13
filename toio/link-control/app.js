@@ -69,6 +69,15 @@
   /** 追従が不感帯に収まっている状態。細かく出入りして揺れないよう覚えておく */
   let yawRest = false;
 
+  /**
+   * 画面のスライダーで前後を操作するモードの状態。value は -1〜1。
+   * 向き（ヨー）はどちらのモードでもキューブから取るので、ここには持たない。
+   */
+  const throttle = { value: 0, holding: false };
+
+  /** 前後をどちらで操作するか */
+  const fwdFromStick = () => $('radFwdStick').checked;
+
   /** 推測航法。単位は mm、角度は位置IDと同じ向き（x 右・y 下・時計回りが正） */
   const odo = { x: 0, y: 0, angle: 0 };
   const odoTrail = [];
@@ -100,9 +109,10 @@
     2: ['numTurnMax', 'numTurnMin', 'numYawKd', 'numTurnRamp', 'numRateGain', 'numAttInterval'],
   };
 
-  function readEl(el) { return el.type === 'checkbox' ? el.checked : el.value; }
+  const isToggle = (el) => el.type === 'checkbox' || el.type === 'radio';
+  function readEl(el) { return isToggle(el) ? el.checked : el.value; }
   function writeEl(el, v) {
-    if (el.type === 'checkbox') el.checked = !!v;
+    if (isToggle(el)) el.checked = !!v;
     else el.value = v;
   }
 
@@ -371,6 +381,7 @@
 
   function stopMotors() {
     drive.fwd = 0; drive.turn = 0; drive.l = 0; drive.r = 0;
+    setThrottle(0);   // 画面のスライダーも中立に戻す。倒したままだと再開時にいきなり走る
     const t = roles.tgt;
     if (t && t.connected) safe(t.stop());
   }
@@ -407,6 +418,57 @@
     drive.prevErr = null;
     if (!quiet) toast('いまの姿勢を基準にしました');
     return true;
+  }
+
+  // -------------------------------------------- 画面のスライダー（前後）
+  const stickEl = $('stickFwd'), knobEl = $('stickFwdKnob');
+
+  function setThrottle(v) {
+    throttle.value = clamp(v, -1, 1);
+    // つまみは枠の中に収まる範囲で動かす。上が前進なので符号を反転して置く
+    knobEl.style.transform = `translateY(${-throttle.value * 27.5}%)`;
+    $('throttleVal').textContent = Math.round(throttle.value * 100) + '%';
+  }
+
+  function throttleFromEvent(e) {
+    const r = stickEl.getBoundingClientRect();
+    const dy = (e.clientY - (r.top + r.height / 2)) / (r.height / 2);
+    setThrottle(-dy);   // 上へ倒すほど前進
+  }
+
+  stickEl.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    throttle.holding = true;
+    stickEl.classList.add('active');
+    try { stickEl.setPointerCapture(e.pointerId); } catch (err) { /* noop */ }
+    throttleFromEvent(e);
+  });
+
+  stickEl.addEventListener('pointermove', (e) => { if (throttle.holding) throttleFromEvent(e); });
+
+  const releaseThrottle = () => {
+    if (!throttle.holding) return;
+    throttle.holding = false;
+    stickEl.classList.remove('active');
+    if (!chk('chkThrottleHold')) setThrottle(0);   // 離したら中立に戻す
+  };
+
+  stickEl.addEventListener('pointerup', releaseThrottle);
+  stickEl.addEventListener('pointercancel', releaseThrottle);
+  window.addEventListener('blur', releaseThrottle);
+
+  $('btnThrottleZero').addEventListener('click', () => setThrottle(0));
+
+  /** モードを切り替えたら必ず中立から始める。前のモードの値が残ると危ない */
+  function applyFwdMode() {
+    const stick = fwdFromStick();
+    $('throttleWrap').classList.toggle('hidden', !stick);
+    releaseThrottle();
+    setThrottle(0);
+  }
+
+  for (const id of ['radFwdPitch', 'radFwdStick']) {
+    $(id).addEventListener('change', applyFwdMode);
   }
 
   $('btnZero').addEventListener('click', () => captureZero(false));
@@ -579,9 +641,11 @@
       ok = false;
     }
 
-    // ---- 前後（ピッチ）
-    let wantFwd = 0;
-    if (ce) {
+    // ---- 前後。キューブの傾きか、画面のスライダーか
+    let t = 0;                       // -1〜1 に正規化した倒し量
+    if (fwdFromStick()) {
+      t = clamp(throttle.value, -1, 1);
+    } else if (ce) {
       const zeroPitch = chk('chkZeroPitch') && anchor.has ? anchor.pitch : 0;
       // キューブのピッチは「上向きが正・下向きが負」。前に傾ける＝負なので、
       // そのままだと前後が逆になる。既定で符号を反転して「前傾＝前進」にする
@@ -589,12 +653,11 @@
       const dead = num('numPitchDead');
       const full = Math.max(num('numPitchFull'), dead + 1);
       const a = Math.abs(p);
-      let t = 0;
       if (a > dead) t = Math.sign(p) * Math.min(1, (a - dead) / (full - dead));
-      const expo = clamp(num('numPitchExpo') / 100, 0, 1);
-      const shaped = (1 - expo) * t + expo * t * t * t;   // t³ は符号を保つ
-      wantFwd = shaped * num('numSpeedMax');
     }
+    // 反応カーブと最大速度はどちらのモードでも共通にかける
+    const expo = clamp(num('numPitchExpo') / 100, 0, 1);
+    const wantFwd = ((1 - expo) * t + expo * t * t * t) * num('numSpeedMax');   // t³ は符号を保つ
 
     // ---- 向き（ヨー）
     const ratio = num('numYawRatio') || 1;
@@ -1483,6 +1546,7 @@
   captureDefaults();
   loadSettings();
   syncSettingOutputs();
+  applyFwdMode();
   applyMiniState();
   renderRoles();
   updateCommandUi();
