@@ -726,14 +726,19 @@
     joyFlush();
   }
 
+  /** 選ばれているモードに表示を合わせる。初期表示にも使う */
+  function applyJoyMode() {
+    const dual = document.querySelector('input[name="joyMode"]:checked').value === 'dual';
+    $('sticksDual').classList.toggle('hidden', !dual);
+    $('sticksSingle').classList.toggle('hidden', dual);
+    $('joyHint').textContent = dual
+      ? '2本のスティックを同時に操作できます。倒した量に応じて連続的に変化し、離すと中央に戻ります。'
+      : '1本で前後と旋回をまとめて操作します。倒した量に応じて連続的に変化し、離すと中央に戻ります。';
+  }
+
   document.querySelectorAll('input[name="joyMode"]').forEach((radio) => {
     radio.addEventListener('change', () => {
-      const dual = document.querySelector('input[name="joyMode"]:checked').value === 'dual';
-      $('sticksDual').classList.toggle('hidden', !dual);
-      $('sticksSingle').classList.toggle('hidden', dual);
-      $('joyHint').textContent = dual
-        ? '2本のスティックを同時に操作できます。倒した量に応じて連続的に変化し、離すと中央に戻ります。'
-        : '1本で前後と旋回をまとめて操作します。倒した量に応じて連続的に変化し、離すと中央に戻ります。';
+      applyJoyMode();
       joyRelease();
       joyResetAll(); // モードをまたいで動きっぱなしにならないようにする
     });
@@ -1110,7 +1115,7 @@
   // ---- ミニマップ（浮かせて表示する軌跡） ----------------------------
   const MINI_SIZES = [140, 180, 240];
   const miniEl = $('minimap');
-  const miniState = { visible: false, size: 1, left: null, top: null, level: false };
+  const miniState = { visible: false, size: 1, left: null, top: null, level: false, solid: false };
 
   try {
     Object.assign(miniState, JSON.parse(localStorage.getItem('toio-minimap') || '{}'));
@@ -1126,6 +1131,9 @@
     miniAttCanvas.classList.toggle('hidden', !miniState.level);
     $('minimapBody').classList.toggle('with-level', !!miniState.level);
     $('btnMiniLevel').classList.toggle('on', !!miniState.level);
+    // solid のときは下を透かさず、薄くもしない
+    miniEl.classList.toggle('solid', !!miniState.solid);
+    $('btnMiniSolid').classList.toggle('on', !miniState.solid);
     if (miniState.left !== null && miniState.top !== null) {
       clampMini();
       miniEl.style.left = miniState.left + 'px';
@@ -1162,6 +1170,13 @@
   $('btnMiniSize').addEventListener('click', (e) => {
     e.stopPropagation();
     miniState.size = (miniState.size + 1) % MINI_SIZES.length;
+    applyMiniState();
+    saveMiniState();
+  });
+
+  $('btnMiniSolid').addEventListener('click', (e) => {
+    e.stopPropagation();
+    miniState.solid = !miniState.solid;
     applyMiniState();
     saveMiniState();
   });
@@ -1568,6 +1583,7 @@
 
   renderTabs();
   updateTrailSourceUI();
+  applyJoyMode();
   renderKeyboard();
   renderScenario();
   renderMelody();

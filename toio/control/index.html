@@ -9,7 +9,7 @@
   <meta name="description" content="Web Bluetooth で toio コアキューブの BLE 機能をひととおり操作できるコントロールパネル。">
   <!-- ?v= はキャッシュ避け。HTML だけ更新されて CSS/JS が古いままだと
        レイアウトが崩れるので、これらを変更したら必ず上げること -->
-  <link rel="stylesheet" href="style.css?v=20260813m">
+  <link rel="stylesheet" href="style.css?v=20260813n">
 </head>
 <body>
 
@@ -41,14 +41,14 @@
   <section class="panel">
     <h2>モーター</h2>
     <div class="tabs" data-tabs="motor">
-      <button class="tab active" data-tab="basic">基本 / 時間指定</button>
-      <button class="tab" data-tab="joy">ジョイスティック</button>
+      <button class="tab" data-tab="basic">基本 / 時間指定</button>
+      <button class="tab active" data-tab="joy">ジョイスティック</button>
       <button class="tab" data-tab="target">目標指定</button>
       <button class="tab" data-tab="multi">複数目標</button>
       <button class="tab" data-tab="accel">加速度指定</button>
     </div>
 
-    <div class="tabpane active" data-pane="basic">
+    <div class="tabpane" data-pane="basic">
       <div class="dpad">
         <button class="btn dir" data-l="60" data-r="60" style="grid-area:u">▲</button>
         <button class="btn dir" data-l="-40" data-r="40" style="grid-area:l">◀</button>
@@ -74,10 +74,10 @@
       </div>
     </div>
 
-    <div class="tabpane" data-pane="joy">
+    <div class="tabpane active" data-pane="joy">
       <div class="row joy-mode">
-        <label class="check"><input type="radio" name="joyMode" value="dual" checked> 2本（ラジコン方式）</label>
-        <label class="check"><input type="radio" name="joyMode" value="single"> 1本</label>
+        <label class="check"><input type="radio" name="joyMode" value="dual"> 2本（ラジコン方式）</label>
+        <label class="check"><input type="radio" name="joyMode" value="single" checked> 1本</label>
       </div>
 
       <div class="sticks" id="sticksDual">
@@ -472,6 +472,7 @@
     <span class="minimap-title">軌跡</span>
     <button class="minimap-btn" id="btnMiniLevel" title="姿勢角の水準器">⌖</button>
     <button class="minimap-btn" id="btnMiniReset" title="リセット（原点・北向き）">⟲</button>
+    <button class="minimap-btn" id="btnMiniSolid" title="半透明のオンオフ">◐</button>
     <button class="minimap-btn" id="btnMiniSize" title="大きさを変える">⤢</button>
     <button class="minimap-btn" id="btnMiniHide" title="閉じる">✕</button>
   </div>
@@ -481,7 +482,7 @@
   </div>
 </div>
 
-<script src="toio.js?v=20260813m"></script>
-<script src="app.js?v=20260813m"></script>
+<script src="toio.js?v=20260813n"></script>
+<script src="app.js?v=20260813n"></script>
 </body>
 </html>
