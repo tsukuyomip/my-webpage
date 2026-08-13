@@ -50,6 +50,7 @@
   const yawTrack = new WeakMap(); // cube -> {prev, accum, base}
   let yawSign = 0;                // 0 = 未判定
   let yawScore = 0;
+  let headingSource = 'モーター推定'; // 地図に出す「いま何で向きを出しているか」
 
   /** 姿勢角からヨー（度）を取り出す。クォータニオン形式にも対応する */
   function yawOf(cube) {
@@ -69,7 +70,8 @@
     drLast = now;
     const k = Number($('drScale').value) || 1;
     const tread = Number($('drTread').value) || 27;
-    const useYaw = $('drHeading').value === 'yaw';
+    // 'auto' は姿勢角が来ていればそれを使い、来ていなければモーター推定に落ちる
+    const useYaw = $('drHeading').value !== 'motor';
     const manual = $('drYawSign').value;
     let yawUsed = false;
 
@@ -119,10 +121,13 @@
     }
 
     if (!useYaw) {
+      headingSource = 'モーター推定';
       $('drYawStatus').textContent = '';
     } else if (!yawUsed) {
-      $('drYawStatus').textContent = '姿勢角の通知待ち';
+      headingSource = 'モーター推定';
+      $('drYawStatus').textContent = '姿勢角の通知待ち → モーター推定';
     } else {
+      headingSource = 'ヨー';
       const sign = manual === 'auto' ? (yawSign || 1) : Number(manual);
       $('drYawStatus').textContent = `ヨー使用中（符号 ${sign > 0 ? '+' : '−'}`
         + `${manual === 'auto' ? (yawSign ? '・自動判定済' : '・判定中') : ''}）`;
@@ -139,14 +144,20 @@
     if (p && p.catch) p.catch(() => {});
   }
 
+  /** 姿勢角を使う設定なら、接続中のキューブに通知を有効化させる */
+  function ensureAttitude(notify) {
+    if ($('drHeading').value === 'motor') return;
+    for (const c of cubes) enableAttitude(c);
+    if (notify && cubes.length) {
+      toast('姿勢角の通知を有効にしました（ファームウェアが 2.3.0 以上必要です）');
+    }
+  }
+
   $('drHeading').addEventListener('change', () => {
     resetYawTracking();
     yawScore = 0;
     yawSign = 0;
-    if ($('drHeading').value === 'yaw') {
-      for (const c of cubes) enableAttitude(c);
-      toast('姿勢角の通知を有効にしました（ファームウェアが 2.3.0 以上必要です）');
-    }
+    ensureAttitude(true);
   });
 
   $('drYawSign').addEventListener('change', resetYawTracking);
@@ -162,7 +173,10 @@
     syncReadouts();
   }
 
-  $('trailSource').addEventListener('change', updateTrailSourceUI);
+  $('trailSource').addEventListener('change', () => {
+    updateTrailSourceUI();
+    if (isDeadReckoning()) ensureAttitude(true); // 向きにヨーを使えるようにしておく
+  });
 
   /** 現在地を原点・北向き（角度 0）に戻し、軌跡も消す */
   function resetOdometry() {
@@ -256,7 +270,7 @@
       await cube.connect();
       cubes.push(cube);
       selected = cube;
-      if ($('drHeading').value === 'yaw') enableAttitude(cube);
+      if (isDeadReckoning()) enableAttitude(cube);
       renderTabs();
       syncReadouts();
       toast(cube.name + ' に接続しました');
@@ -1266,7 +1280,12 @@
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
       ctx.fillText('北', (X(mat.minX) + X(mat.maxX)) / 2, Y(mat.minY) + 3 * dpr);
+      // 向きを何から出しているかは取り違えやすいので、地図にも書いておく
       ctx.textAlign = 'left';
+      ctx.textBaseline = 'bottom';
+      ctx.font = `${(compact ? 9 : 11) * dpr}px ui-monospace, monospace`;
+      ctx.fillText(`向き: ${headingSource}`, X(mat.minX) + 4 * dpr, Y(mat.maxY) - 4 * dpr);
+      ctx.font = `${11 * dpr}px ui-monospace, monospace`;
       ctx.textBaseline = 'alphabetic';
       if (!compact) ctx.fillText('原点', X(0) + 6 * dpr, Y(0) - 6 * dpr);
     } else {
