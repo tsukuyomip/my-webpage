@@ -1403,7 +1403,7 @@
       ];
     };
 
-    const FLOOR = -1.55;
+    const FLOOR = -1.3;   // 本体の底（-2/3）より少し下。影を落とす面でもある
 
     // ---- 床のグリッド
     if (chk('chkGrid')) {
@@ -1459,15 +1459,25 @@
     ctx.fill();
 
     // ---- キューブ本体
-    const hx = 1, hy = 1, hz = 0.92;
+    // 実機は上から見ると正方形で、高さは低い。幅 : 高さ ≒ 3 : 2 にしてある
+    const hx = 1, hy = 1, hz = 2 / 3;
     const polys = [];
 
+    /**
+     * 面を 1 枚積む。
+     * @param {object} [opt] on … 面に貼りつく飾りのとき、貼り先の面の中心（ローカル座標）。
+     *   飾りを自分の重心の深さで並べると、傾き次第で親の面より奥と判定されて
+     *   隠れてしまう（矢印やランプが角度によって消える）。親と同じ深さに
+     *   わずかな前寄せを足して、必ず親の直後に描かれるようにする
+     */
     const push = (localPts, normal, color, opt) => {
       const world = localPts.map((p) => apply(R, p));
       const nw = apply(R, normal);
       if (nw[0] * nrm[0] + nw[1] * nrm[1] + nw[2] * nrm[2] <= 0.001) return;  // 裏面は描かない
       const scr = world.map(project);
-      const depth = scr.reduce((s, p) => s + p[2], 0) / scr.length;
+      const depth = opt && opt.on
+        ? project(apply(R, opt.on))[2] + 0.02
+        : scr.reduce((s, p) => s + p[2], 0) / scr.length;
       const lit = 0.45 + 0.55 * Math.max(0, nw[0] * LIGHT[0] + nw[1] * LIGHT[1] + nw[2] * LIGHT[2]);
       polys.push({ scr, depth, color: shade(color, lit), opt: opt || {} });
     };
@@ -1478,17 +1488,17 @@
     // 車輪（左右の面に貼る板）
     for (const sy of [1, -1]) {
       const y = sy * (hy + 0.05);
-      push([[-0.62, y, -hz], [0.62, y, -hz], [0.62, y, -hz + 0.62], [-0.62, y, -hz + 0.62]],
-        [0, sy, 0], '#39414d');
+      push([[-0.62, y, -hz], [0.62, y, -hz], [0.62, y, -hz + 0.42], [-0.62, y, -hz + 0.42]],
+        [0, sy, 0], '#39414d', { on: [0, sy * hy, 0] });
     }
 
     // 天面の矢印（前を示す）
     push([[0.74, 0, hz + 0.02], [0.02, 0.42, hz + 0.02], [0.02, -0.42, hz + 0.02]],
-      [0, 0, 1], has ? '#58a6ff' : '#4b5563');
+      [0, 0, 1], has ? '#58a6ff' : '#4b5563', { on: [0, 0, hz] });
 
     // 正面のランプ
-    push([[hx + 0.02, -0.26, -0.2], [hx + 0.02, 0.26, -0.2], [hx + 0.02, 0.26, 0.3], [hx + 0.02, -0.26, 0.3]],
-      [1, 0, 0], has ? '#1f6feb' : '#39414d', { glow: has });
+    push([[hx + 0.02, -0.26, -0.16], [hx + 0.02, 0.26, -0.16], [hx + 0.02, 0.26, 0.24], [hx + 0.02, -0.26, 0.24]],
+      [1, 0, 0], has ? '#1f6feb' : '#39414d', { glow: has, on: [hx, 0, 0] });
 
     polys.sort((a, b) => a.depth - b.depth);
     for (const p of polys) {
