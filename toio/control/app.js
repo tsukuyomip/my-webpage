@@ -164,23 +164,36 @@
 
   $('trailSource').addEventListener('change', updateTrailSourceUI);
 
-  $('btnDrReset').addEventListener('click', () => {
+  /** 現在地を原点・北向き（角度 0）に戻し、軌跡も消す */
+  function resetOdometry() {
     for (const c of cubes) {
       estimates.set(c, { x: 0, y: 0, angle: 0 });
       estTrails.set(c, []);
+      trails.set(c, []);
     }
     resetYawTracking(); // 向きの基準も取り直す
     syncReadouts();
+  }
+
+  $('btnDrReset').addEventListener('click', resetOdometry);
+  $('btnMiniReset').addEventListener('click', (e) => {
+    e.stopPropagation(); // ミニマップのドラッグと取り違えない
+    resetOdometry();
   });
 
-  /** 推測航法モードでの表示範囲。実測の軌跡に合わせて広げる */
+  // 推測航法の地図は、角度 0（＝リセット直後の向き）が画面の上に来るように
+  // 表示だけ 90 度回す。「北向き」を上として読めるようにするため。
+  function drRotate(x, y) { return [y, -x]; }
+
+  /** 推測航法モードでの表示範囲。実測の軌跡に合わせて広げる（回した後の座標で） */
   function deadView() {
     let minX = -150, minY = -150, maxX = 150, maxY = 150;
     for (const c of cubes) {
       const pts = (estTrails.get(c) || []).slice();
       const e = estimates.get(c);
       if (e) pts.push([e.x, e.y]);
-      for (const [x, y] of pts) {
+      for (const p of pts) {
+        const [x, y] = drRotate(p[0], p[1]);
         minX = Math.min(minX, x); maxX = Math.max(maxX, x);
         minY = Math.min(minY, y); maxY = Math.max(maxY, y);
       }
@@ -1209,6 +1222,10 @@
     const tf = matTransform(mat, w, h, compact ? 8 : 26);
     const X = (x) => x * tf.scale + tf.ox;
     const Y = (y) => y * tf.scale + tf.oy;
+    // 推測航法では表示だけ 90 度回す。位置IDのときは素通し
+    const toScreen = dead
+      ? (x, y) => { const p = drRotate(x, y); return [X(p[0]), Y(p[1])]; }
+      : (x, y) => [X(x), Y(y)];
 
     // マット枠とグリッド
     ctx.lineWidth = dpr;
@@ -1227,7 +1244,8 @@
     // 目盛りはマット枠の内側に描く。外側だと端末によっては canvas からはみ出る
     ctx.fillStyle = '#8b949e';
     ctx.font = `${11 * dpr}px ui-monospace, monospace`;
-    if (!compact) {
+    if (!compact && !dead) {
+      // 座標の目盛り。推測航法は表示を回しているので出さない
       ctx.textBaseline = 'top';
       ctx.textAlign = 'left';
       ctx.fillText(`${mat.minX}, ${mat.minY}`, X(mat.minX) + 4 * dpr, Y(mat.minY) + 4 * dpr);
@@ -1239,12 +1257,17 @@
     }
 
     if (dead) {
-      // 原点の目印
+      // 原点の目印と、上が北（リセット直後の向き）であることの表示
       ctx.strokeStyle = '#8b949e';
       ctx.beginPath();
       ctx.moveTo(X(-12), Y(0)); ctx.lineTo(X(12), Y(0));
       ctx.moveTo(X(0), Y(-12)); ctx.lineTo(X(0), Y(12));
       ctx.stroke();
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'top';
+      ctx.fillText('北', (X(mat.minX) + X(mat.maxX)) / 2, Y(mat.minY) + 3 * dpr);
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'alphabetic';
       if (!compact) ctx.fillText('原点', X(0) + 6 * dpr, Y(0) - 6 * dpr);
     } else {
       // 目標マーカー
@@ -1268,14 +1291,18 @@
         ctx.strokeStyle = isSel ? 'rgba(88,166,255,0.45)' : 'rgba(63,185,80,0.35)';
         ctx.lineWidth = 2 * dpr;
         ctx.beginPath();
-        ctx.moveTo(X(tr[0][0]), Y(tr[0][1]));
-        for (let i = 1; i < tr.length; i++) ctx.lineTo(X(tr[i][0]), Y(tr[i][1]));
+        const p0 = toScreen(tr[0][0], tr[0][1]);
+        ctx.moveTo(p0[0], p0[1]);
+        for (let i = 1; i < tr.length; i++) {
+          const p = toScreen(tr[i][0], tr[i][1]);
+          ctx.lineTo(p[0], p[1]);
+        }
         ctx.stroke();
       }
       const pose = dead ? estimates.get(cube) : (cube.onMat ? cube.position : null);
       if (!pose) continue;
-      const px = X(pose.x), py = Y(pose.y);
-      const rad = pose.angle * Math.PI / 180;
+      const [px, py] = toScreen(pose.x, pose.y);
+      const rad = (pose.angle - (dead ? 90 : 0)) * Math.PI / 180;
       const s = compact ? 0.6 : 1;
       ctx.save();
       ctx.translate(px, py);
