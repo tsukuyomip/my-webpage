@@ -357,6 +357,7 @@
           : `磁力 強さ=${this.magnet.force} 向き=(${this.magnet.x}, ${this.magnet.y}, ${this.magnet.z})`;
       }
       if (type === 0x03) {
+        this.attitudeAt = Date.now(); // 推測航法で「新しい値か」を見るのに使う
         const format = dv.getUint8(1);
         if (format === 1) {
           this.attitude = { format, roll: dv.getInt16(2, true), pitch: dv.getInt16(4, true), yaw: dv.getInt16(6, true) };

@@ -45,23 +45,65 @@
 
   let drLast = performance.now();
 
+  // 実機のヨー角を向きに使うときの状態。IMU の符号の向きは仕様から読み取れないので
+  // 「指示した旋回方向」と「ヨーの変化」を突き合わせて自動で判定する。
+  const yawTrack = new WeakMap(); // cube -> {prev, accum, base}
+  let yawSign = 0;                // 0 = 未判定
+  let yawScore = 0;
+
+  /** 姿勢角からヨー（度）を取り出す。クォータニオン形式にも対応する */
+  function yawOf(cube) {
+    const a = cube.attitude;
+    if (!a) return null;
+    if (cube.attitudeAt && Date.now() - cube.attitudeAt > 1500) return null; // 古い
+    return a.format === 2 ? quatToEuler(a).yaw : a.yaw;
+  }
+
+  function resetYawTracking() {
+    for (const c of cubes) yawTrack.delete(c);
+  }
+
   function stepDeadReckoning() {
     const now = performance.now();
     const dt = Math.min(0.25, (now - drLast) / 1000); // タブが止まっていた分は捨てる
     drLast = now;
     const k = Number($('drScale').value) || 1;
     const tread = Number($('drTread').value) || 27;
+    const useYaw = $('drHeading').value === 'yaw';
+    const manual = $('drYawSign').value;
+    let yawUsed = false;
 
     for (const cube of cubes) {
       if (!cube.connected) continue;
       const s = cube.speedEstimate || { left: 0, right: 0 };
-      if (!s.left && !s.right) continue;
       const vl = s.left * k, vr = s.right * k;     // mm/s
       const v = (vl + vr) / 2;
       // 画面は y が下向きなので、左が速いほど時計回り（角度が増える）
       const omega = (vl - vr) / tread;             // rad/s
       const e = estimateOf(cube);
-      e.angle = (e.angle + omega * dt * 180 / Math.PI) % 360;
+
+      const yaw = useYaw ? yawOf(cube) : null;
+      if (yaw !== null) {
+        yawUsed = true;
+        let t = yawTrack.get(cube);
+        if (!t) { t = { prev: yaw, accum: 0, base: e.angle }; yawTrack.set(cube, t); }
+        let d = yaw - t.prev;
+        if (d > 180) d -= 360; else if (d < -180) d += 360; // 180/-180 のまたぎ
+        t.prev = yaw;
+        t.accum += d;
+
+        // 旋回を指示しているあいだに符号を突き合わせる
+        if (Math.abs(vl - vr) > 10 && Math.abs(d) > 0.3) {
+          yawScore += Math.sign(Math.sign(vl - vr) * d);
+          if (Math.abs(yawScore) >= 6) yawSign = Math.sign(yawScore);
+        }
+        const sign = manual === 'auto' ? (yawSign || 1) : Number(manual);
+        e.angle = t.base + sign * t.accum;
+      } else {
+        if (!s.left && !s.right) continue;
+        e.angle = e.angle + omega * dt * 180 / Math.PI;
+      }
+      e.angle = ((e.angle % 360) + 360) % 360;
       const rad = e.angle * Math.PI / 180;
       e.x += v * dt * Math.cos(rad);
       e.y += v * dt * Math.sin(rad);
@@ -75,9 +117,39 @@
       }
       if (cube === selected && isDeadReckoning()) syncReadouts();
     }
+
+    if (!useYaw) {
+      $('drYawStatus').textContent = '';
+    } else if (!yawUsed) {
+      $('drYawStatus').textContent = '姿勢角の通知待ち';
+    } else {
+      const sign = manual === 'auto' ? (yawSign || 1) : Number(manual);
+      $('drYawStatus').textContent = `ヨー使用中（符号 ${sign > 0 ? '+' : '−'}`
+        + `${manual === 'auto' ? (yawSign ? '・自動判定済' : '・判定中') : ''}）`;
+    }
   }
 
   setInterval(stepDeadReckoning, 40);
+
+  /** 姿勢角の通知を有効にする。ヨーを向きに使うときに必要 */
+  function enableAttitude(cube) {
+    if (!cube.connected) return;
+    const p = cube.setAttitudeDetection(Number($('attFormat').value) || 1,
+      Number($('attInterval').value) || 100, Number($('attCondition').value) || 0);
+    if (p && p.catch) p.catch(() => {});
+  }
+
+  $('drHeading').addEventListener('change', () => {
+    resetYawTracking();
+    yawScore = 0;
+    yawSign = 0;
+    if ($('drHeading').value === 'yaw') {
+      for (const c of cubes) enableAttitude(c);
+      toast('姿勢角の通知を有効にしました（ファームウェアが 2.3.0 以上必要です）');
+    }
+  });
+
+  $('drYawSign').addEventListener('change', resetYawTracking);
 
   function updateTrailSourceUI() {
     const dead = isDeadReckoning();
@@ -97,6 +169,7 @@
       estimates.set(c, { x: 0, y: 0, angle: 0 });
       estTrails.set(c, []);
     }
+    resetYawTracking(); // 向きの基準も取り直す
     syncReadouts();
   });
 
@@ -170,6 +243,7 @@
       await cube.connect();
       cubes.push(cube);
       selected = cube;
+      if ($('drHeading').value === 'yaw') enableAttitude(cube);
       renderTabs();
       syncReadouts();
       toast(cube.name + ' に接続しました');
