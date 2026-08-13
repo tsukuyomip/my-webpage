@@ -342,7 +342,6 @@ output { color: var(--text); font-variant-numeric: tabular-nums; }
 }
 
 .minimap-btn.on { color: var(--accent); background: var(--surface2); }
-.minimap-btn.text { font-size: 0.66rem; padding: 0.35rem 0.2rem; }
 
 /* ---------- 読み出し表示 ---------- */
 .readout {

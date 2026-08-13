@@ -203,9 +203,10 @@
   }
 
   $('btnDrReset').addEventListener('click', resetOdometry);
-  // ミニマップからは座標と向きを別々に戻せる（ドラッグと取り違えないよう伝播を止める）
-  $('btnMiniResetPos').addEventListener('click', (e) => { e.stopPropagation(); resetPosition(); });
-  $('btnMiniResetAngle').addEventListener('click', (e) => { e.stopPropagation(); resetHeading(); });
+  $('btnMiniReset').addEventListener('click', (e) => {
+    e.stopPropagation(); // ミニマップのドラッグと取り違えない
+    resetOdometry();
+  });
 
   // 推測航法の地図は、角度 0（＝リセット直後の向き）が画面の上に来るように
   // 表示だけ 90 度回す。「北向き」を上として読めるようにするため。
@@ -1107,7 +1108,7 @@
   const miniAttCtx = miniAttCanvas.getContext('2d');
 
   // ---- ミニマップ（浮かせて表示する軌跡） ----------------------------
-  const MINI_SIZES = [155, 195, 255]; // バーのボタンが折り返さない幅を下限にする
+  const MINI_SIZES = [140, 180, 240];
   const miniEl = $('minimap');
   const miniState = { visible: false, size: 1, left: null, top: null, level: false };
 
