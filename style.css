@@ -193,6 +193,32 @@ nav a:hover {
   font-size: 0.85em;
 }
 
+/* 一覧に並べるほどではないものを畳んでおく置き場 */
+.more {
+  margin-top: 1.5rem;
+}
+
+.more > summary {
+  cursor: pointer;
+  padding: 0.4rem 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+  width: fit-content;
+}
+
+.more > summary:hover {
+  color: var(--text);
+}
+
+/*
+ * auto-fit だと中身が 1 枚のとき横いっぱいに伸びて逆に目立つので、
+ * 上の一覧と同じカード幅で並ぶように列を固定側で決める。
+ */
+.more .cards {
+  margin-top: 0.75rem;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+}
+
 /* Footer */
 footer {
   text-align: center;
