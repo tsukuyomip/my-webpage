@@ -9,8 +9,8 @@
   <meta name="description" content="toio コアキューブ 2 台を Web Bluetooth で接続し、片方を手に持つコントローラ、もう片方を操作対象にして、ヨー角の追従とピッチ角のスロットルで走らせるページ。">
   <!-- ?v= はキャッシュ避け。HTML だけ更新されて CSS/JS が古いままだと
        レイアウトが崩れるので、これらを変更したら必ず上げること -->
-  <link rel="stylesheet" href="../shared/base.css?v=20260813r">
-  <link rel="stylesheet" href="style.css?v=20260813r">
+  <link rel="stylesheet" href="../shared/base.css?v=20260813s">
+  <link rel="stylesheet" href="style.css?v=20260813s">
 </head>
 <body>
 
@@ -225,8 +225,8 @@
         </label>
       </div>
       <div class="row">
-        <label>最大旋回速度 <input type="number" id="numTurnMax" data-setting value="38" min="0" max="115" step="1"></label>
-        <label>最低旋回速度 <input type="number" id="numTurnMin" data-setting value="7" min="0" max="60" step="1"></label>
+        <label>最大旋回速度 <input type="number" id="numTurnMax" data-setting value="19" min="0" max="115" step="1"></label>
+        <label>最低旋回速度 <input type="number" id="numTurnMin" data-setting value="5" min="0" max="60" step="1"></label>
         <label>全速になる角度（度） <input type="number" id="numYawFull" data-setting value="75" min="5" max="180" step="5"></label>
         <label>不感帯（度） <input type="number" id="numYawDead" data-setting value="3" min="0" max="45" step="0.5"></label>
       </div>
@@ -234,12 +234,12 @@
         <label>減速カーブ <output id="outYawCurve">70%</output>
           <input type="range" id="numYawCurve" data-setting min="0" max="100" value="70">
         </label>
-        <label>旋回のなまし（ms） <input type="number" id="numTurnRamp" data-setting value="120" min="0" max="1000" step="10"></label>
-        <label>制振ゲイン D <input type="number" id="numYawKd" data-setting value="0.06" min="0" max="3" step="0.02"></label>
+        <label>旋回のなまし（ms） <input type="number" id="numTurnRamp" data-setting value="160" min="0" max="1000" step="10"></label>
+        <label>制振ゲイン D <input type="number" id="numYawKd" data-setting value="0.04" min="0" max="3" step="0.02"></label>
       </div>
       <div class="row">
         <label>追従なしのときの旋回ゲイン
-          <input type="number" id="numRateGain" data-setting value="0.8" min="0" max="10" step="0.1">
+          <input type="number" id="numRateGain" data-setting value="0.4" min="0" max="10" step="0.1">
         </label>
         <label class="check"><input type="checkbox" id="chkYawInvert" data-setting> コントローラのヨーを反転</label>
         <label class="check"><input type="checkbox" id="chkHeadingInvert" data-setting> 操作対象のヨーを反転</label>
@@ -279,7 +279,8 @@
       <div class="row">
         <label>送信間隔（ms） <input type="number" id="numSendMs" data-setting value="60" min="30" max="500" step="10"></label>
         <label>加速のなまし（ms） <input type="number" id="numRampMs" data-setting value="150" min="0" max="2000" step="10"></label>
-        <label>姿勢角が途切れたら停止（ms） <input type="number" id="numStaleMs" data-setting value="800" min="100" max="5000" step="100"></label>
+        <label>途切れたら指令を止める（ms） <input type="number" id="numStaleHold" data-setting value="700" min="100" max="5000" step="100"></label>
+        <label>途切れたら走行を解除（ms） <input type="number" id="numStaleStop" data-setting value="3000" min="200" max="20000" step="100"></label>
       </div>
       <div class="row">
         <label class="check"><input type="checkbox" id="chkSound" data-setting checked> 開始・停止で効果音を鳴らす</label>
@@ -287,6 +288,9 @@
       </div>
       <p class="hint">
         送信間隔を詰めすぎると BLE が詰まって、かえって反応が悪くなります。60ms 前後が目安です。
+        走行中は姿勢角の通知が数百 ms 飛ぶことがあります。<b>指令を止める</b>までの時間を過ぎると
+        いったん指令を 0 にして復帰を待ち、<b>走行を解除</b>までの時間を過ぎたら走行そのものをやめます。
+        「停止しました」が頻繁に出るときは、走行を解除するまでの時間を長くしてください。
         キーボードの <b>Space</b> / <b>Esc</b> でいつでも停止できます。
       </p>
     </div>
@@ -300,7 +304,7 @@
             <option value="3">3: 高精度オイラー角</option>
           </select>
         </label>
-        <label>姿勢角の間隔（ms） <input type="number" id="numAttInterval" data-setting value="50" min="0" max="2550" step="10"></label>
+        <label>姿勢角の間隔（ms） <input type="number" id="numAttInterval" data-setting value="80" min="0" max="2550" step="10"></label>
         <label>姿勢角の条件
           <select id="selAttCondition" data-setting>
             <option value="0">0: 変化時</option>
@@ -401,7 +405,7 @@
   </div>
 </div>
 
-<script src="../shared/toio.js?v=20260813r"></script>
-<script src="app.js?v=20260813r"></script>
+<script src="../shared/toio.js?v=20260813s"></script>
+<script src="app.js?v=20260813s"></script>
 </body>
 </html>

@@ -89,6 +89,17 @@
   const settingEls = () => Array.from(document.querySelectorAll('[data-setting]'));
   const defaults = {};
 
+  /*
+   * 保存済みの設定を新しい既定値に入れ替えるための版番号。
+   * 既定値を直しても、いちど保存した端末では古い値が残り続けてしまう。
+   * ここを上げると、下の一覧にあるキーだけ保存値を捨てて既定値を入れ直す。
+   */
+  const SETTINGS_VERSION = 2;
+  const MIGRATIONS = {
+    // v2: 追従が振動するため、旋回の速さを半分にして途切れの扱いを二段構えにした
+    2: ['numTurnMax', 'numTurnMin', 'numYawKd', 'numTurnRamp', 'numRateGain', 'numAttInterval'],
+  };
+
   function readEl(el) { return el.type === 'checkbox' ? el.checked : el.value; }
   function writeEl(el, v) {
     if (el.type === 'checkbox') el.checked = !!v;
@@ -100,7 +111,7 @@
   }
 
   function saveSettings() {
-    const o = {};
+    const o = { __v: SETTINGS_VERSION };
     for (const el of settingEls()) o[el.id] = readEl(el);
     try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(o)); } catch (e) { /* 保存できなくても動く */ }
   }
@@ -109,8 +120,22 @@
     let o = null;
     try { o = JSON.parse(localStorage.getItem(SETTINGS_KEY) || 'null'); } catch (e) { o = null; }
     if (!o) return;
+
+    // 版が古ければ、見直したキーだけ保存値を使わず既定値のままにする
+    const from = Number(o.__v) || 1;
+    const stale = new Set();
+    for (let v = from + 1; v <= SETTINGS_VERSION; v++) {
+      for (const key of MIGRATIONS[v] || []) stale.add(key);
+    }
+
     for (const el of settingEls()) {
+      if (stale.has(el.id)) continue;
       if (Object.prototype.hasOwnProperty.call(o, el.id)) writeEl(el, o[el.id]);
+    }
+
+    if (stale.size) {
+      saveSettings();
+      setTimeout(() => toast('追従の設定を新しい既定値に更新しました（設定の「追従」タブで調整できます）'), 600);
     }
   }
 
@@ -147,7 +172,16 @@
 
   // ---------------------------------------------------------------- トースト
   let toastTimer = 0;
+  const lastToast = { msg: '', at: 0 };
+
   function toast(msg) {
+    // 同じ知らせを短い間に何度も出さない。BLE が混んでいるときの
+    // 「途切れました」が連呼されると、それだけで画面が使えなくなる
+    const now = Date.now();
+    if (msg === lastToast.msg && now - lastToast.at < 8000) return;
+    lastToast.msg = msg;
+    lastToast.at = now;
+
     let el = document.querySelector('.toast');
     if (!el) {
       el = document.createElement('div');
@@ -391,7 +425,8 @@
     const mode = $('selHeadingSource').value;
     if (mode === 'rate') return null;
 
-    const stale = Math.max(num('numStaleMs'), 300);
+    // 実測の向きは制御ほど新しさを求めない。ホールドの間も直前の値で追い続ける
+    const stale = Math.max(num('numStaleStop'), 500);
     const byId = () => (tgt.onMat && tgt.position) ? { v: wrap360(tgt.position.angle), s: 'id' } : null;
     const byYaw = () => {
       if (!attitudeFresh(tgt, stale)) return null;
@@ -510,8 +545,15 @@
     stepOdometry(dt, drive.actual);
 
     // ---- 走行できる状態か
-    // ok=false のあいだは指令を 0 にする。stop=true は走行そのものを打ち切る
-    const stale = num('numStaleMs');
+    // ok=false のあいだは指令を 0 にする。stop=true は走行そのものを打ち切る。
+    //
+    // 姿勢角の通知は、走っているあいだ BLE が混むと数百 ms 平気で飛ぶ。そのたびに
+    // 走行を解除すると「停止しました」が出っぱなしになるので、二段構えにする。
+    //   ホールド … 指令だけ 0 にして待つ。復帰したらそのまま走り続けられる
+    //   停止     … それでも戻らなければ走行を解除する
+    const hold = num('numStaleHold');
+    const stopMs = Math.max(num('numStaleStop'), hold);
+    const age = ctl && ctl.attitudeAt ? Date.now() - ctl.attitudeAt : Infinity;
     let ok = true, stop = false;
     if (!ctl || !ctl.connected || !tgt || !tgt.connected) {
       setState('idle', 'キューブを 2 台接続してください');
@@ -519,9 +561,10 @@
     } else if (!ce) {
       setState('warn', 'コントローラの姿勢角が届いていません（設定の「通知」タブで適用してください）');
       ok = false;
-    } else if (!attitudeFresh(ctl, stale)) {
-      setState('warn', `コントローラの姿勢角が ${stale}ms 以上途切れています`);
-      ok = false; stop = true;
+    } else if (age > hold) {
+      setState('warn', `姿勢角の通知が ${Math.round(age)}ms 途切れています（復帰待ち）`);
+      ok = false;
+      if (age > stopMs) stop = true;
     } else if (!drive.running) {
       setState('ready', '準備完了。走行開始を押してください');
     } else if (chk('chkDeadman') && !ctl.button) {
@@ -532,7 +575,7 @@
     }
 
     if (drive.running && stop) {
-      setRunning(false, '姿勢角が途切れたので停止しました');
+      setRunning(false, `姿勢角が ${Math.round(stopMs / 100) / 10} 秒以上途切れたので停止しました`);
       ok = false;
     }
 
