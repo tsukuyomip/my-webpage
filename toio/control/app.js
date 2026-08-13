@@ -411,8 +411,7 @@
     const { w, x, y, z } = q;
     const sinr = 2 * (w * x + y * z);
     const cosr = 1 - 2 * (x * x + y * y);
-    // ロールはオイラー角の解釈（shared/toio.js）と同じく反転して符号を揃える
-    const roll = -Math.atan2(sinr, cosr) * 180 / Math.PI;
+    const roll = Math.atan2(sinr, cosr) * 180 / Math.PI;
     let sinp = 2 * (w * y - z * x);
     sinp = Math.max(-1, Math.min(1, sinp));
     const pitch = Math.asin(sinp) * 180 / Math.PI;
