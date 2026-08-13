@@ -411,7 +411,8 @@
     const { w, x, y, z } = q;
     const sinr = 2 * (w * x + y * z);
     const cosr = 1 - 2 * (x * x + y * y);
-    const roll = Math.atan2(sinr, cosr) * 180 / Math.PI;
+    // ロールはオイラー角の解釈（shared/toio.js）と同じく反転して符号を揃える
+    const roll = -Math.atan2(sinr, cosr) * 180 / Math.PI;
     let sinp = 2 * (w * y - z * x);
     sinp = Math.max(-1, Math.min(1, sinp));
     const pitch = Math.asin(sinp) * 180 / Math.PI;
@@ -419,6 +420,14 @@
     const cosy = 1 - 2 * (y * y + z * z);
     const yaw = Math.atan2(siny, cosy) * 180 / Math.PI;
     return { roll, pitch, yaw };
+  }
+
+  /** 選択中のキューブの姿勢角を roll/pitch/yaw（度）で返す。形式の違いはここで吸収する */
+  function eulerOfSelected() {
+    const a = selected && selected.attitude;
+    if (!a) return null;
+    if (a.format === 2) return quatToEuler(a);
+    return { roll: a.roll, pitch: a.pitch, yaw: a.yaw };
   }
 
   // ---------------------------------------------------------------- ログ
@@ -1468,13 +1477,9 @@
     const w = cv.width, h = cv.height;
     ctx.clearRect(0, 0, w, h);
 
-    const a = selected && selected.attitude;
-    let roll = 0, pitch = 0, yaw = 0, has = false;
-    if (a) {
-      has = true;
-      if (a.format === 2) { const e = quatToEuler(a); roll = e.roll; pitch = e.pitch; yaw = e.yaw; }
-      else { roll = a.roll; pitch = a.pitch; yaw = a.yaw; }
-    }
+    const e = eulerOfSelected();
+    const has = !!e;
+    const roll = e ? e.roll : 0, pitch = e ? e.pitch : 0, yaw = e ? e.yaw : 0;
 
     // compact では下にラベルを置くぶん、円を上寄せ・小さめにする
     // compact（ミニマップ）は縦積み、通常は横並び
@@ -1507,12 +1512,28 @@
     ctx.beginPath();
     ctx.moveTo(-r, off); ctx.lineTo(r, off);
     ctx.stroke();
+    // ピッチの目盛り（10 度ごと）。傾きの量を読み取れるようにする
+    ctx.strokeStyle = 'rgba(230,237,243,0.5)';
+    ctx.lineWidth = dpr;
+    for (let d = -40; d <= 40; d += 10) {
+      if (!d) continue;
+      const y = off - (d / 45) * r;
+      const len = d % 20 === 0 ? r * 0.35 : r * 0.18;
+      ctx.beginPath(); ctx.moveTo(-len, y); ctx.lineTo(len, y); ctx.stroke();
+    }
     ctx.restore();
 
     ctx.strokeStyle = '#30363d';
     ctx.lineWidth = dpr;
     ctx.beginPath();
     ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.stroke();
+    // 機体マーク（画面に固定）。これを基準に地平線がどれだけ傾いたかを見る
+    ctx.strokeStyle = '#f0f6fc';
+    ctx.lineWidth = 2 * dpr;
+    ctx.beginPath();
+    ctx.moveTo(cx - r * 0.5, cy); ctx.lineTo(cx - r * 0.15, cy);
+    ctx.moveTo(cx + r * 0.15, cy); ctx.lineTo(cx + r * 0.5, cy);
     ctx.stroke();
 
     // ヨー（上から見た向き）
@@ -1543,6 +1564,240 @@
     }
   }
 
+  // ------------------------------------------------------------ 姿勢の3D
+  // リンクコントロール（../link-control/）から移植。あちらは操作対象の向きリングも
+  // 描くが、こちらは選択中のキューブ 1 台の姿勢だけを見せる。
+  const poseCanvas = $('poseCanvas');
+  const poseCtx = poseCanvas.getContext('2d');
+
+  // 3x3 行列。world = R * local で、ローカルは x=前 / y=左 / z=上
+  function mul(a, b) {
+    const o = new Array(9);
+    for (let i = 0; i < 3; i++) {
+      for (let j = 0; j < 3; j++) {
+        o[i * 3 + j] = a[i * 3] * b[j] + a[i * 3 + 1] * b[3 + j] + a[i * 3 + 2] * b[6 + j];
+      }
+    }
+    return o;
+  }
+  function rotX(t) { const c = Math.cos(t), s = Math.sin(t); return [1, 0, 0, 0, c, -s, 0, s, c]; }
+  function rotY(t) { const c = Math.cos(t), s = Math.sin(t); return [c, 0, s, 0, 1, 0, -s, 0, c]; }
+  function rotZ(t) { const c = Math.cos(t), s = Math.sin(t); return [c, -s, 0, s, c, 0, 0, 0, 1]; }
+  function apply(m, v) {
+    return [
+      m[0] * v[0] + m[1] * v[1] + m[2] * v[2],
+      m[3] * v[0] + m[4] * v[1] + m[5] * v[2],
+      m[6] * v[0] + m[7] * v[1] + m[8] * v[2],
+    ];
+  }
+
+  const CAM_DEFAULT = { azim: 35, elev: 28, zoom: 100 };
+  const cam = { azim: 35, elev: 28, zoom: 1 };
+
+  function syncCam() {
+    $('outCamAzim').textContent = Math.round(Number($('numCamAzim').value)) + '°';
+    $('outCamElev').textContent = Math.round(Number($('numCamElev').value)) + '°';
+    $('outCamZoom').textContent = Math.round(Number($('numCamZoom').value)) + '%';
+    cam.azim = Number($('numCamAzim').value);
+    cam.elev = Number($('numCamElev').value);
+    cam.zoom = Number($('numCamZoom').value) / 100;
+  }
+
+  for (const id of ['numCamAzim', 'numCamElev', 'numCamZoom']) {
+    $(id).addEventListener('input', syncCam);
+  }
+
+  $('btnCamReset').addEventListener('click', () => {
+    $('numCamAzim').value = CAM_DEFAULT.azim;
+    $('numCamElev').value = CAM_DEFAULT.elev;
+    $('numCamZoom').value = CAM_DEFAULT.zoom;
+    syncCam();
+  });
+
+  // キャンバスを掴んで視点を回す
+  let camDrag = null;
+  poseCanvas.addEventListener('pointerdown', (e) => {
+    camDrag = { x: e.clientX, y: e.clientY, azim: cam.azim, elev: cam.elev };
+    try { poseCanvas.setPointerCapture(e.pointerId); } catch (err) { /* noop */ }
+    e.preventDefault();
+  });
+  poseCanvas.addEventListener('pointermove', (e) => {
+    if (!camDrag) return;
+    const lim = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+    $('numCamAzim').value = lim(camDrag.azim - (e.clientX - camDrag.x) * 0.4, -180, 180);
+    $('numCamElev').value = lim(camDrag.elev + (e.clientY - camDrag.y) * 0.3, -10, 85);
+    syncCam();
+  });
+  const endCamDrag = () => { camDrag = null; };
+  poseCanvas.addEventListener('pointerup', endCamDrag);
+  poseCanvas.addEventListener('pointercancel', endCamDrag);
+
+  /** 直方体の 6 面を {pts(ローカル), n(法線)} で返す */
+  function boxFaces(hx, hy, hz) {
+    const v = (x, y, z) => [x, y, z];
+    return [
+      { n: [1, 0, 0], pts: [v(hx, -hy, -hz), v(hx, hy, -hz), v(hx, hy, hz), v(hx, -hy, hz)] },
+      { n: [-1, 0, 0], pts: [v(-hx, hy, -hz), v(-hx, -hy, -hz), v(-hx, -hy, hz), v(-hx, hy, hz)] },
+      { n: [0, 1, 0], pts: [v(hx, hy, -hz), v(-hx, hy, -hz), v(-hx, hy, hz), v(hx, hy, hz)] },
+      { n: [0, -1, 0], pts: [v(-hx, -hy, -hz), v(hx, -hy, -hz), v(hx, -hy, hz), v(-hx, -hy, hz)] },
+      { n: [0, 0, 1], pts: [v(hx, -hy, hz), v(hx, hy, hz), v(-hx, hy, hz), v(-hx, -hy, hz)] },
+      { n: [0, 0, -1], pts: [v(-hx, -hy, -hz), v(-hx, hy, -hz), v(hx, hy, -hz), v(hx, -hy, -hz)] },
+    ];
+  }
+
+  const LIGHT = (() => {
+    const v = [0.35, 0.5, 1];
+    const n = Math.hypot(v[0], v[1], v[2]);
+    return [v[0] / n, v[1] / n, v[2] / n];
+  })();
+
+  function shade(hex, k) {
+    const r = parseInt(hex.slice(1, 3), 16), g = parseInt(hex.slice(3, 5), 16), b = parseInt(hex.slice(5, 7), 16);
+    const f = (x) => Math.round(Math.max(0, Math.min(255, x * k)));
+    return `rgb(${f(r)}, ${f(g)}, ${f(b)})`;
+  }
+
+  function renderPose(cv, ctx, compact) {
+    const dpr = fitCanvas(cv);
+    const w = cv.width, h = cv.height;
+    ctx.clearRect(0, 0, w, h);
+
+    const e = eulerOfSelected();
+    const has = !!e;
+    const roll = e ? e.roll : 0, pitch = e ? e.pitch : 0, yaw = e ? e.yaw : 0;
+
+    // 機体の姿勢。ヨーは「時計回りが正」、ピッチは「上向きが正」に合わせるため、
+    // どちらも符号を反転して行列に入れる（rotY は正で機首が下がる向きのため）
+    const R = mul(rotZ(-yaw * Math.PI / 180), mul(rotY(-pitch * Math.PI / 180), rotX(roll * Math.PI / 180)));
+
+    // カメラ
+    const az = cam.azim * Math.PI / 180, el = cam.elev * Math.PI / 180;
+    const ca = Math.cos(az), sa = Math.sin(az), ce = Math.cos(el), se = Math.sin(el);
+    const nrm = [ce * ca, ce * sa, se];        // 原点からカメラへ向かう単位ベクトル
+    const rgt = [-sa, ca, 0];                  // 画面右
+    const upv = [-se * ca, -se * sa, ce];      // 画面上
+    const scale = Math.min(w, h) * 0.155 * cam.zoom;
+    const dist = 9;
+    const cx = w / 2, cy = h * 0.54;
+
+    const project = (p) => {
+      const d = p[0] * nrm[0] + p[1] * nrm[1] + p[2] * nrm[2];
+      const k = dist / Math.max(1.5, dist - d);   // 弱い遠近感
+      return [
+        cx + (p[0] * rgt[0] + p[1] * rgt[1] + p[2] * rgt[2]) * scale * k,
+        cy - (p[0] * upv[0] + p[1] * upv[1] + p[2] * upv[2]) * scale * k,
+        d,
+      ];
+    };
+
+    const FLOOR = -1.3;   // 本体の底（-2/3）より少し下。影を落とす面でもある
+
+    // ---- 床のグリッド
+    if ($('chkGrid').checked) {
+      ctx.strokeStyle = 'rgba(48,54,61,0.9)';
+      ctx.lineWidth = dpr;
+      const R0 = 3;
+      for (let i = -R0; i <= R0; i++) {
+        const a = project([i * 0.75, -R0 * 0.75, FLOOR]);
+        const b = project([i * 0.75, R0 * 0.75, FLOOR]);
+        const c = project([-R0 * 0.75, i * 0.75, FLOOR]);
+        const d = project([R0 * 0.75, i * 0.75, FLOOR]);
+        ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(c[0], c[1]); ctx.lineTo(d[0], d[1]); ctx.stroke();
+      }
+    }
+
+    // ---- 影
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.beginPath();
+    for (let a = 0; a <= 360; a += 12) {
+      const t = a * Math.PI / 180;
+      const p = project([Math.cos(t) * 1.15, Math.sin(t) * 1.15, FLOOR + 0.01]);
+      if (a === 0) ctx.moveTo(p[0], p[1]); else ctx.lineTo(p[0], p[1]);
+    }
+    ctx.closePath();
+    ctx.fill();
+
+    // ---- キューブ本体。実機は上から見ると正方形で低いので 幅 : 高さ ≒ 3 : 2
+    const hx = 1, hy = 1, hz = 2 / 3;
+    const polys = [];
+
+    /**
+     * 面を 1 枚積む。
+     * @param {object} [opt] on … 面に貼りつく飾りのとき、貼り先の面の中心（ローカル座標）。
+     *   飾りを自分の重心の深さで並べると、傾き次第で親の面より奥と判定されて
+     *   隠れてしまうので、親と同じ深さにわずかな前寄せを足す
+     */
+    const push = (localPts, normal, color, opt) => {
+      const world = localPts.map((p) => apply(R, p));
+      const nw = apply(R, normal);
+      if (nw[0] * nrm[0] + nw[1] * nrm[1] + nw[2] * nrm[2] <= 0.001) return;  // 裏面は描かない
+      const scr = world.map(project);
+      const depth = opt && opt.on
+        ? project(apply(R, opt.on))[2] + 0.02
+        : scr.reduce((s, p) => s + p[2], 0) / scr.length;
+      const lit = 0.45 + 0.55 * Math.max(0, nw[0] * LIGHT[0] + nw[1] * LIGHT[1] + nw[2] * LIGHT[2]);
+      polys.push({ scr, depth, color: shade(color, lit), opt: opt || {} });
+    };
+
+    const FACE_COLOR = ['#eef1f6', '#e2e6ee', '#e8ecf3', '#e8ecf3', '#f7f9fc', '#c9ced8'];
+    boxFaces(hx, hy, hz).forEach((f, i) => push(f.pts, f.n, has ? FACE_COLOR[i] : '#39414d'));
+
+    // 車輪（左右の面に貼る板）
+    for (const sy of [1, -1]) {
+      const y = sy * (hy + 0.05);
+      push([[-0.62, y, -hz], [0.62, y, -hz], [0.62, y, -hz + 0.42], [-0.62, y, -hz + 0.42]],
+        [0, sy, 0], '#39414d', { on: [0, sy * hy, 0] });
+    }
+
+    // 天面の矢印（前を示す）
+    push([[0.74, 0, hz + 0.02], [0.02, 0.42, hz + 0.02], [0.02, -0.42, hz + 0.02]],
+      [0, 0, 1], has ? '#58a6ff' : '#4b5563', { on: [0, 0, hz] });
+
+    // 正面のランプ
+    push([[hx + 0.02, -0.26, -0.16], [hx + 0.02, 0.26, -0.16], [hx + 0.02, 0.26, 0.24], [hx + 0.02, -0.26, 0.24]],
+      [1, 0, 0], has ? '#1f6feb' : '#39414d', { glow: has, on: [hx, 0, 0] });
+
+    polys.sort((a, b) => a.depth - b.depth);
+    for (const p of polys) {
+      ctx.beginPath();
+      ctx.moveTo(p.scr[0][0], p.scr[0][1]);
+      for (let i = 1; i < p.scr.length; i++) ctx.lineTo(p.scr[i][0], p.scr[i][1]);
+      ctx.closePath();
+      if (p.opt.glow) { ctx.shadowColor = '#58a6ff'; ctx.shadowBlur = 12 * dpr; }
+      ctx.fillStyle = p.color;
+      ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.strokeStyle = 'rgba(13,17,23,0.45)';
+      ctx.lineWidth = dpr;
+      ctx.stroke();
+    }
+
+    // ---- 軸（機体に固定）
+    if ($('chkAxes').checked) {
+      const axes = [[[2.0, 0, 0], '#f85149', 'X 前'], [[0, 1.9, 0], '#3fb950', 'Y 左'], [[0, 0, 1.9], '#58a6ff', 'Z 上']];
+      ctx.font = `${10 * dpr}px ui-monospace, monospace`;
+      for (const [v, color, label] of axes) {
+        const a = project([0, 0, 0]);
+        const b = project(apply(R, v));
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1.8 * dpr;
+        ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+        if (compact) continue;   // 小さいと文字だらけになるのでラベルは省く
+        ctx.fillStyle = color;
+        ctx.fillText(label, b[0] + 4 * dpr, b[1]);
+      }
+    }
+
+    if (!has) {
+      ctx.fillStyle = '#8b949e';
+      ctx.font = `${(compact ? 9 : 12) * dpr}px ui-monospace, monospace`;
+      ctx.textAlign = 'center';
+      ctx.fillText('姿勢角を待っています', w / 2, h - 8 * dpr);
+      ctx.textAlign = 'left';
+    }
+  }
+
   function drawAttitude() {
     renderAttitude(attCanvas, attCtx, false);
     if (miniState.visible && miniState.level) renderAttitude(miniAttCanvas, miniAttCtx, true);
@@ -1552,6 +1807,7 @@
   function loop() {
     drawMat();
     drawAttitude();
+    renderPose(poseCanvas, poseCtx, false);
     requestAnimationFrame(loop);
   }
 
@@ -1584,6 +1840,7 @@
   renderTabs();
   updateTrailSourceUI();
   applyJoyMode();
+  syncCam();
   renderKeyboard();
   renderScenario();
   renderMelody();
