@@ -9,7 +9,7 @@
   <meta name="description" content="Web Bluetooth で toio コアキューブの BLE 機能をひととおり操作できるコントロールパネル。">
   <!-- ?v= はキャッシュ避け。HTML だけ更新されて CSS/JS が古いままだと
        レイアウトが崩れるので、これらを変更したら必ず上げること -->
-  <link rel="stylesheet" href="style.css?v=20260813i">
+  <link rel="stylesheet" href="style.css?v=20260813j">
 </head>
 <body>
 
@@ -246,8 +246,8 @@
     <div class="row hidden" id="drOptions">
       <label>向きの求め方
         <select id="drHeading">
-          <option value="motor">モーターから推定</option>
-          <option value="yaw">実機の姿勢角（ヨー）</option>
+          <option value="auto">自動（姿勢角があれば使う）</option>
+          <option value="motor">モーターから推定のみ</option>
         </select>
       </label>
       <label>ヨーの符号
@@ -477,7 +477,7 @@
   <canvas id="miniCanvas"></canvas>
 </div>
 
-<script src="toio.js?v=20260813i"></script>
-<script src="app.js?v=20260813i"></script>
+<script src="toio.js?v=20260813j"></script>
+<script src="app.js?v=20260813j"></script>
 </body>
 </html>
