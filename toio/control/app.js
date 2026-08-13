@@ -270,7 +270,7 @@
       await cube.connect();
       cubes.push(cube);
       selected = cube;
-      if (isDeadReckoning()) enableAttitude(cube);
+      if (isDeadReckoning() || miniState.level) enableAttitude(cube);
       renderTabs();
       syncReadouts();
       toast(cube.name + ' に接続しました');
@@ -1091,11 +1091,13 @@
   const ctx = canvas.getContext('2d');
   const miniCanvas = $('miniCanvas');
   const miniCtx = miniCanvas.getContext('2d');
+  const miniAttCanvas = $('miniAttCanvas');
+  const miniAttCtx = miniAttCanvas.getContext('2d');
 
   // ---- ミニマップ（浮かせて表示する軌跡） ----------------------------
   const MINI_SIZES = [130, 170, 230];
   const miniEl = $('minimap');
-  const miniState = { visible: false, size: 1, left: null, top: null };
+  const miniState = { visible: false, size: 1, left: null, top: null, level: false };
 
   try {
     Object.assign(miniState, JSON.parse(localStorage.getItem('toio-minimap') || '{}'));
@@ -1108,6 +1110,8 @@
   function applyMiniState() {
     miniEl.classList.toggle('hidden', !miniState.visible);
     miniEl.style.width = MINI_SIZES[miniState.size % MINI_SIZES.length] + 'px';
+    miniAttCanvas.classList.toggle('hidden', !miniState.level);
+    $('btnMiniLevel').classList.toggle('on', !!miniState.level);
     if (miniState.left !== null && miniState.top !== null) {
       clampMini();
       miniEl.style.left = miniState.left + 'px';
@@ -1147,6 +1151,28 @@
     applyMiniState();
     saveMiniState();
   });
+
+  $('btnMiniLevel').addEventListener('click', (e) => {
+    e.stopPropagation();
+    miniState.level = !miniState.level;
+    applyMiniState();
+    saveMiniState();
+    // 姿勢角が来ていないと水準器は動かないので、通知を有効にしておく
+    if (miniState.level) for (const c of cubes) enableAttitude(c);
+  });
+
+  // しばらく触っていなければ薄くして、下のパネルが読めるようにする
+  let miniIdleTimer = 0;
+  function wakeMinimap() {
+    miniEl.classList.remove('idle');
+    clearTimeout(miniIdleTimer);
+    miniIdleTimer = setTimeout(() => miniEl.classList.add('idle'), 3000);
+  }
+  for (const ev of ['pointerenter', 'pointerdown', 'pointermove']) {
+    miniEl.addEventListener(ev, wakeMinimap);
+  }
+  miniEl.addEventListener('pointerleave', wakeMinimap);
+  wakeMinimap();
 
   // ドラッグで好きな位置へ動かす
   let miniDrag = null;
@@ -1404,10 +1430,14 @@
   const attCanvas = $('attCanvas');
   const attCtx = attCanvas.getContext('2d');
 
-  function drawAttitude() {
-    const dpr = fitCanvas(attCanvas);
-    const w = attCanvas.width, h = attCanvas.height;
-    attCtx.clearRect(0, 0, w, h);
+  /**
+   * 姿勢角の水準器を描く。ミニマップからも同じ関数を使う。
+   * @param {boolean} compact 説明文を省いて小さく描く
+   */
+  function renderAttitude(cv, ctx, compact) {
+    const dpr = fitCanvas(cv);
+    const w = cv.width, h = cv.height;
+    ctx.clearRect(0, 0, w, h);
 
     const a = selected && selected.attitude;
     let roll = 0, pitch = 0, yaw = 0, has = false;
@@ -1417,58 +1447,68 @@
       else { roll = a.roll; pitch = a.pitch; yaw = a.yaw; }
     }
 
-    const cx = w * 0.28, cy = h / 2, r = Math.min(h * 0.38, w * 0.2);
+    // compact では下にラベルを置くぶん、円を上寄せ・小さめにする
+    const cy = compact ? h * 0.40 : h / 2;
+    const r = compact ? Math.min(h * 0.32, w * 0.2) : Math.min(h * 0.38, w * 0.2);
+    const cx = compact ? w * 0.27 : w * 0.28;
+    const yx = compact ? w * 0.73 : w * 0.62;
 
     // 人工水平儀（roll / pitch）
-    attCtx.save();
-    attCtx.beginPath();
-    attCtx.arc(cx, cy, r, 0, Math.PI * 2);
-    attCtx.clip();
-    attCtx.translate(cx, cy);
-    attCtx.rotate(-roll * Math.PI / 180);
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.clip();
+    ctx.translate(cx, cy);
+    ctx.rotate(-roll * Math.PI / 180);
     const off = Math.max(-r, Math.min(r, (pitch / 45) * r));
-    attCtx.fillStyle = has ? '#1f6feb' : '#21262d';
-    attCtx.fillRect(-r * 2, -r * 2, r * 4, r * 2 + off);
-    attCtx.fillStyle = has ? '#513c1c' : '#161b22';
-    attCtx.fillRect(-r * 2, off, r * 4, r * 2);
-    attCtx.strokeStyle = '#e6edf3';
-    attCtx.lineWidth = 1.5 * dpr;
-    attCtx.beginPath();
-    attCtx.moveTo(-r, off); attCtx.lineTo(r, off);
-    attCtx.stroke();
-    attCtx.restore();
+    ctx.fillStyle = has ? '#1f6feb' : '#21262d';
+    ctx.fillRect(-r * 2, -r * 2, r * 4, r * 2 + off);
+    ctx.fillStyle = has ? '#513c1c' : '#161b22';
+    ctx.fillRect(-r * 2, off, r * 4, r * 2);
+    ctx.strokeStyle = '#e6edf3';
+    ctx.lineWidth = 1.5 * dpr;
+    ctx.beginPath();
+    ctx.moveTo(-r, off); ctx.lineTo(r, off);
+    ctx.stroke();
+    ctx.restore();
 
-    attCtx.strokeStyle = '#30363d';
-    attCtx.lineWidth = dpr;
-    attCtx.beginPath();
-    attCtx.arc(cx, cy, r, 0, Math.PI * 2);
-    attCtx.stroke();
+    ctx.strokeStyle = '#30363d';
+    ctx.lineWidth = dpr;
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, 0, Math.PI * 2);
+    ctx.stroke();
 
     // ヨー（上から見た向き）
-    const yx = w * 0.62;
-    attCtx.save();
-    attCtx.translate(yx, cy);
-    attCtx.strokeStyle = '#30363d';
-    attCtx.beginPath();
-    attCtx.arc(0, 0, r, 0, Math.PI * 2);
-    attCtx.stroke();
-    attCtx.rotate(yaw * Math.PI / 180);
-    attCtx.fillStyle = has ? '#58a6ff' : '#30363d';
-    attCtx.beginPath();
-    attCtx.moveTo(r * 0.8, 0);
-    attCtx.lineTo(-r * 0.5, r * 0.45);
-    attCtx.lineTo(-r * 0.5, -r * 0.45);
-    attCtx.closePath();
-    attCtx.fill();
-    attCtx.restore();
+    ctx.save();
+    ctx.translate(yx, cy);
+    ctx.strokeStyle = '#30363d';
+    ctx.beginPath();
+    ctx.arc(0, 0, r, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.rotate(yaw * Math.PI / 180);
+    ctx.fillStyle = has ? '#58a6ff' : '#30363d';
+    ctx.beginPath();
+    ctx.moveTo(r * 0.8, 0);
+    ctx.lineTo(-r * 0.5, r * 0.45);
+    ctx.lineTo(-r * 0.5, -r * 0.45);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
 
-    attCtx.fillStyle = '#8b949e';
-    attCtx.font = `${11 * dpr}px ui-monospace, monospace`;
-    attCtx.fillText('roll / pitch', cx - r, cy + r + 14 * dpr);
-    attCtx.fillText('yaw', yx - r * 0.3, cy + r + 14 * dpr);
-    if (!has) {
-      attCtx.fillText('姿勢角は「適用」で有効化してください', w * 0.78, cy);
+    ctx.fillStyle = '#8b949e';
+    ctx.font = `${(compact ? 9 : 11) * dpr}px ui-monospace, monospace`;
+    ctx.textAlign = compact ? 'center' : 'left';
+    ctx.fillText(compact ? 'roll/pitch' : 'roll / pitch', compact ? cx : cx - r, cy + r + (compact ? 11 : 14) * dpr);
+    ctx.fillText('yaw', compact ? yx : yx - r * 0.3, cy + r + (compact ? 11 : 14) * dpr);
+    ctx.textAlign = 'left';
+    if (!has && !compact) {
+      ctx.fillText('姿勢角は「適用」で有効化してください', w * 0.78, cy);
     }
+  }
+
+  function drawAttitude() {
+    renderAttitude(attCanvas, attCtx, false);
+    if (miniState.visible && miniState.level) renderAttitude(miniAttCanvas, miniAttCtx, true);
   }
 
   // ------------------------------------------------------------ 描画ループ
