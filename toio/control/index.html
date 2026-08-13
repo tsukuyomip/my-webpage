@@ -9,7 +9,7 @@
   <meta name="description" content="Web Bluetooth で toio コアキューブの BLE 機能をひととおり操作できるコントロールパネル。">
   <!-- ?v= はキャッシュ避け。HTML だけ更新されて CSS/JS が古いままだと
        レイアウトが崩れるので、これらを変更したら必ず上げること -->
-  <link rel="stylesheet" href="style.css?v=20260813k">
+  <link rel="stylesheet" href="style.css?v=20260813l">
 </head>
 <body>
 
@@ -222,8 +222,8 @@
     <div class="mat-toolbar">
       <label>軌跡の元
         <select id="trailSource">
+          <option value="dead" selected>推測航法（マットなし）</option>
           <option value="id">位置ID（マットが必要）</option>
-          <option value="dead">推測航法（マットなし）</option>
         </select>
       </label>
       <label id="matSelectWrap">マット
@@ -471,15 +471,18 @@
   <div class="minimap-bar" id="minimapBar">
     <span class="minimap-title">軌跡</span>
     <button class="minimap-btn" id="btnMiniLevel" title="姿勢角の水準器">⌖</button>
-    <button class="minimap-btn" id="btnMiniReset" title="リセット（原点・北向き）">⟲</button>
+    <button class="minimap-btn text" id="btnMiniResetPos" title="座標を原点に戻す">位置</button>
+    <button class="minimap-btn text" id="btnMiniResetAngle" title="向きを北（0°）に戻す">向き</button>
     <button class="minimap-btn" id="btnMiniSize" title="大きさを変える">⤢</button>
     <button class="minimap-btn" id="btnMiniHide" title="閉じる">✕</button>
   </div>
-  <canvas id="miniCanvas"></canvas>
-  <canvas id="miniAttCanvas" class="hidden"></canvas>
+  <div class="minimap-body" id="minimapBody">
+    <canvas id="miniAttCanvas" class="hidden"></canvas>
+    <canvas id="miniCanvas"></canvas>
+  </div>
 </div>
 
-<script src="toio.js?v=20260813k"></script>
-<script src="app.js?v=20260813k"></script>
+<script src="toio.js?v=20260813l"></script>
+<script src="app.js?v=20260813l"></script>
 </body>
 </html>

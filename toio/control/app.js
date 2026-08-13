@@ -178,22 +178,34 @@
     if (isDeadReckoning()) ensureAttitude(true); // 向きにヨーを使えるようにしておく
   });
 
-  /** 現在地を原点・北向き（角度 0）に戻し、軌跡も消す */
-  function resetOdometry() {
+  /** 座標だけ原点に戻す（向きはそのまま）。軌跡も消す */
+  function resetPosition() {
     for (const c of cubes) {
-      estimates.set(c, { x: 0, y: 0, angle: 0 });
+      const e = estimateOf(c);
+      e.x = 0; e.y = 0;
       estTrails.set(c, []);
       trails.set(c, []);
     }
-    resetYawTracking(); // 向きの基準も取り直す
     syncReadouts();
   }
 
+  /** 向きだけ北（0°）に戻す。ヨーを使っている場合は今の値を基準に取り直す */
+  function resetHeading() {
+    for (const c of cubes) estimateOf(c).angle = 0;
+    resetYawTracking();
+    syncReadouts();
+  }
+
+  /** 座標・向きの両方を戻す */
+  function resetOdometry() {
+    resetPosition();
+    resetHeading();
+  }
+
   $('btnDrReset').addEventListener('click', resetOdometry);
-  $('btnMiniReset').addEventListener('click', (e) => {
-    e.stopPropagation(); // ミニマップのドラッグと取り違えない
-    resetOdometry();
-  });
+  // ミニマップからは座標と向きを別々に戻せる（ドラッグと取り違えないよう伝播を止める）
+  $('btnMiniResetPos').addEventListener('click', (e) => { e.stopPropagation(); resetPosition(); });
+  $('btnMiniResetAngle').addEventListener('click', (e) => { e.stopPropagation(); resetHeading(); });
 
   // 推測航法の地図は、角度 0（＝リセット直後の向き）が画面の上に来るように
   // 表示だけ 90 度回す。「北向き」を上として読めるようにするため。
@@ -1095,7 +1107,7 @@
   const miniAttCtx = miniAttCanvas.getContext('2d');
 
   // ---- ミニマップ（浮かせて表示する軌跡） ----------------------------
-  const MINI_SIZES = [130, 170, 230];
+  const MINI_SIZES = [155, 195, 255]; // バーのボタンが折り返さない幅を下限にする
   const miniEl = $('minimap');
   const miniState = { visible: false, size: 1, left: null, top: null, level: false };
 
@@ -1111,6 +1123,7 @@
     miniEl.classList.toggle('hidden', !miniState.visible);
     miniEl.style.width = MINI_SIZES[miniState.size % MINI_SIZES.length] + 'px';
     miniAttCanvas.classList.toggle('hidden', !miniState.level);
+    $('minimapBody').classList.toggle('with-level', !!miniState.level);
     $('btnMiniLevel').classList.toggle('on', !!miniState.level);
     if (miniState.left !== null && miniState.top !== null) {
       clampMini();
@@ -1448,10 +1461,18 @@
     }
 
     // compact では下にラベルを置くぶん、円を上寄せ・小さめにする
-    const cy = compact ? h * 0.40 : h / 2;
-    const r = compact ? Math.min(h * 0.32, w * 0.2) : Math.min(h * 0.38, w * 0.2);
-    const cx = compact ? w * 0.27 : w * 0.28;
-    const yx = compact ? w * 0.73 : w * 0.62;
+    // compact（ミニマップ）は縦積み、通常は横並び
+    let c1, c2, r;
+    if (compact) {
+      r = Math.min(w * 0.34, h * 0.19);
+      c1 = { x: w / 2, y: h * 0.25 };
+      c2 = { x: w / 2, y: h * 0.72 };
+    } else {
+      r = Math.min(h * 0.38, w * 0.2);
+      c1 = { x: w * 0.28, y: h / 2 };
+      c2 = { x: w * 0.62, y: h / 2 };
+    }
+    const cx = c1.x, cy = c1.y, yx = c2.x, yy = c2.y;
 
     // 人工水平儀（roll / pitch）
     ctx.save();
@@ -1480,7 +1501,7 @@
 
     // ヨー（上から見た向き）
     ctx.save();
-    ctx.translate(yx, cy);
+    ctx.translate(yx, yy);
     ctx.strokeStyle = '#30363d';
     ctx.beginPath();
     ctx.arc(0, 0, r, 0, Math.PI * 2);
@@ -1496,10 +1517,10 @@
     ctx.restore();
 
     ctx.fillStyle = '#8b949e';
-    ctx.font = `${(compact ? 9 : 11) * dpr}px ui-monospace, monospace`;
+    ctx.font = `${(compact ? 8 : 11) * dpr}px ui-monospace, monospace`;
     ctx.textAlign = compact ? 'center' : 'left';
-    ctx.fillText(compact ? 'roll/pitch' : 'roll / pitch', compact ? cx : cx - r, cy + r + (compact ? 11 : 14) * dpr);
-    ctx.fillText('yaw', compact ? yx : yx - r * 0.3, cy + r + (compact ? 11 : 14) * dpr);
+    ctx.fillText(compact ? 'R/P' : 'roll / pitch', compact ? cx : cx - r, cy + r + (compact ? 10 : 14) * dpr);
+    ctx.fillText(compact ? 'YAW' : 'yaw', compact ? yx : yx - r * 0.3, yy + r + (compact ? 10 : 14) * dpr);
     ctx.textAlign = 'left';
     if (!has && !compact) {
       ctx.fillText('姿勢角は「適用」で有効化してください', w * 0.78, cy);

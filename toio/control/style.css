@@ -288,28 +288,39 @@ output { color: var(--text); font-variant-numeric: tabular-nums; }
 .minimap-bar {
   display: flex;
   align-items: center;
-  gap: 0.3rem;
-  padding: 0.25rem 0.2rem 0.25rem 0.55rem;
+  gap: 0.15rem;
+  padding: 0.2rem 0.2rem 0.2rem 0.45rem;
   border-bottom: 1px solid var(--border);
   font-size: 0.7rem;
   color: var(--muted);
 }
 
-.minimap-title { flex: 1; }
+/* 幅が足りないときはタイトルから削る。ボタンは折り返させない */
+.minimap-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
 
 .minimap-btn {
+  flex: 0 0 auto;
+  white-space: nowrap;
   background: none;
   border: none;
   color: var(--muted);
   font-family: inherit;
   font-size: 0.85rem;
   line-height: 1;
-  padding: 0.35rem 0.4rem;
+  padding: 0.35rem 0.3rem;
   cursor: pointer;
   border-radius: 4px;
 }
 
 .minimap-btn:hover { color: var(--text); background: var(--surface2); }
+
+/* 水準器は地図の左に縦並びで置く。地図は正方形のまま */
+.minimap-body { display: flex; align-items: stretch; }
 
 /* 背景を塗らないので、描いた線以外は下が透ける */
 #miniCanvas {
@@ -319,15 +330,19 @@ output { color: var(--text); font-variant-numeric: tabular-nums; }
   background: transparent;
 }
 
+.minimap-body.with-level #miniCanvas { width: 66%; }
+
 #miniAttCanvas {
   display: block;
-  width: 100%;
-  aspect-ratio: 2.4 / 1;
+  width: 34%;
+  /* 34:66 にすると高さが地図と揃う */
+  aspect-ratio: 34 / 66;
   background: transparent;
-  border-top: 1px solid var(--border);
+  border-right: 1px solid var(--border);
 }
 
 .minimap-btn.on { color: var(--accent); background: var(--surface2); }
+.minimap-btn.text { font-size: 0.66rem; padding: 0.35rem 0.2rem; }
 
 /* ---------- 読み出し表示 ---------- */
 .readout {
