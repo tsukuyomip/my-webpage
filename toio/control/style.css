@@ -59,6 +59,11 @@
 
 /* しばらく触っていないときは薄くして、下の操作パネルを読めるようにする */
 .minimap.idle { opacity: 0.45; }
+
+/* 半透明をやめたとき。透け・自動フェードとも切る */
+.minimap.solid { background: var(--surface); backdrop-filter: none; }
+.minimap.solid.idle { opacity: 1; }
+.minimap.solid #miniCanvas, .minimap.solid #miniAttCanvas { background: var(--bg); }
 .minimap.dragging { cursor: grabbing; opacity: 0.85; }
 
 .minimap-bar {
