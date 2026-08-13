@@ -37,6 +37,25 @@
   margin-top: 0.6rem;
 }
 
+/* ---------- 姿勢の3D ---------- */
+/* 高さは CSS 側で決める。canvas の属性任せにすると DPR 補正と噛み合って伸び続ける */
+#poseCanvas {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  max-height: 46vh;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: block;
+  /* ドラッグで視点を回すので、ここではページをスクロールさせない */
+  touch-action: none;
+  cursor: grab;
+}
+
+#poseCanvas:active { cursor: grabbing; }
+.pose-toolbar { margin-top: 0.5rem; align-items: center; }
+.pose-toolbar .hint { margin: 0; align-self: center; }
+
 /* ---------- ミニマップの中身 ---------- */
 /* 枠・つまみ・半透明の切り替えは ../shared/base.css 側にある */
 

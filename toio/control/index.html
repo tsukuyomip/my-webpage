@@ -9,8 +9,8 @@
   <meta name="description" content="Web Bluetooth で toio コアキューブの BLE 機能をひととおり操作できるコントロールパネル。">
   <!-- ?v= はキャッシュ避け。HTML だけ更新されて CSS/JS が古いままだと
        レイアウトが崩れるので、これらを変更したら必ず上げること -->
-  <link rel="stylesheet" href="../shared/base.css?v=20260813t">
-  <link rel="stylesheet" href="style.css?v=20260813t">
+  <link rel="stylesheet" href="../shared/base.css?v=20260813w">
+  <link rel="stylesheet" href="style.css?v=20260813w">
 </head>
 <body>
 
@@ -389,6 +389,30 @@
     <canvas id="attCanvas" height="140"></canvas>
   </section>
 
+  <!-- ============ 姿勢の3D ============ -->
+  <section class="panel">
+    <h2>姿勢の3D<span class="sub">選択中のキューブ</span></h2>
+    <canvas id="poseCanvas"></canvas>
+    <div class="row pose-toolbar">
+      <span class="hint">ドラッグで視点を回せます</span>
+      <button class="btn ghost" id="btnCamReset">視点リセット</button>
+      <label class="check"><input type="checkbox" id="chkGrid" checked> 床</label>
+      <label class="check"><input type="checkbox" id="chkAxes" checked> 軸</label>
+    </div>
+    <div class="row">
+      <label>視点の向き <output id="outCamAzim">35°</output>
+        <input type="range" id="numCamAzim" min="-180" max="180" value="35">
+      </label>
+      <label>見下ろし角 <output id="outCamElev">28°</output>
+        <input type="range" id="numCamElev" min="-10" max="85" value="28">
+      </label>
+      <label>大きさ <output id="outCamZoom">100%</output>
+        <input type="range" id="numCamZoom" min="50" max="200" value="100">
+      </label>
+    </div>
+    <p class="hint">姿勢角の通知が要ります。センサーのパネルで「適用」するか、軌跡を推測航法にすると有効になります。</p>
+  </section>
+
   <!-- ============ 設定 ============ -->
   <section class="panel">
     <h2>設定</h2>
@@ -485,7 +509,7 @@
 </div>
 
 <!-- BLE ラッパーは /toio/ 配下のページで共有している -->
-<script src="../shared/toio.js?v=20260813t"></script>
-<script src="app.js?v=20260813t"></script>
+<script src="../shared/toio.js?v=20260813w"></script>
+<script src="app.js?v=20260813w"></script>
 </body>
 </html>
