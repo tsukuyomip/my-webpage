@@ -127,6 +127,70 @@
 
 .throttle-side { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 0.4rem; }
 .throttle-readout { margin-top: 0; }
+.throttle-buttons { margin-bottom: 0; }
+
+/* ---------- 前後スライダーの全画面モード ---------- */
+.fs-throttle {
+  position: fixed;
+  inset: 0;
+  z-index: 120;                     /* 浮かせた姿勢のミニ表示より上に出す */
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: calc(0.6rem + env(safe-area-inset-top)) 0.8rem calc(0.8rem + env(safe-area-inset-bottom));
+  /* 全画面では画面ごとスクロールさせない。指の動きはスライダーが全部使う */
+  touch-action: none;
+  overscroll-behavior: contain;
+}
+
+.fs-bar { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+.fs-bar .spacer { flex: 1; }
+
+.fs-info { display: flex; align-items: stretch; gap: 0.6rem; }
+
+#fsPoseCanvas {
+  flex: 0 0 auto;
+  width: 108px;
+  height: 108px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.fs-readout {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-top: 0;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+}
+
+/* スライダーは残りの高さを全部使う。細かく出したいときに効くのは長さなので */
+.fs-stick-wrap { flex: 1 1 auto; min-height: 0; display: flex; justify-content: center; }
+
+#fsStick {
+  width: min(52vw, 260px);
+  height: 100%;
+  aspect-ratio: auto;
+  border-radius: 18px;
+}
+
+/* transform は JS がつまみを動かすのに使うので、中央寄せは margin でやる。
+   高さでも頭打ちにしないと、横向きのときにつまみが枠を埋めて可動域が無くなる */
+#fsStickKnob {
+  width: min(38vw, 26vh, 190px);
+  height: min(38vw, 26vh, 190px);
+  margin-left: calc(min(38vw, 26vh, 190px) / -2);
+  margin-top: calc(min(38vw, 26vh, 190px) / -2);
+}
+
+.fs-hint { text-align: center; margin: 0; }
+
+@media (orientation: landscape) and (max-height: 520px) {
+  /* 横向きは高さが足りない。情報を削ってスライダーの縦を稼ぐ */
+  .fs-info { display: none; }
+  .fs-hint { display: none; }
+}
 
 /* ---------- 走行の状態 ---------- */
 .state-line {

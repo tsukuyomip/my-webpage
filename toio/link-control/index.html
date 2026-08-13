@@ -9,8 +9,8 @@
   <meta name="description" content="toio コアキューブ 2 台を Web Bluetooth で接続し、片方を手に持つコントローラ、もう片方を操作対象にして、ヨー角の追従とピッチ角のスロットルで走らせるページ。">
   <!-- ?v= はキャッシュ避け。HTML だけ更新されて CSS/JS が古いままだと
        レイアウトが崩れるので、これらを変更したら必ず上げること -->
-  <link rel="stylesheet" href="../shared/base.css?v=20260813t">
-  <link rel="stylesheet" href="style.css?v=20260813t">
+  <link rel="stylesheet" href="../shared/base.css?v=20260813u">
+  <link rel="stylesheet" href="style.css?v=20260813u">
 </head>
 <body>
 
@@ -19,6 +19,7 @@
     <a class="home" href="../../">&larr;</a>
     <h1>toio リンクコントロール</h1>
     <div class="spacer"></div>
+    <button id="btnZeroTop" class="btn ghost" title="いまの姿勢を基準にする（まっすぐ・停止の位置を取り直す）">基準</button>
     <button id="btnRun" class="btn primary" disabled>走行開始</button>
     <button id="btnEstop" class="btn danger">停止</button>
   </div>
@@ -80,7 +81,10 @@
           <div><span>スライダー</span><b id="throttleVal">0%</b></div>
         </div>
         <label class="check"><input type="checkbox" id="chkThrottleHold" data-setting> 離しても速度を保つ</label>
-        <button class="btn ghost" id="btnThrottleZero">中立に戻す</button>
+        <div class="row throttle-buttons">
+          <button class="btn" id="btnThrottleFs">全画面で操作</button>
+          <button class="btn ghost" id="btnThrottleZero">中立に戻す</button>
+        </div>
         <p class="hint nomargin">上へ倒すと前進、下へ倒すと後退。指を離すと中立に戻ります。</p>
       </div>
     </div>
@@ -419,6 +423,36 @@
   </p>
 </footer>
 
+<!-- 前後スライダーの全画面モード。細かく速度を出したいときのためのもの -->
+<div id="fsThrottle" class="fs-throttle hidden">
+  <div class="fs-bar">
+    <button class="btn ghost" id="fsBtnZero">基準にする</button>
+    <button class="btn primary" id="fsBtnRun">走行開始</button>
+    <button class="btn danger" id="fsBtnStop">停止</button>
+    <div class="spacer"></div>
+    <button class="btn ghost" id="fsBtnClose">✕ 閉じる</button>
+  </div>
+
+  <div class="fs-info">
+    <canvas id="fsPoseCanvas"></canvas>
+    <div class="readout compact fs-readout">
+      <div><span>状態</span><b id="fsState">—</b></div>
+      <div><span>スライダー</span><b id="fsThrottleVal">0%</b></div>
+      <div><span>前後 / 旋回</span><b id="fsCmd">0 / 0</b></div>
+      <div><span>追従の誤差</span><b id="fsErr">—</b></div>
+    </div>
+  </div>
+
+  <div class="fs-stick-wrap">
+    <div class="stick vertical" id="fsStick">
+      <div class="stick-guide"></div>
+      <div class="stick-knob" id="fsStickKnob"></div>
+    </div>
+  </div>
+
+  <p class="hint fs-hint">上へ倒すと前進、下へ倒すと後退。指を離すと中立に戻ります。向きはキューブを回して決めます。</p>
+</div>
+
 <!-- 姿勢のミニ表示。操縦しながらでも見えるよう画面に浮かせる -->
 <div id="poseMini" class="minimap solid">
   <div class="minimap-bar">
@@ -431,7 +465,7 @@
   </div>
 </div>
 
-<script src="../shared/toio.js?v=20260813t"></script>
-<script src="app.js?v=20260813t"></script>
+<script src="../shared/toio.js?v=20260813u"></script>
+<script src="app.js?v=20260813u"></script>
 </body>
 </html>

@@ -362,9 +362,11 @@
   function setRunning(on, reason) {
     if (on === drive.running) return;
     drive.running = on;
-    $('btnRun').textContent = on ? '走行停止' : '走行開始';
-    $('btnRun').classList.toggle('danger', on);
-    $('btnRun').classList.toggle('primary', !on);
+    for (const id of ['btnRun', 'fsBtnRun']) {
+      $(id).textContent = on ? '走行停止' : '走行開始';
+      $(id).classList.toggle('danger', on);
+      $(id).classList.toggle('primary', !on);
+    }
     if (on) {
       captureZero(true);
       drive.fwd = 0; drive.turn = 0; drive.prevErr = null;
@@ -421,48 +423,98 @@
   }
 
   // -------------------------------------------- 画面のスライダー（前後）
-  const stickEl = $('stickFwd'), knobEl = $('stickFwdKnob');
+  // パネルの中と全画面モードに 1 本ずつあり、どちらも同じ throttle を動かす
+  const throttleSticks = [];
+
+  /** つまみは「枠の高さ − つまみの高さ」の範囲で動かす。大きさが違っても同じ操作感になる */
+  function placeKnob(s) {
+    const travel = Math.max(0, (s.el.clientHeight - s.knob.offsetHeight) / 2);
+    s.knob.style.transform = `translateY(${-throttle.value * travel}px)`;
+  }
 
   function setThrottle(v) {
     throttle.value = clamp(v, -1, 1);
-    // つまみは枠の中に収まる範囲で動かす。上が前進なので符号を反転して置く
-    knobEl.style.transform = `translateY(${-throttle.value * 27.5}%)`;
-    $('throttleVal').textContent = Math.round(throttle.value * 100) + '%';
+    for (const s of throttleSticks) placeKnob(s);
+    const text = Math.round(throttle.value * 100) + '%';
+    $('throttleVal').textContent = text;
+    $('fsThrottleVal').textContent = text;
   }
 
-  function throttleFromEvent(e) {
-    const r = stickEl.getBoundingClientRect();
-    const dy = (e.clientY - (r.top + r.height / 2)) / (r.height / 2);
-    setThrottle(-dy);   // 上へ倒すほど前進
+  function bindThrottleStick(elId, knobId) {
+    const el = $(elId), knob = $(knobId);
+    const s = { el, knob };
+    throttleSticks.push(s);
+
+    const fromEvent = (e) => {
+      const r = el.getBoundingClientRect();
+      setThrottle(-(e.clientY - (r.top + r.height / 2)) / (r.height / 2));   // 上へ倒すほど前進
+    };
+
+    el.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      throttle.holding = true;
+      el.classList.add('active');
+      try { el.setPointerCapture(e.pointerId); } catch (err) { /* noop */ }
+      fromEvent(e);
+    });
+    el.addEventListener('pointermove', (e) => { if (throttle.holding) fromEvent(e); });
+    el.addEventListener('pointerup', releaseThrottle);
+    el.addEventListener('pointercancel', releaseThrottle);
   }
 
-  stickEl.addEventListener('pointerdown', (e) => {
-    e.preventDefault();
-    throttle.holding = true;
-    stickEl.classList.add('active');
-    try { stickEl.setPointerCapture(e.pointerId); } catch (err) { /* noop */ }
-    throttleFromEvent(e);
-  });
-
-  stickEl.addEventListener('pointermove', (e) => { if (throttle.holding) throttleFromEvent(e); });
-
-  const releaseThrottle = () => {
+  function releaseThrottle() {
     if (!throttle.holding) return;
     throttle.holding = false;
-    stickEl.classList.remove('active');
+    for (const s of throttleSticks) s.el.classList.remove('active');
     if (!chk('chkThrottleHold')) setThrottle(0);   // 離したら中立に戻す
-  };
+  }
 
-  stickEl.addEventListener('pointerup', releaseThrottle);
-  stickEl.addEventListener('pointercancel', releaseThrottle);
+  bindThrottleStick('stickFwd', 'stickFwdKnob');
+  bindThrottleStick('fsStick', 'fsStickKnob');
   window.addEventListener('blur', releaseThrottle);
+  // 画面の向きや大きさが変わるとつまみの可動域も変わる
+  window.addEventListener('resize', () => { for (const s of throttleSticks) placeKnob(s); });
 
   $('btnThrottleZero').addEventListener('click', () => setThrottle(0));
+
+  // ------------------------------------------------ 全画面モード
+  let fsNative = false;
+
+  function fsOpen() { return !$('fsThrottle').classList.contains('hidden'); }
+
+  function openFs() {
+    $('fsThrottle').classList.remove('hidden');
+    for (const s of throttleSticks) placeKnob(s);   // 表示された直後は高さが確定している
+    // 使えるならブラウザの全画面にも入る。使えなくても画面いっぱいの表示にはなる
+    const el = $('fsThrottle');
+    if (el.requestFullscreen) {
+      el.requestFullscreen().then(() => { fsNative = true; }, () => { fsNative = false; });
+    }
+  }
+
+  function closeFs() {
+    $('fsThrottle').classList.add('hidden');
+    releaseThrottle();
+    if (fsNative && document.fullscreenElement) document.exitFullscreen().catch(() => {});
+    fsNative = false;
+  }
+
+  $('btnThrottleFs').addEventListener('click', openFs);
+  $('fsBtnClose').addEventListener('click', closeFs);
+  $('fsBtnZero').addEventListener('click', () => captureZero(false));
+  $('fsBtnRun').addEventListener('click', () => setRunning(!drive.running));
+  $('fsBtnStop').addEventListener('click', () => { setRunning(false); stopMotors(); toast('停止しました'); });
+
+  // ブラウザ側で全画面を抜けたとき（スワイプなど）は表示も閉じる
+  document.addEventListener('fullscreenchange', () => {
+    if (fsNative && !document.fullscreenElement) closeFs();
+  });
 
   /** モードを切り替えたら必ず中立から始める。前のモードの値が残ると危ない */
   function applyFwdMode() {
     const stick = fwdFromStick();
     $('throttleWrap').classList.toggle('hidden', !stick);
+    if (!stick && fsOpen()) closeFs();   // 傾けるモードに戻したら全画面も閉じる
     releaseThrottle();
     setThrottle(0);
   }
@@ -471,7 +523,9 @@
     $(id).addEventListener('change', applyFwdMode);
   }
 
-  $('btnZero').addEventListener('click', () => captureZero(false));
+  for (const id of ['btnZero', 'btnZeroTop']) {
+    $(id).addEventListener('click', () => captureZero(false));
+  }
   $('btnRezeroHint').addEventListener('click', () => {
     toast('コントローラを持ちたい向き・角度に構えてから押すと、その姿勢が「まっすぐ・停止」になります');
   });
@@ -774,6 +828,11 @@
     const line = $('stateLine');
     line.className = 'state-line ' + drive.stateKind;
     $('stateText').textContent = drive.stateText;
+
+    // 全画面モードの読み出し
+    $('fsState').textContent = drive.stateText;
+    $('fsCmd').textContent = `${Math.round(drive.fwd)} / ${Math.round(drive.turn)}`;
+    $('fsErr').textContent = drive.err === null ? '—' : Math.round(drive.err) + '°';
   }
 
   function updateStatus() {
@@ -1187,6 +1246,8 @@
   // 操縦のパネルと姿勢を同時に見たいので、画面のどこにいても見える位置に浮かせる。
   // 掴めば動かせて、大きさも変えられる。閉じたら上のツールバーから戻せる。
   const MINI_SIZES = [130, 175, 230];
+  const fsPoseCanvas = $('fsPoseCanvas');
+  const fsPoseCtx = fsPoseCanvas.getContext('2d');
   const poseMini = $('poseMini');
   const poseMiniCanvas = $('poseMiniCanvas');
   const poseMiniCtx = poseMiniCanvas.getContext('2d');
@@ -1533,6 +1594,7 @@
     renderLevel();
     renderPose(poseCanvas, poseCtx, false);
     if (miniState.visible) renderPose(poseMiniCanvas, poseMiniCtx, true);
+    if (fsOpen()) renderPose(fsPoseCanvas, fsPoseCtx, true);
     requestAnimationFrame(loop);
   }
 
