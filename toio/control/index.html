@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <!-- touch-action: manipulation を尊重しないブラウザがあるため、
+       拡大自体を切ってダブルタップズームを確実に止める -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>toio コントロールパネル</title>
+  <meta name="description" content="Web Bluetooth で toio コアキューブの BLE 機能をひととおり操作できるコントロールパネル。">
+  <!-- ?v= はキャッシュ避け。HTML だけ更新されて CSS/JS が古いままだと
+       レイアウトが崩れるので、これらを変更したら必ず上げること -->
+  <link rel="stylesheet" href="style.css?v=20260813n">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="home" href="../../">&larr;</a>
+    <h1>toio コントロールパネル</h1>
+    <div class="spacer"></div>
+    <label class="target-select" title="コマンドの送信先">
+      送信先
+      <select id="sendTarget">
+        <option value="selected">選択中のみ</option>
+        <option value="all">全キューブ</option>
+      </select>
+    </label>
+    <button id="btnConnect" class="btn primary">キューブを接続</button>
+  </div>
+  <div id="cubeTabs" class="cube-tabs"></div>
+</header>
+
+<div id="unsupported" class="banner hidden">
+  <strong>このブラウザは Web Bluetooth に対応していません。</strong>
+  PC/Android の Chrome・Edge をお使いください。iOS/iPadOS は Bluefy などの対応ブラウザが必要です。
+</div>
+
+<main id="main" class="grid">
+
+  <!-- ============ モーター ============ -->
+  <section class="panel">
+    <h2>モーター</h2>
+    <div class="tabs" data-tabs="motor">
+      <button class="tab" data-tab="basic">基本 / 時間指定</button>
+      <button class="tab active" data-tab="joy">ジョイスティック</button>
+      <button class="tab" data-tab="target">目標指定</button>
+      <button class="tab" data-tab="multi">複数目標</button>
+      <button class="tab" data-tab="accel">加速度指定</button>
+    </div>
+
+    <div class="tabpane" data-pane="basic">
+      <div class="dpad">
+        <button class="btn dir" data-l="60" data-r="60" style="grid-area:u">▲</button>
+        <button class="btn dir" data-l="-40" data-r="40" style="grid-area:l">◀</button>
+        <button class="btn danger" id="btnStop" style="grid-area:c">停止</button>
+        <button class="btn dir" data-l="40" data-r="-40" style="grid-area:r">▶</button>
+        <button class="btn dir" data-l="-60" data-r="-60" style="grid-area:d">▼</button>
+      </div>
+      <label class="check"><input type="checkbox" id="keyDrive"> キーボードで運転（WASD / 矢印、Space で停止）</label>
+      <div class="row">
+        <label>左モーター <output id="outL">0</output>
+          <input type="range" id="mL" min="-115" max="115" value="0">
+        </label>
+        <label>右モーター <output id="outR">0</output>
+          <input type="range" id="mR" min="-115" max="115" value="0">
+        </label>
+      </div>
+      <label class="check"><input type="checkbox" id="linkLR"> 左右を連動</label>
+      <div class="row">
+        <label>時間指定 (ms, 0〜2550)
+          <input type="number" id="mDuration" value="1000" min="0" max="2550" step="10">
+        </label>
+        <button class="btn" id="btnMotorTimed">時間指定で実行</button>
+      </div>
+    </div>
+
+    <div class="tabpane active" data-pane="joy">
+      <div class="row joy-mode">
+        <label class="check"><input type="radio" name="joyMode" value="dual"> 2本（ラジコン方式）</label>
+        <label class="check"><input type="radio" name="joyMode" value="single" checked> 1本</label>
+      </div>
+
+      <div class="sticks" id="sticksDual">
+        <div class="stick-wrap">
+          <div class="stick vertical" id="stickFwd">
+            <div class="stick-guide"></div>
+            <div class="stick-knob" id="stickFwdKnob"></div>
+          </div>
+          <span class="stick-label">左：前後</span>
+        </div>
+        <div class="stick-wrap">
+          <div class="stick horizontal" id="stickTurn">
+            <div class="stick-guide"></div>
+            <div class="stick-knob" id="stickTurnKnob"></div>
+          </div>
+          <span class="stick-label">右：旋回</span>
+        </div>
+      </div>
+
+      <div class="sticks single hidden" id="sticksSingle">
+        <div class="stick-wrap">
+          <div class="stick both round" id="stickSingle">
+            <div class="stick-guide"></div>
+            <div class="stick-knob" id="stickSingleKnob"></div>
+          </div>
+          <span class="stick-label">前後 ＋ 旋回</span>
+        </div>
+      </div>
+
+      <p class="hint" id="joyHint">2本のスティックを同時に操作できます。倒した量に応じて連続的に変化し、離すと中央に戻ります。</p>
+      <div class="row">
+        <label>前後の感度 <output id="outJoyMax">80</output>
+          <input type="range" id="joyMax" min="10" max="115" value="80">
+        </label>
+        <label>旋回の感度 <output id="outJoyTurn">70</output>
+          <input type="range" id="joyTurn" min="0" max="115" value="70">
+        </label>
+      </div>
+      <div class="row">
+        <label>反応カーブ <output id="outJoyExpo">0%</output>
+          <input type="range" id="joyExpo" min="0" max="100" value="0">
+        </label>
+        <label>不感帯 <output id="outJoyDead">8%</output>
+          <input type="range" id="joyDead" min="0" max="30" value="8">
+        </label>
+      </div>
+      <div class="row">
+        <label class="check"><input type="checkbox" id="joyRcReverse" checked> 後退時は舵を反転（ラジコン風）</label>
+        <label class="check"><input type="checkbox" id="joyHold"> 離しても速度を保つ</label>
+        <label class="check"><input type="checkbox" id="joyInvert"> 前後を反転</label>
+      </div>
+      <div class="readout">
+        <div><span>左モーター</span><b id="joyL">0</b></div>
+        <div><span>右モーター</span><b id="joyR">0</b></div>
+      </div>
+      <button class="btn danger" id="btnJoyStop">停止</button>
+    </div>
+
+    <div class="tabpane" data-pane="target">
+      <div class="row">
+        <label>X <input type="number" id="tX" value="250"></label>
+        <label>Y <input type="number" id="tY" value="250"></label>
+        <label>角度 θ <input type="number" id="tAngle" value="0" min="0" max="8191"></label>
+      </div>
+      <div class="row">
+        <label>回転タイプ
+          <select id="tRotate">
+            <option value="0">0: 絶対角度・回転量が少ない方向</option>
+            <option value="1">1: 絶対角度・正方向</option>
+            <option value="2">2: 絶対角度・負方向</option>
+            <option value="3">3: 相対角度・正方向</option>
+            <option value="4">4: 相対角度・負方向</option>
+            <option value="5">5: 角度指定なし</option>
+            <option value="6">6: 書き込み角度を無視</option>
+          </select>
+        </label>
+      </div>
+      <div class="row shared-opts">
+        <label>制御識別値 <input type="number" id="oControlId" value="0" min="0" max="255"></label>
+        <label>タイムアウト(秒) <input type="number" id="oTimeout" value="5" min="0" max="255"></label>
+        <label>最大速度 <input type="number" id="oMaxSpeed" value="80" min="10" max="255"></label>
+      </div>
+      <div class="row shared-opts">
+        <label>移動タイプ
+          <select id="oMoveType">
+            <option value="0">0: 回転しながら移動</option>
+            <option value="1">1: 回転しながら移動（後退なし）</option>
+            <option value="2">2: 回転してから移動</option>
+          </select>
+        </label>
+        <label>速度変化タイプ
+          <select id="oSpeedType">
+            <option value="0">0: 速度一定</option>
+            <option value="1">1: 目標地点に近づくとゆっくり</option>
+            <option value="2">2: 出発時ゆっくり</option>
+            <option value="3">3: 出発時と到着時にゆっくり</option>
+          </select>
+        </label>
+      </div>
+      <button class="btn primary" id="btnMoveTo">この座標へ移動</button>
+      <p class="hint">マットをタップしても目標を設定できます。</p>
+    </div>
+
+    <div class="tabpane" data-pane="multi">
+      <p class="hint">マットをタップすると目標が追加されます（最大 29 点）。</p>
+      <ol id="targetList" class="target-list"></ol>
+      <div class="row">
+        <label class="check"><input type="checkbox" id="mtAppend"> 既存の目標に追加（オフ＝上書き）</label>
+      </div>
+      <div class="row">
+        <button class="btn primary" id="btnMultiRun">順に移動</button>
+        <button class="btn ghost" id="btnMultiClear">リストをクリア</button>
+      </div>
+      <p class="hint">オプション（制御識別値・タイムアウト・最大速度・移動タイプ・速度変化タイプ・回転タイプ）は「目標指定」タブの値を使います。</p>
+    </div>
+
+    <div class="tabpane" data-pane="accel">
+      <div class="row">
+        <label>並進速度 <output id="outAccSpeed">50</output>
+          <input type="range" id="aSpeed" min="0" max="255" value="50">
+        </label>
+        <label>加速度 <output id="outAccAcc">10</output>
+          <input type="range" id="aAcc" min="0" max="255" value="10">
+        </label>
+      </div>
+      <div class="row">
+        <label>回転速度(度/秒) <input type="number" id="aRot" value="90" min="0" max="65535"></label>
+        <label>制御時間(ms) <input type="number" id="aDuration" value="0" min="0" max="2550" step="10"></label>
+      </div>
+      <div class="row">
+        <label>回転方向 <select id="aRotDir"><option value="0">正（左回り）</option><option value="1">負（右回り）</option></select></label>
+        <label>進行方向 <select id="aMoveDir"><option value="0">前</option><option value="1">後</option></select></label>
+        <label>優先 <select id="aPriority"><option value="0">並進速度</option><option value="1">回転速度</option></select></label>
+      </div>
+      <button class="btn primary" id="btnAccelRun">実行</button>
+    </div>
+  </section>
+
+  <!-- ============ 位置・マット ============ -->
+  <section class="panel wide">
+    <h2>読み取りセンサー<span class="sub">位置ID / 標準ID</span></h2>
+    <div class="mat-toolbar">
+      <label>軌跡の元
+        <select id="trailSource">
+          <option value="dead" selected>推測航法（マットなし）</option>
+          <option value="id">位置ID（マットが必要）</option>
+        </select>
+      </label>
+      <label id="matSelectWrap">マット
+        <select id="matSelect">
+          <option value="ring">リング 45–455</option>
+          <option value="colortile">カラータイル 545–955</option>
+          <option value="simple">シンプル 98–402 / 142–358</option>
+          <option value="dev1">開発用 #1</option>
+          <option value="dev2">開発用 #2</option>
+          <option value="dev3">開発用 #3</option>
+          <option value="dev4">開発用 #4</option>
+          <option value="auto">自動（実測範囲）</option>
+        </select>
+      </label>
+      <label class="check"><input type="checkbox" id="showTrail" checked> 軌跡</label>
+      <label class="check"><input type="checkbox" id="tapToMove" checked> タップで移動</label>
+      <button class="btn ghost" id="btnClearTrail">軌跡クリア</button>
+      <button class="btn ghost" id="btnMiniToggle">ミニマップ</button>
+    </div>
+    <div class="row hidden" id="drOptions">
+      <label>向きの求め方
+        <select id="drHeading">
+          <option value="auto">自動（姿勢角があれば使う）</option>
+          <option value="motor">モーターから推定のみ</option>
+        </select>
+      </label>
+      <label>ヨーの符号
+        <select id="drYawSign">
+          <option value="auto">自動判定</option>
+          <option value="1">そのまま</option>
+          <option value="-1">反転</option>
+        </select>
+      </label>
+      <span class="mono dr-status" id="drYawStatus">—</span>
+      <label>速度係数 (mm/s ÷ 指示値)
+        <input type="number" id="drScale" value="1" min="0.1" max="5" step="0.1">
+      </label>
+      <label>輪距 (mm)
+        <input type="number" id="drTread" value="27" min="5" max="200" step="1">
+      </label>
+      <button class="btn ghost" id="btnDrReset">リセット（原点・北向き）</button>
+    </div>
+    <p class="hint hidden" id="drHint">
+      モーターへの指示から位置を積算した推定値です。滑りや誤差が積み重なるので、
+      進む距離や回り方が合わない場合は速度係数と輪距を調整してください。
+    </p>
+    <canvas id="matCanvas"></canvas>
+    <div class="readout" id="idReadout">
+      <div><span>位置ID</span><b id="roPos">—</b></div>
+      <div><span>角度</span><b id="roAngle">—</b></div>
+      <div><span>センサー座標</span><b id="roSensor">—</b></div>
+      <div><span>標準ID</span><b id="roStd">—</b></div>
+      <div class="hidden" id="roEstCell"><span>推定座標 (mm)</span><b id="roEst">—</b></div>
+      <div class="hidden" id="roEstAngleCell"><span>推定角度</span><b id="roEstAngle">—</b></div>
+    </div>
+  </section>
+
+  <!-- ============ ランプ ============ -->
+  <section class="panel">
+    <h2>ランプ</h2>
+    <div class="row">
+      <label>色 <input type="color" id="lColor" value="#58a6ff"></label>
+      <label>点灯時間(ms, 0=消えない) <input type="number" id="lDuration" value="0" min="0" max="2550" step="10"></label>
+    </div>
+    <div class="swatches" id="lSwatches"></div>
+    <div class="row">
+      <button class="btn primary" id="btnLightOn">点灯</button>
+      <button class="btn" id="btnLightOff">消灯</button>
+    </div>
+    <h3>連続点灯シナリオ</h3>
+    <div id="scenarioList" class="scenario-list"></div>
+    <div class="row">
+      <button class="btn ghost" id="btnScenarioAdd">ステップ追加</button>
+      <button class="btn ghost" id="btnScenarioRainbow">虹プリセット</button>
+    </div>
+    <div class="row">
+      <label>繰り返し(0=無限) <input type="number" id="lRepeat" value="0" min="0" max="255"></label>
+      <button class="btn primary" id="btnScenarioRun">シナリオ実行</button>
+    </div>
+  </section>
+
+  <!-- ============ サウンド ============ -->
+  <section class="panel">
+    <h2>サウンド</h2>
+    <div class="row">
+      <label>音量 <output id="outVolume">255</output>
+        <input type="range" id="sVolume" min="0" max="255" value="255">
+      </label>
+      <button class="btn danger" id="btnSoundStop">再生停止</button>
+    </div>
+    <h3>効果音</h3>
+    <div class="se-grid" id="seGrid"></div>
+    <h3>MIDI（半音単位・最大59音）</h3>
+    <div class="keyboard" id="keyboard"></div>
+    <p class="hint">鍵盤は押している間だけ鳴ります。横スクロールで全音域（C0〜G10）に届きます。下のシーケンスに音を並べて再生することもできます。</p>
+    <div id="melodyList" class="melody-list"></div>
+    <div class="row">
+      <button class="btn ghost" id="btnMelodyAdd">音を追加</button>
+      <button class="btn ghost" id="btnMelodyPreset">プリセット</button>
+      <button class="btn ghost" id="btnMelodyClear">クリア</button>
+    </div>
+    <div class="row">
+      <label>繰り返し(0=無限) <input type="number" id="sRepeat" value="1" min="0" max="255"></label>
+      <button class="btn primary" id="btnMelodyRun">シーケンス再生</button>
+    </div>
+  </section>
+
+  <!-- ============ センサー ============ -->
+  <section class="panel">
+    <h2>センサー</h2>
+    <div class="readout">
+      <div><span>水平</span><b id="roFlat">—</b></div>
+      <div><span>姿勢</span><b id="roPosture">—</b></div>
+      <div><span>シェイク</span><b id="roShake">—</b></div>
+      <div><span>ボタン</span><b id="roButton">—</b></div>
+      <div><span>バッテリー</span><b id="roBattery">—</b></div>
+      <div><span>BLEプロトコル</span><b id="roProto">—</b></div>
+    </div>
+    <div class="events">
+      <span class="ev" id="evCollision">衝突</span>
+      <span class="ev" id="evDoubleTap">ダブルタップ</span>
+    </div>
+
+    <h3>磁気センサー</h3>
+    <div class="row">
+      <label>種類
+        <select id="magType">
+          <option value="0">0: 無効</option>
+          <option value="1">1: 磁石の状態</option>
+          <option value="2">2: 磁力（強さ＋向き）</option>
+        </select>
+      </label>
+      <label>間隔(ms, 20ms単位) <input type="number" id="magInterval" value="40" min="20" max="5100" step="20"></label>
+      <label>条件 <select id="magCondition"><option value="0">0: 変化時</option><option value="1">1: 常に</option></select></label>
+      <button class="btn" id="btnMagApply">適用</button>
+    </div>
+    <div class="readout">
+      <div><span>磁石の状態</span><b id="roMagId">—</b></div>
+      <div><span>磁力の強さ</span><b id="roMagForce">—</b></div>
+      <div><span>磁力の向き</span><b id="roMagDir">—</b></div>
+    </div>
+
+    <h3>姿勢角</h3>
+    <div class="row">
+      <label>形式
+        <select id="attFormat">
+          <option value="1">1: オイラー角</option>
+          <option value="2">2: クォータニオン</option>
+          <option value="3">3: 高精度オイラー角</option>
+        </select>
+      </label>
+      <label>間隔(ms) <input type="number" id="attInterval" value="100" min="0" max="2550" step="10"></label>
+      <label>条件 <select id="attCondition"><option value="0">0: 変化時</option><option value="1">1: 常に</option></select></label>
+      <button class="btn" id="btnAttApply">適用</button>
+    </div>
+    <div class="readout" id="attReadout">
+      <div><span>Roll</span><b id="roRoll">—</b></div>
+      <div><span>Pitch</span><b id="roPitch">—</b></div>
+      <div><span>Yaw</span><b id="roYaw">—</b></div>
+      <div><span>クォータニオン</span><b id="roQuat">—</b></div>
+    </div>
+    <canvas id="attCanvas" height="140"></canvas>
+  </section>
+
+  <!-- ============ 設定 ============ -->
+  <section class="panel">
+    <h2>設定</h2>
+    <div class="row">
+      <label>水平検出しきい値(度) <input type="number" id="cfgFlat" value="45" min="1" max="45"></label>
+      <button class="btn" data-cfg="flat">適用</button>
+    </div>
+    <div class="row">
+      <label>衝突検出しきい値(1–10) <input type="number" id="cfgCollision" value="7" min="1" max="10"></label>
+      <button class="btn" data-cfg="collision">適用</button>
+    </div>
+    <div class="row">
+      <label>ダブルタップ間隔(0–7) <input type="number" id="cfgDoubleTap" value="5" min="0" max="7"></label>
+      <button class="btn" data-cfg="doubletap">適用</button>
+    </div>
+    <div class="row">
+      <label>ID通知 間隔(ms) <input type="number" id="cfgIdInterval" value="0" min="0" max="2550" step="10"></label>
+      <label>条件
+        <select id="cfgIdCondition">
+          <option value="0">0: 変化あり</option>
+          <option value="1">1: 常に</option>
+          <option value="255">255: 変化あり（従来）</option>
+        </select>
+      </label>
+      <button class="btn" data-cfg="idnotify">適用</button>
+    </div>
+    <div class="row">
+      <label>ID missed 感度(ms) <input type="number" id="cfgIdMissed" value="70" min="0" max="2550" step="10"></label>
+      <button class="btn" data-cfg="idmissed">適用</button>
+    </div>
+    <div class="row">
+      <label class="check"><input type="checkbox" id="cfgMotorSpeed"> モーターの速度情報を取得</label>
+      <span class="mono" id="roMotorSpeed">—</span>
+    </div>
+    <div class="row">
+      <button class="btn ghost" data-cfg="version">BLEプロトコルバージョンを取得</button>
+    </div>
+  </section>
+
+  <!-- ============ 生コマンド / ログ ============ -->
+  <section class="panel wide">
+    <h2>生コマンド<span class="sub">仕様書のバイト列をそのまま送る</span></h2>
+    <div class="row">
+      <label>宛先
+        <select id="rawChar">
+          <option value="motor">モーター (0x0102)</option>
+          <option value="light">ランプ (0x0103)</option>
+          <option value="sound">サウンド (0x0104)</option>
+          <option value="config">設定 (0x01FF)</option>
+          <option value="id">読み取りセンサー (0x0101)</option>
+          <option value="sensor">モーションセンサー (0x0106)</option>
+          <option value="button">ボタン (0x0107)</option>
+          <option value="battery">バッテリー (0x0108)</option>
+        </select>
+      </label>
+      <label class="grow">バイト列(16進) <input type="text" id="rawBytes" value="03 00 01 01 00 FF 00" spellcheck="false"></label>
+      <button class="btn primary" id="btnRawSend">送信</button>
+      <button class="btn ghost" id="btnRawRead">読み出し</button>
+    </div>
+
+    <h3>通信ログ</h3>
+    <div class="row log-toolbar">
+      <label class="check"><input type="checkbox" id="logTx" checked> 送信</label>
+      <label class="check"><input type="checkbox" id="logRx" checked> 受信</label>
+      <label class="check"><input type="checkbox" id="logPause"> 一時停止</label>
+      <button class="btn ghost" id="btnLogClear">クリア</button>
+    </div>
+    <div id="log" class="log"></div>
+  </section>
+</main>
+
+<footer class="footer">
+  <p>
+    Web Bluetooth を直接使っています。HTTPS または localhost、かつ Chrome / Edge 系ブラウザが必要です。
+    バイト列は <a href="https://toio.github.io/toio-spec/" target="_blank" rel="noopener">toio 公式 BLE 通信仕様</a> に準拠。
+  </p>
+</footer>
+
+<!-- 軌跡のミニマップ。画面のどこにいても見えるよう浮かせる -->
+<div id="minimap" class="minimap hidden">
+  <div class="minimap-bar" id="minimapBar">
+    <span class="minimap-title">軌跡</span>
+    <button class="minimap-btn" id="btnMiniLevel" title="姿勢角の水準器">⌖</button>
+    <button class="minimap-btn" id="btnMiniReset" title="リセット（原点・北向き）">⟲</button>
+    <button class="minimap-btn" id="btnMiniSolid" title="半透明のオンオフ">◐</button>
+    <button class="minimap-btn" id="btnMiniSize" title="大きさを変える">⤢</button>
+    <button class="minimap-btn" id="btnMiniHide" title="閉じる">✕</button>
+  </div>
+  <div class="minimap-body" id="minimapBody">
+    <canvas id="miniAttCanvas" class="hidden"></canvas>
+    <canvas id="miniCanvas"></canvas>
+  </div>
+</div>
+
+<script src="toio.js?v=20260813n"></script>
+<script src="app.js?v=20260813n"></script>
+</body>
+</html>
