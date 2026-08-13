@@ -1,0 +1,239 @@
+/*
+ * リンクコントロール固有のスタイル。
+ * 色・ボタン・パネルなどの土台は ../shared/base.css にあり、
+ * index.html でこのファイルより先に読み込んでいる。
+ */
+
+.nomargin { margin: 0; align-self: center; }
+
+/* ---------- 役割（コントローラ / 操作対象） ---------- */
+.roles {
+  display: flex;
+  align-items: stretch;
+  gap: 0.5rem;
+  padding: 0 1rem 0.7rem;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.role {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  font-size: 0.8rem;
+}
+
+.role .dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--danger);
+  flex: 0 0 auto;
+}
+
+.role.on .dot { background: var(--ok); }
+/* 姿勢角が届いているあいだは脈打たせて、生きていることを分かるようにする */
+.role.on.live .dot { animation: pulse 1.4s ease-in-out infinite; }
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+.role-tag {
+  flex: 0 0 auto;
+  font-size: 0.68rem;
+  font-weight: 700;
+  padding: 0.1rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid;
+}
+
+.role-tag.ctl { color: var(--accent); border-color: rgba(88, 166, 255, 0.5); background: rgba(88, 166, 255, 0.12); }
+.role-tag.tgt { color: var(--ok); border-color: rgba(63, 185, 80, 0.5); background: rgba(63, 185, 80, 0.12); }
+
+.role-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+.role-sub { flex: 0 0 auto; color: var(--muted); font-size: 0.72rem; }
+.role .btn { flex: 0 0 auto; padding: 0.25rem 0.6rem; font-size: 0.75rem; }
+.swap { flex: 0 0 auto; font-size: 1.1rem; padding: 0 0.6rem; }
+
+/* ---------- 走行の状態 ---------- */
+.state-line {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  font-size: 0.8rem;
+  margin-bottom: 0.8rem;
+}
+
+.state-line .state-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--muted);
+  flex: 0 0 auto;
+}
+
+.state-line.ready { border-color: rgba(88, 166, 255, 0.45); }
+.state-line.ready .state-dot { background: var(--accent); }
+.state-line.run { border-color: rgba(63, 185, 80, 0.55); }
+.state-line.run .state-dot { background: var(--ok); animation: pulse 1s ease-in-out infinite; }
+.state-line.warn { border-color: rgba(210, 153, 34, 0.55); }
+.state-line.warn .state-dot { background: var(--warn); }
+
+/* ---------- 指令のバー ---------- */
+.cmd-bars { display: flex; flex-direction: column; gap: 0.45rem; margin-bottom: 0.3rem; }
+
+.cmd {
+  display: grid;
+  grid-template-columns: 5.5rem 1fr 3rem;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.cmd b {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85rem;
+  color: var(--text);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.bar {
+  position: relative;
+  height: 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+/* 中央が 0。左右に伸びる */
+.bar.bipolar::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--border);
+}
+
+.bar i {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 0;
+  background: var(--accent);
+  transition: left 0.08s linear, width 0.08s linear;
+}
+
+/* ---------- キャンバス ---------- */
+/* 高さは CSS 側で決める。canvas の属性任せにすると DPR 補正と噛み合って伸び続ける */
+#poseCanvas {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  max-height: 46vh;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: block;
+  /* ドラッグで視点を回すので、ここではページをスクロールさせない */
+  touch-action: none;
+  cursor: grab;
+}
+
+#poseCanvas:active { cursor: grabbing; }
+
+#levelCanvas {
+  width: 100%;
+  height: 150px;
+  margin-bottom: 0.9rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: block;
+}
+
+/* 中身は正方形に収めて描くので、横長のパネルでも幅を伸ばしすぎない */
+#mapCanvas {
+  width: 100%;
+  max-width: 55vh;
+  margin: 0 auto;
+  aspect-ratio: 1 / 1;
+  max-height: 55vh;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  display: block;
+}
+
+.pose-toolbar { margin-top: 0.5rem; align-items: center; }
+.mat-toolbar { display: flex; gap: 0.7rem; flex-wrap: wrap; align-items: flex-end; margin-bottom: 0.7rem; }
+.mat-toolbar select { max-width: 20rem; }
+
+/* ---------- ステータス ---------- */
+.status-cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 1rem; }
+.status-col .col-head { border-top: none; padding-top: 0; margin-top: 0; }
+.readout.compact { margin-top: 0.4rem; }
+.readout.compact b { font-size: 0.82rem; }
+.readout b.ok { color: var(--ok); }
+.readout b.off { color: var(--muted); }
+
+/* ---------- トースト ---------- */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 1.5rem;
+  transform: translateX(-50%);
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  z-index: 200;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  opacity: 0;
+  transition: opacity 0.3s;
+  pointer-events: none;
+  max-width: 90vw;
+  text-align: center;
+}
+
+.toast.show { opacity: 1; }
+
+/* ---------- スマホ ---------- */
+@media (max-width: 700px) {
+  .roles { padding: 0 0.7rem 0.5rem; flex-wrap: wrap; }
+  .role { flex: 1 1 100%; }
+  /* 縦積みになると矢印だけでは何のボタンか分かりにくいので言葉を足す */
+  .swap { flex: 1 1 100%; min-height: 36px; }
+  .swap::after { content: ' 役割を入れ替える'; font-size: 0.75rem; }
+  .role .btn { min-height: 36px; }
+
+  .cmd { grid-template-columns: 4.5rem 1fr 2.6rem; }
+  #levelCanvas { height: 130px; }
+  #poseCanvas { aspect-ratio: 1 / 1; }
+}

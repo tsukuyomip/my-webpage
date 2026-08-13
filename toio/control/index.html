@@ -9,7 +9,8 @@
   <meta name="description" content="Web Bluetooth で toio コアキューブの BLE 機能をひととおり操作できるコントロールパネル。">
   <!-- ?v= はキャッシュ避け。HTML だけ更新されて CSS/JS が古いままだと
        レイアウトが崩れるので、これらを変更したら必ず上げること -->
-  <link rel="stylesheet" href="style.css?v=20260813m">
+  <link rel="stylesheet" href="../shared/base.css?v=20260813n">
+  <link rel="stylesheet" href="style.css?v=20260813n">
 </head>
 <body>
 
@@ -463,6 +464,7 @@
   <p>
     Web Bluetooth を直接使っています。HTTPS または localhost、かつ Chrome / Edge 系ブラウザが必要です。
     バイト列は <a href="https://toio.github.io/toio-spec/" target="_blank" rel="noopener">toio 公式 BLE 通信仕様</a> に準拠。
+    2 台つないで片方をコントローラにするなら <a href="../link-control/">リンクコントロール</a> をどうぞ。
   </p>
 </footer>
 
@@ -481,7 +483,8 @@
   </div>
 </div>
 
-<script src="toio.js?v=20260813m"></script>
-<script src="app.js?v=20260813m"></script>
+<!-- BLE ラッパーは /toio/ 配下のページで共有している -->
+<script src="../shared/toio.js?v=20260813n"></script>
+<script src="app.js?v=20260813n"></script>
 </body>
 </html>

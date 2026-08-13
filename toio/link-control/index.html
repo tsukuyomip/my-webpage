@@ -1,0 +1,381 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <!-- touch-action: manipulation を尊重しないブラウザがあるため、
+       拡大自体を切ってダブルタップズームを確実に止める -->
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>toio リンクコントロール</title>
+  <meta name="description" content="toio コアキューブ 2 台を Web Bluetooth で接続し、片方を手に持つコントローラ、もう片方を操作対象にして、ヨー角の追従とピッチ角のスロットルで走らせるページ。">
+  <!-- ?v= はキャッシュ避け。HTML だけ更新されて CSS/JS が古いままだと
+       レイアウトが崩れるので、これらを変更したら必ず上げること -->
+  <link rel="stylesheet" href="../shared/base.css?v=20260813n">
+  <link rel="stylesheet" href="style.css?v=20260813n">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="home" href="../../">&larr;</a>
+    <h1>toio リンクコントロール</h1>
+    <div class="spacer"></div>
+    <button id="btnRun" class="btn primary" disabled>走行開始</button>
+    <button id="btnEstop" class="btn danger">停止</button>
+  </div>
+
+  <!-- 2 台の役割。左がコントローラ（手に持つ側）、右が操作対象（走る側） -->
+  <div class="roles">
+    <div class="role" id="cardCtl">
+      <span class="role-tag ctl">コントローラ</span>
+      <span class="dot"></span>
+      <span class="role-name" id="ctlName">未接続</span>
+      <span class="role-sub" id="ctlSub"></span>
+      <button class="btn" id="btnConnectCtl">接続</button>
+      <button class="btn ghost hidden" id="btnDisconnectCtl">切断</button>
+    </div>
+    <button class="btn ghost swap" id="btnSwap" title="2 台の役割を入れ替える">⇄</button>
+    <div class="role" id="cardTgt">
+      <span class="role-tag tgt">操作対象</span>
+      <span class="dot"></span>
+      <span class="role-name" id="tgtName">未接続</span>
+      <span class="role-sub" id="tgtSub"></span>
+      <button class="btn" id="btnConnectTgt">接続</button>
+      <button class="btn ghost hidden" id="btnDisconnectTgt">切断</button>
+    </div>
+  </div>
+</header>
+
+<div id="unsupported" class="banner hidden">
+  <strong>このブラウザは Web Bluetooth に対応していません。</strong>
+  PC/Android の Chrome・Edge をお使いください。iOS/iPadOS は Bluefy などの対応ブラウザが必要です。
+</div>
+
+<main class="grid">
+
+  <!-- ============ 操縦 ============ -->
+  <section class="panel">
+    <h2>操縦<span class="sub">水準器と指令</span></h2>
+
+    <div class="state-line" id="stateLine">
+      <span class="state-dot"></span>
+      <span id="stateText">キューブを 2 台接続してください</span>
+    </div>
+
+    <canvas id="levelCanvas"></canvas>
+
+    <div class="cmd-bars">
+      <div class="cmd">
+        <span>前後の指令</span>
+        <div class="bar bipolar"><i id="barFwd"></i></div>
+        <b id="valFwd">0</b>
+      </div>
+      <div class="cmd">
+        <span>旋回の指令</span>
+        <div class="bar bipolar"><i id="barTurn"></i></div>
+        <b id="valTurn">0</b>
+      </div>
+      <div class="cmd">
+        <span>追従の誤差</span>
+        <div class="bar bipolar"><i id="barErr"></i></div>
+        <b id="valErr">—</b>
+      </div>
+    </div>
+
+    <div class="readout compact">
+      <div><span>左モーター</span><b id="valL">0</b></div>
+      <div><span>右モーター</span><b id="valR">0</b></div>
+      <div><span>向きの取得元</span><b id="valHeadSrc">—</b></div>
+      <div><span>目標の向き</span><b id="valDesired">—</b></div>
+    </div>
+
+    <div class="row">
+      <button class="btn primary" id="btnZero">いまの姿勢を基準にする</button>
+      <button class="btn ghost" id="btnRezeroHint" title="使い方">?</button>
+    </div>
+    <label class="check"><input type="checkbox" id="chkDeadman" data-setting> コントローラのボタンを押している間だけ走らせる</label>
+    <p class="hint">
+      コントローラを手に持ち、<b>基準にする</b>を押してから走行開始。そこからのヨー角の変化に操作対象の向きが追従し、
+      前に傾ける（ピッチ）と前進、後ろに傾けると後退します。倒した角度で速度が無段階に変わります。
+      ロール（左右の傾き）は今のところ未使用です。
+    </p>
+  </section>
+
+  <!-- ============ コントローラの姿勢 ============ -->
+  <section class="panel">
+    <h2>コントローラの姿勢<span class="sub">実機と連動</span></h2>
+    <canvas id="poseCanvas"></canvas>
+    <div class="row pose-toolbar">
+      <span class="hint nomargin">ドラッグで視点を回せます</span>
+      <button class="btn ghost" id="btnCamReset">視点リセット</button>
+      <label class="check"><input type="checkbox" id="chkGrid" data-setting checked> 床</label>
+      <label class="check"><input type="checkbox" id="chkAxes" data-setting checked> 軸</label>
+      <label class="check"><input type="checkbox" id="chkRing" data-setting checked> 向きリング</label>
+    </div>
+    <div class="readout compact">
+      <div><span>Roll（未使用）</span><b id="valRoll">—</b></div>
+      <div><span>Pitch（前後）</span><b id="valPitch">—</b></div>
+      <div><span>Yaw（向き）</span><b id="valYaw">—</b></div>
+    </div>
+  </section>
+
+  <!-- ============ 軌跡 ============ -->
+  <section class="panel wide">
+    <h2>操作対象の軌跡<span class="sub">二次元</span></h2>
+    <div class="mat-toolbar">
+      <label>軌跡の元
+        <select id="selTrailSource" data-setting>
+          <option value="dead" selected>推測航法（マットなし）</option>
+          <option value="id">位置ID（マットが必要）</option>
+        </select>
+      </label>
+      <label id="matSelectWrap">マット
+        <select id="selMat" data-setting>
+          <option value="ring">リング 45–455</option>
+          <option value="colortile">カラータイル 545–955</option>
+          <option value="simple">シンプル 98–402 / 142–358</option>
+          <option value="dev1">開発用 #1</option>
+          <option value="dev2">開発用 #2</option>
+          <option value="dev3">開発用 #3</option>
+          <option value="dev4">開発用 #4</option>
+          <option value="auto">自動（実測範囲）</option>
+        </select>
+      </label>
+      <label class="check"><input type="checkbox" id="chkShowTrail" data-setting checked> 軌跡</label>
+      <label class="check"><input type="checkbox" id="chkShowGhost" data-setting checked> 目標の向き</label>
+      <button class="btn ghost" id="btnClearTrail">軌跡クリア</button>
+      <button class="btn ghost" id="btnResetOdom">原点・北向きにリセット</button>
+    </div>
+    <canvas id="mapCanvas"></canvas>
+    <div class="readout compact">
+      <div><span>位置ID</span><b id="valPos">—</b></div>
+      <div><span>位置IDの角度</span><b id="valPosAngle">—</b></div>
+      <div><span>推定座標 (mm)</span><b id="valOdo">—</b></div>
+      <div><span>推定の向き</span><b id="valOdoAngle">—</b></div>
+    </div>
+    <p class="hint" id="deadHint">
+      推測航法はモーターへの指示から位置を積算した推定値です。滑りや誤差が積み重なるので、
+      進む距離が合わないときは設定の「軌跡」タブで速度係数と輪距を調整してください。
+    </p>
+  </section>
+
+  <!-- ============ ステータス ============ -->
+  <section class="panel wide">
+    <h2>ステータス<span class="sub">2 台ぶん</span></h2>
+    <div class="status-cols">
+      <div class="status-col">
+        <h3 class="col-head"><span class="role-tag ctl">コントローラ</span></h3>
+        <div class="readout compact">
+          <div><span>接続</span><b id="stCtlConn">未接続</b></div>
+          <div><span>名前</span><b id="stCtlName">—</b></div>
+          <div><span>バッテリー</span><b id="stCtlBatt">—</b></div>
+          <div><span>ボタン</span><b id="stCtlBtn">—</b></div>
+          <div><span>姿勢角 R/P/Y</span><b id="stCtlAtt">—</b></div>
+          <div><span>姿勢角の受信</span><b id="stCtlRate">—</b></div>
+          <div><span>水平 / 面</span><b id="stCtlFlat">—</b></div>
+          <div><span>BLEプロトコル</span><b id="stCtlProto">—</b></div>
+        </div>
+      </div>
+      <div class="status-col">
+        <h3 class="col-head"><span class="role-tag tgt">操作対象</span></h3>
+        <div class="readout compact">
+          <div><span>接続</span><b id="stTgtConn">未接続</b></div>
+          <div><span>名前</span><b id="stTgtName">—</b></div>
+          <div><span>バッテリー</span><b id="stTgtBatt">—</b></div>
+          <div><span>ボタン</span><b id="stTgtBtn">—</b></div>
+          <div><span>姿勢角 R/P/Y</span><b id="stTgtAtt">—</b></div>
+          <div><span>位置ID</span><b id="stTgtPos">—</b></div>
+          <div><span>モーター速度</span><b id="stTgtSpeed">—</b></div>
+          <div><span>BLEプロトコル</span><b id="stTgtProto">—</b></div>
+        </div>
+      </div>
+    </div>
+    <div class="events">
+      <span class="ev" id="evCollision">衝突</span>
+      <span class="ev" id="evDoubleTap">ダブルタップ</span>
+      <span class="ev" id="evButton">ボタン</span>
+    </div>
+  </section>
+
+  <!-- ============ 設定 ============ -->
+  <section class="panel wide">
+    <h2>設定</h2>
+    <div class="tabs" data-tabs="settings">
+      <button class="tab active" data-tab="yaw">追従（ヨー）</button>
+      <button class="tab" data-tab="pitch">前後（ピッチ）</button>
+      <button class="tab" data-tab="safety">安全・応答</button>
+      <button class="tab" data-tab="notify">通知</button>
+      <button class="tab" data-tab="trail">軌跡</button>
+      <button class="tab" data-tab="view">表示</button>
+    </div>
+
+    <div class="tabpane active" data-pane="yaw">
+      <div class="row">
+        <label>向きの取得元
+          <select id="selHeadingSource" data-setting>
+            <option value="auto" selected>自動（位置ID → 姿勢角 → 推測航法）</option>
+            <option value="id">位置ID（マット上のみ）</option>
+            <option value="yaw">操作対象の姿勢角（ヨー）</option>
+            <option value="dead">推測航法（モーター積算）</option>
+            <option value="rate">追従なし（ヨーの差をそのまま旋回速度に）</option>
+          </select>
+        </label>
+        <label>追従比（操作 1° あたり）
+          <input type="number" id="numYawRatio" data-setting value="1" min="0.1" max="4" step="0.1">
+        </label>
+      </div>
+      <div class="row">
+        <label>追従ゲイン P <input type="number" id="numYawKp" data-setting value="1.4" min="0" max="10" step="0.1"></label>
+        <label>制振ゲイン D <input type="number" id="numYawKd" data-setting value="0.15" min="0" max="3" step="0.05"></label>
+        <label>最大旋回速度 <input type="number" id="numTurnMax" data-setting value="60" min="0" max="115" step="1"></label>
+        <label>不感帯（度） <input type="number" id="numYawDead" data-setting value="3" min="0" max="45" step="0.5"></label>
+      </div>
+      <div class="row">
+        <label>追従なしのときの旋回ゲイン
+          <input type="number" id="numRateGain" data-setting value="1.2" min="0" max="10" step="0.1">
+        </label>
+        <label class="check"><input type="checkbox" id="chkYawInvert" data-setting> コントローラのヨーを反転</label>
+        <label class="check"><input type="checkbox" id="chkHeadingInvert" data-setting> 操作対象のヨーを反転</label>
+      </div>
+      <p class="hint">
+        回りすぎて行ったり来たりするときは P を下げるか D を上げます。追いつかないときは P を上げます。
+        向きが逆に回ってしまう場合は、キューブの IMU の符号が想定と逆なので「ヨーを反転」を試してください。
+      </p>
+    </div>
+
+    <div class="tabpane" data-pane="pitch">
+      <div class="row">
+        <label>最大速度 <input type="number" id="numSpeedMax" data-setting value="80" min="0" max="115" step="1"></label>
+        <label>全速になる角度（度） <input type="number" id="numPitchFull" data-setting value="30" min="5" max="80" step="1"></label>
+        <label>不感帯（度） <input type="number" id="numPitchDead" data-setting value="6" min="0" max="45" step="0.5"></label>
+      </div>
+      <div class="row">
+        <label>反応カーブ <output id="outPitchExpo">30%</output>
+          <input type="range" id="numPitchExpo" data-setting min="0" max="100" value="30">
+        </label>
+        <label class="check"><input type="checkbox" id="chkPitchInvert" data-setting> 前後を反転</label>
+        <label class="check"><input type="checkbox" id="chkZeroPitch" data-setting checked> 基準にピッチも含める</label>
+      </div>
+      <p class="hint">
+        反応カーブを上げるほど、中央付近がゆるやかになって微速が出しやすくなります。
+        「基準にピッチも含める」を切ると、水平（ピッチ 0°）が常に停止位置になります。
+      </p>
+    </div>
+
+    <div class="tabpane" data-pane="safety">
+      <div class="row">
+        <label>送信間隔（ms） <input type="number" id="numSendMs" data-setting value="60" min="30" max="500" step="10"></label>
+        <label>加速のなまし（ms） <input type="number" id="numRampMs" data-setting value="150" min="0" max="2000" step="10"></label>
+        <label>姿勢角が途切れたら停止（ms） <input type="number" id="numStaleMs" data-setting value="800" min="100" max="5000" step="100"></label>
+      </div>
+      <div class="row">
+        <label class="check"><input type="checkbox" id="chkSound" data-setting checked> 開始・停止で効果音を鳴らす</label>
+        <label class="check"><input type="checkbox" id="chkLight" data-setting checked> 役割に応じてランプを光らせる</label>
+      </div>
+      <p class="hint">
+        送信間隔を詰めすぎると BLE が詰まって、かえって反応が悪くなります。60ms 前後が目安です。
+        キーボードの <b>Space</b> / <b>Esc</b> でいつでも停止できます。
+      </p>
+    </div>
+
+    <div class="tabpane" data-pane="notify">
+      <div class="row">
+        <label>姿勢角の形式
+          <select id="selAttFormat" data-setting>
+            <option value="1" selected>1: オイラー角</option>
+            <option value="2">2: クォータニオン</option>
+            <option value="3">3: 高精度オイラー角</option>
+          </select>
+        </label>
+        <label>姿勢角の間隔（ms） <input type="number" id="numAttInterval" data-setting value="50" min="0" max="2550" step="10"></label>
+        <label>姿勢角の条件
+          <select id="selAttCondition" data-setting>
+            <option value="0">0: 変化時</option>
+            <option value="1" selected>1: 常に</option>
+          </select>
+        </label>
+      </div>
+      <div class="row">
+        <label>ID通知の間隔（ms） <input type="number" id="numIdInterval" data-setting value="0" min="0" max="2550" step="10"></label>
+        <label>ID通知の条件
+          <select id="selIdCondition" data-setting>
+            <option value="0" selected>0: 変化あり</option>
+            <option value="1">1: 常に</option>
+            <option value="255">255: 変化あり（従来）</option>
+          </select>
+        </label>
+        <label class="check"><input type="checkbox" id="chkMotorFeedback" data-setting checked> 操作対象のモーター速度を取得</label>
+      </div>
+      <div class="row">
+        <button class="btn" id="btnApplyNotify">接続中のキューブに適用</button>
+      </div>
+      <p class="hint">
+        姿勢角検出は BLE プロトコルバージョン 2.3.0 以降のファームウェアが必要です。
+        古いキューブでは設定を書いても通知が来ないので、上のステータスでバージョンを確認してください。
+      </p>
+    </div>
+
+    <div class="tabpane" data-pane="trail">
+      <div class="row">
+        <label>軌跡の点数 <input type="number" id="numTrailLen" data-setting value="900" min="50" max="5000" step="50"></label>
+        <label>速度係数（mm/s ÷ 指示値） <input type="number" id="numDrScale" data-setting value="1" min="0.1" max="5" step="0.1"></label>
+        <label>輪距（mm） <input type="number" id="numDrTread" data-setting value="27" min="5" max="200" step="1"></label>
+      </div>
+      <p class="hint">
+        推測航法の精度を上げるには、実際に 1m 走らせて推定座標と見比べ、速度係数を合わせます。
+        その場で 360° 回して角度が合わない場合は輪距を調整します（向きに位置IDや姿勢角を使っている場合は関係ありません）。
+      </p>
+    </div>
+
+    <div class="tabpane" data-pane="view">
+      <div class="row">
+        <label>視点の方位 <output id="outCamAzim">35°</output>
+          <input type="range" id="numCamAzim" data-setting min="-180" max="180" value="35">
+        </label>
+        <label>視点の高さ <output id="outCamElev">28°</output>
+          <input type="range" id="numCamElev" data-setting min="-10" max="85" value="28">
+        </label>
+        <label>3D の大きさ <output id="outCamZoom">100%</output>
+          <input type="range" id="numCamZoom" data-setting min="50" max="200" value="100">
+        </label>
+      </div>
+      <div class="row">
+        <label class="check"><input type="checkbox" id="chk3dRollInv" data-setting> 3D のロールを反転</label>
+        <label class="check"><input type="checkbox" id="chk3dPitchInv" data-setting> 3D のピッチを反転</label>
+      </div>
+      <p class="hint">
+        3D モデルが実機と逆に傾く場合は、上の反転で合わせてください（IMU の符号の取り方はキューブ側の仕様に
+        明記がないため、実機を見ながら決めるのが確実です）。ヨーの向きは「追従」タブの反転設定に従います。
+      </p>
+      <div class="row">
+        <button class="btn ghost" id="btnSettingsReset">設定を既定値に戻す</button>
+        <span class="hint nomargin">設定はこの端末のブラウザに保存されます。</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ ログ ============ -->
+  <section class="panel wide">
+    <h2>通信ログ<span class="sub">送受信のバイト列</span></h2>
+    <div class="row log-toolbar">
+      <label class="check"><input type="checkbox" id="logTx"> 送信</label>
+      <label class="check"><input type="checkbox" id="logRx" checked> 受信</label>
+      <label class="check"><input type="checkbox" id="logPause"> 一時停止</label>
+      <button class="btn ghost" id="btnLogClear">クリア</button>
+      <span class="hint nomargin">走行中は毎秒十数回のモーター指示が出るので、送信は既定で伏せています。</span>
+    </div>
+    <div id="log" class="log"></div>
+  </section>
+</main>
+
+<footer class="footer">
+  <p>
+    Web Bluetooth を直接使っています。HTTPS または localhost、かつ Chrome / Edge 系ブラウザが必要です。
+    バイト列は <a href="https://toio.github.io/toio-spec/" target="_blank" rel="noopener">toio 公式 BLE 通信仕様</a> に準拠。
+    1 台だけを細かく操作したいときは <a href="../control/">コントロールパネル</a> をどうぞ。
+  </p>
+</footer>
+
+<script src="../shared/toio.js?v=20260813n"></script>
+<script src="app.js?v=20260813n"></script>
+</body>
+</html>
