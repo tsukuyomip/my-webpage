@@ -360,12 +360,7 @@
         this.attitudeAt = Date.now(); // 推測航法で「新しい値か」を見るのに使う
         const format = dv.getUint8(1);
         if (format === 1) {
-          // ロールはキューブが返す符号が実機の傾きと逆（右に傾けると負）なので、
-          // ここで反転して「右に傾けると正」に揃える。生の値は rawRoll に残す
-          this.attitude = {
-            format, rawRoll: dv.getInt16(2, true),
-            roll: -dv.getInt16(2, true), pitch: dv.getInt16(4, true), yaw: dv.getInt16(6, true),
-          };
+          this.attitude = { format, roll: dv.getInt16(2, true), pitch: dv.getInt16(4, true), yaw: dv.getInt16(6, true) };
           this.emit('attitude', this.attitude);
           return `姿勢角(オイラー) roll=${this.attitude.roll}° pitch=${this.attitude.pitch}° yaw=${this.attitude.yaw}°`;
         }
@@ -382,8 +377,7 @@
           this.attitude = {
             format,
             rawRoll: dv.getInt16(2, true), rawPitch: dv.getInt16(4, true), rawYaw: dv.getInt16(6, true),
-            // 形式 1 と同じくロールだけ反転する
-            roll: -dv.getInt16(2, true) / 100, pitch: dv.getInt16(4, true) / 100, yaw: dv.getInt16(6, true) / 100,
+            roll: dv.getInt16(2, true) / 100, pitch: dv.getInt16(4, true) / 100, yaw: dv.getInt16(6, true) / 100,
           };
           this.emit('attitude', this.attitude);
           return `姿勢角(高精度オイラー) roll=${this.attitude.roll} pitch=${this.attitude.pitch} yaw=${this.attitude.yaw}`;
