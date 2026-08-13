@@ -461,7 +461,7 @@
     anchor.has = false;
   }
 
-  $('btnResetOdom').addEventListener('click', () => { resetOdometry(); toast('原点・北向きに戻しました'); });
+  $('btnResetOdom').addEventListener('click', () => { resetOdometry(); toast('原点・0°に戻しました'); });
   $('btnClearTrail').addEventListener('click', () => { odoTrail.length = 0; idTrail.length = 0; });
 
   // ------------------------------------------------------------ 制御ループ
@@ -809,7 +809,7 @@
       ctx.stroke();
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
-      ctx.fillText('北', (X(mat.minX) + X(mat.maxX)) / 2, Y(mat.minY) + 3 * dpr);
+      ctx.fillText('0°', (X(mat.minX) + X(mat.maxX)) / 2, Y(mat.minY) + 3 * dpr);
       ctx.textAlign = 'left';
       ctx.textBaseline = 'bottom';
       ctx.fillText(`向き: ${drive.source ? HEADING_LABEL[drive.source] : '—'}`, X(mat.minX) + 4 * dpr, Y(mat.maxY) - 4 * dpr);
@@ -934,12 +934,14 @@
     ctx.lineWidth = dpr;
     ctx.beginPath(); ctx.arc(0, 0, r, 0, Math.PI * 2); ctx.stroke();
     ctx.fillStyle = '#8b949e';
-    ctx.font = `${9 * dpr}px ui-monospace, monospace`;
+    // 目盛りは方角ではなく角度で書く。ページのほかの表示（目標の向き・誤差）と単位を揃えるため。
+    // 4 桁ぶんの幅が要るので、1 文字だったころより内側かつ小さめに置く
+    ctx.font = `${8 * dpr}px ui-monospace, monospace`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    for (const [txt, ang] of [['N', 0], ['E', 90], ['S', 180], ['W', 270]]) {
-      const a = (ang - 90) * Math.PI / 180;
-      ctx.fillText(txt, Math.cos(a) * r * 0.82, Math.sin(a) * r * 0.82);
+    for (const deg of [0, 90, 180, 270]) {
+      const a = (deg - 90) * Math.PI / 180;
+      ctx.fillText(deg + '°', Math.cos(a) * r * 0.8, Math.sin(a) * r * 0.8);
     }
     // 誤差の扇（目標と実測のあいだ）
     if (drive.desired !== null && drive.actual !== null) {
@@ -948,12 +950,12 @@
       ctx.fillStyle = 'rgba(88,166,255,0.18)';
       ctx.beginPath();
       ctx.moveTo(0, 0);
-      ctx.arc(0, 0, r * 0.62, a0, a1, wrap180(drive.desired - drive.actual) < 0);
+      ctx.arc(0, 0, r * 0.5, a0, a1, wrap180(drive.desired - drive.actual) < 0);
       ctx.closePath();
       ctx.fill();
     }
-    if (drive.actual !== null) drawArrow(ctx, 0, 0, drive.actual - 90, r * 0.6, '#3fb950', null);
-    if (drive.desired !== null) drawArrow(ctx, 0, 0, drive.desired - 90, r * 0.75, null, '#58a6ff');
+    if (drive.actual !== null) drawArrow(ctx, 0, 0, drive.actual - 90, r * 0.48, '#3fb950', null);
+    if (drive.desired !== null) drawArrow(ctx, 0, 0, drive.desired - 90, r * 0.62, null, '#58a6ff');
     ctx.restore();
 
     // ---- スロットル（前後の指令）
@@ -1148,7 +1150,7 @@
       };
       mark(drive.desired, '#58a6ff', 0.4);
       mark(drive.actual, '#3fb950', 0.28);
-      // 北（基準の向き）
+      // 0°（基準の向き）
       mark(0, 'rgba(139,148,158,0.9)', 0.16);
     }
 

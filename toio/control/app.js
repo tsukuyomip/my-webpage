@@ -189,7 +189,7 @@
     syncReadouts();
   }
 
-  /** 向きだけ北（0°）に戻す。ヨーを使っている場合は今の値を基準に取り直す */
+  /** 向きだけ 0° に戻す。ヨーを使っている場合は今の値を基準に取り直す */
   function resetHeading() {
     for (const c of cubes) estimateOf(c).angle = 0;
     resetYawTracking();
@@ -209,7 +209,7 @@
   });
 
   // 推測航法の地図は、角度 0（＝リセット直後の向き）が画面の上に来るように
-  // 表示だけ 90 度回す。「北向き」を上として読めるようにするため。
+  // 表示だけ 90 度回す。0°（リセット直後の向き）を上として読めるようにするため。
   function drRotate(x, y) { return [y, -x]; }
 
   /** 推測航法モードでの表示範囲。実測の軌跡に合わせて広げる（回した後の座標で） */
@@ -1326,7 +1326,7 @@
     }
 
     if (dead) {
-      // 原点の目印と、上が北（リセット直後の向き）であることの表示
+      // 原点の目印と、上が 0°（リセット直後の向き）であることの表示
       ctx.strokeStyle = '#8b949e';
       ctx.beginPath();
       ctx.moveTo(X(-12), Y(0)); ctx.lineTo(X(12), Y(0));
@@ -1334,7 +1334,7 @@
       ctx.stroke();
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
-      ctx.fillText('北', (X(mat.minX) + X(mat.maxX)) / 2, Y(mat.minY) + 3 * dpr);
+      ctx.fillText('0°', (X(mat.minX) + X(mat.maxX)) / 2, Y(mat.minY) + 3 * dpr);
       // 向きを何から出しているかは取り違えやすいので、地図にも書いておく
       ctx.textAlign = 'left';
       ctx.textBaseline = 'bottom';
