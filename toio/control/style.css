@@ -37,78 +37,15 @@
   margin-top: 0.6rem;
 }
 
-/* ---------- ミニマップ ---------- */
-.minimap {
-  position: fixed;
-  right: calc(12px + env(safe-area-inset-right));
-  bottom: calc(12px + env(safe-area-inset-bottom));
-  width: 170px;
-  z-index: 60;
-  /* 後ろのコンテンツを塞がないよう、背景は半透明にしてぼかしだけかける */
-  background: rgba(22, 27, 34, 0.72);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
-  backdrop-filter: blur(6px);
-  overflow: hidden;
-  /* ドラッグで動かすので、ここではスクロールさせない */
-  touch-action: none;
-  cursor: grab;
-  transition: opacity 0.4s;
-}
-
-/* しばらく触っていないときは薄くして、下の操作パネルを読めるようにする */
-.minimap.idle { opacity: 0.45; }
-
-/* 半透明をやめたとき。透け・自動フェードとも切る */
-.minimap.solid { background: var(--surface); backdrop-filter: none; }
-.minimap.solid.idle { opacity: 1; }
-.minimap.solid #miniCanvas, .minimap.solid #miniAttCanvas { background: var(--bg); }
-.minimap.dragging { cursor: grabbing; opacity: 0.85; }
-
-.minimap-bar {
-  display: flex;
-  align-items: center;
-  gap: 0.15rem;
-  padding: 0.2rem 0.2rem 0.2rem 0.45rem;
-  border-bottom: 1px solid var(--border);
-  font-size: 0.7rem;
-  color: var(--muted);
-}
-
-/* 幅が足りないときはタイトルから削る。ボタンは折り返させない */
-.minimap-title {
-  flex: 1 1 auto;
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-}
-
-.minimap-btn {
-  flex: 0 0 auto;
-  white-space: nowrap;
-  background: none;
-  border: none;
-  color: var(--muted);
-  font-family: inherit;
-  font-size: 0.85rem;
-  line-height: 1;
-  padding: 0.35rem 0.3rem;
-  cursor: pointer;
-  border-radius: 4px;
-}
-
-.minimap-btn:hover { color: var(--text); background: var(--surface2); }
+/* ---------- ミニマップの中身 ---------- */
+/* 枠・つまみ・半透明の切り替えは ../shared/base.css 側にある */
 
 /* 水準器は地図の左に縦並びで置く。地図は正方形のまま */
-.minimap-body { display: flex; align-items: stretch; }
-
-/* 背景を塗らないので、描いた線以外は下が透ける */
 #miniCanvas {
   display: block;
   width: 100%;
   aspect-ratio: 1 / 1;
-  background: transparent;
+  background: transparent;   /* 背景を塗らないので、描いた線以外は下が透ける */
 }
 
 .minimap-body.with-level #miniCanvas { width: 66%; }
@@ -122,7 +59,7 @@
   border-right: 1px solid var(--border);
 }
 
-.minimap-btn.on { color: var(--accent); background: var(--surface2); }
+.minimap.solid #miniCanvas, .minimap.solid #miniAttCanvas { background: var(--bg); }
 
 /* ---------- 十字キー ---------- */
 .dpad {

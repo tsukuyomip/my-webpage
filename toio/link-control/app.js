@@ -66,6 +66,9 @@
     stateKind: 'idle',  // idle | ready | run | warn
   };
 
+  /** 追従が不感帯に収まっている状態。細かく出入りして揺れないよう覚えておく */
+  let yawRest = false;
+
   /** 推測航法。単位は mm、角度は位置IDと同じ向き（x 右・y 下・時計回りが正） */
   const odo = { x: 0, y: 0, angle: 0 };
   const odoTrail = [];
@@ -121,6 +124,7 @@
   /** スライダーの脇に出している数値を更新する */
   function syncSettingOutputs() {
     $('outPitchExpo').textContent = $('numPitchExpo').value + '%';
+    $('outYawCurve').textContent = $('numYawCurve').value + '%';
     $('outCamAzim').textContent = $('numCamAzim').value + '°';
     $('outCamElev').textContent = $('numCamElev').value + '°';
     $('outCamZoom').textContent = $('numCamZoom').value + '%';
@@ -536,7 +540,9 @@
     let wantFwd = 0;
     if (ce) {
       const zeroPitch = chk('chkZeroPitch') && anchor.has ? anchor.pitch : 0;
-      const p = (ce.pitch - zeroPitch) * (chk('chkPitchInvert') ? -1 : 1);
+      // キューブのピッチは「上向きが正・下向きが負」。前に傾ける＝負なので、
+      // そのままだと前後が逆になる。既定で符号を反転して「前傾＝前進」にする
+      const p = (ce.pitch - zeroPitch) * (chk('chkPitchInvert') ? 1 : -1);
       const dead = num('numPitchDead');
       const full = Math.max(num('numPitchFull'), dead + 1);
       const a = Math.abs(p);
@@ -564,32 +570,58 @@
       err = wrap180(drive.desired - drive.actual);
     }
 
+    // ---- 旋回の速さ
+    // 誤差にそのまま比例させると、BLE の往復と車体の慣性のぶんだけ行き過ぎて振動する。
+    // 「遠ければ速く、近づくほど緩やかに」を素直な形にして、上限も低めに置く。
     let turn = 0;
     if (err !== null) {
       const dead = num('numYawDead');
-      const eff = Math.abs(err) <= dead ? 0 : err - Math.sign(err) * dead;
-      const gain = drive.actual === null ? num('numRateGain') : num('numYawKp');
-      let u = gain * eff;
-      if (drive.actual !== null && drive.prevErr !== null) {
-        // 誤差の減り方に応じて抑える（行き過ぎ防止）。またぎでの跳ねは wrap で潰す
-        u += num('numYawKd') * (wrap180(err - drive.prevErr) / dt);
+      // 不感帯にはヒステリシスを持たせる。境目で出入りを繰り返すと小刻みに揺れるため、
+      // いちど収まったら「不感帯の 2.5 倍 + 1 度」ずれるまで動き出さない
+      if (yawRest) { if (Math.abs(err) > dead * 2.5 + 1) yawRest = false; }
+      else if (Math.abs(err) <= dead) yawRest = true;
+
+      if (!yawRest) {
+        const tmax = num('numTurnMax');
+        const eff = Math.max(0, Math.abs(err) - dead);   // 不感帯の外側だけを見る
+        let mag;
+        if (drive.actual === null) {
+          // 追従なし（開ループ）。倒した角度がそのまま旋回の速さになる
+          mag = num('numRateGain') * eff;
+        } else {
+          const full = Math.max(num('numYawFull'), 1);   // ここまで離れたら全速
+          const t = clamp(eff / full, 0, 1);
+          const c = clamp(num('numYawCurve') / 100, 0, 1);
+          const shaped = (1 - c) * t + c * t * t;        // c を上げるほど近くで緩やかになる
+          const tmin = Math.min(num('numTurnMin'), tmax);
+          // 不感帯を出た瞬間が最低速度、離れるほど最大速度へ。段差なくつながる
+          mag = tmin + (tmax - tmin) * shaped;
+        }
+        let u = Math.sign(err) * mag;
+        if (drive.actual !== null && drive.prevErr !== null) {
+          // 誤差が縮まっている勢いに応じて先に緩める（行き過ぎ防止）。
+          // またぎでの跳ねは wrap で潰す
+          u += num('numYawKd') * (wrap180(err - drive.prevErr) / dt);
+        }
+        turn = clamp(u, -tmax, tmax);
       }
-      const tmax = num('numTurnMax');
-      turn = clamp(u, -tmax, tmax);
+    } else {
+      yawRest = false;
     }
     drive.prevErr = err;
     drive.err = err;
 
     // ---- なまし
+    // 前後も旋回も、指令をそのまま送ると段差が出る。時定数を分けて別々になます
     const ramp = num('numRampMs');
+    const tramp = num('numTurnRamp');
     if (!ok) {
       drive.fwd = 0; drive.turn = 0;
-    } else if (ramp <= 0) {
-      drive.fwd = wantFwd; drive.turn = turn;
     } else {
-      const k = 1 - Math.exp(-dt * 1000 / ramp);
-      drive.fwd += (wantFwd - drive.fwd) * k;
-      drive.turn = turn;   // 旋回は追従の応答そのものなので、なまさない
+      if (ramp <= 0) drive.fwd = wantFwd;
+      else drive.fwd += (wantFwd - drive.fwd) * (1 - Math.exp(-dt * 1000 / ramp));
+      if (tramp <= 0) drive.turn = turn;
+      else drive.turn += (turn - drive.turn) * (1 - Math.exp(-dt * 1000 / tramp));
     }
 
     // ---- ロール（拡張点）
@@ -1045,6 +1077,96 @@
   poseCanvas.addEventListener('pointerup', endCamDrag);
   poseCanvas.addEventListener('pointercancel', endCamDrag);
 
+  // -------------------------------------------- 姿勢のミニ表示（浮かせる）
+  // 操縦のパネルと姿勢を同時に見たいので、画面のどこにいても見える位置に浮かせる。
+  // 掴めば動かせて、大きさも変えられる。閉じたら上のツールバーから戻せる。
+  const MINI_SIZES = [130, 175, 230];
+  const poseMini = $('poseMini');
+  const poseMiniCanvas = $('poseMiniCanvas');
+  const poseMiniCtx = poseMiniCanvas.getContext('2d');
+  const MINI_KEY = 'toio-link-control-pose-mini';
+  const miniState = { visible: true, size: 1, left: null, top: null };
+
+  try { Object.assign(miniState, JSON.parse(localStorage.getItem(MINI_KEY) || '{}')); } catch (e) { /* 壊れていたら初期値 */ }
+
+  function saveMiniState() {
+    try { localStorage.setItem(MINI_KEY, JSON.stringify(miniState)); } catch (e) { /* noop */ }
+  }
+
+  /** 画面の外に出て掴めなくなるのを防ぐ */
+  function clampMini() {
+    if (miniState.left === null) return;
+    const r = poseMini.getBoundingClientRect();
+    const w = r.width || MINI_SIZES[miniState.size % MINI_SIZES.length];
+    const h = r.height || w;
+    miniState.left = Math.max(4, Math.min(window.innerWidth - w - 4, miniState.left));
+    miniState.top = Math.max(4, Math.min(window.innerHeight - h - 4, miniState.top));
+  }
+
+  function applyMiniState() {
+    poseMini.classList.toggle('hidden', !miniState.visible);
+    poseMini.style.width = MINI_SIZES[miniState.size % MINI_SIZES.length] + 'px';
+    if (miniState.left !== null && miniState.top !== null) {
+      clampMini();
+      poseMini.style.left = miniState.left + 'px';
+      poseMini.style.top = miniState.top + 'px';
+      poseMini.style.right = 'auto';
+      poseMini.style.bottom = 'auto';
+    }
+    $('btnPoseMiniToggle').textContent = miniState.visible ? 'ミニ表示を隠す' : 'ミニ表示';
+  }
+
+  $('btnPoseMiniToggle').addEventListener('click', () => {
+    miniState.visible = !miniState.visible;
+    applyMiniState();
+    saveMiniState();
+  });
+
+  $('btnPoseMiniHide').addEventListener('click', (e) => {
+    e.stopPropagation();
+    miniState.visible = false;
+    applyMiniState();
+    saveMiniState();
+  });
+
+  $('btnPoseMiniSize').addEventListener('click', (e) => {
+    e.stopPropagation();
+    miniState.size = (miniState.size + 1) % MINI_SIZES.length;
+    applyMiniState();
+    saveMiniState();
+  });
+
+  // ドラッグで好きな位置へ動かす
+  let miniDrag = null;
+  poseMini.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('.minimap-btn')) return;
+    const r = poseMini.getBoundingClientRect();
+    miniDrag = { dx: e.clientX - r.left, dy: e.clientY - r.top };
+    miniState.left = r.left;
+    miniState.top = r.top;
+    poseMini.classList.add('dragging');
+    try { poseMini.setPointerCapture(e.pointerId); } catch (err) { /* noop */ }
+    e.preventDefault();
+  });
+
+  poseMini.addEventListener('pointermove', (e) => {
+    if (!miniDrag) return;
+    miniState.left = e.clientX - miniDrag.dx;
+    miniState.top = e.clientY - miniDrag.dy;
+    applyMiniState();
+  });
+
+  const endMiniDrag = () => {
+    if (!miniDrag) return;
+    miniDrag = null;
+    poseMini.classList.remove('dragging');
+    saveMiniState();
+  };
+
+  poseMini.addEventListener('pointerup', endMiniDrag);
+  poseMini.addEventListener('pointercancel', endMiniDrag);
+  window.addEventListener('resize', () => { clampMini(); applyMiniState(); });
+
   /** 直方体の 6 面を {pts(ローカル), n(法線)} で返す */
   function boxFaces(hx, hy, hz, cz) {
     const z0 = -hz + (cz || 0), z1 = hz + (cz || 0);
@@ -1071,8 +1193,11 @@
     return `rgb(${f(r)}, ${f(g)}, ${f(b)})`;
   }
 
-  function renderPose() {
-    const cv = poseCanvas, ctx = poseCtx;
+  /**
+   * 姿勢の 3D を描く。浮かせたミニ表示からも同じ関数を使う。
+   * @param {boolean} compact 軸のラベルや説明文を省いて小さく描く
+   */
+  function renderPose(cv, ctx, compact) {
     const dpr = fitCanvas(cv);
     const w = cv.width, h = cv.height;
     ctx.clearRect(0, 0, w, h);
@@ -1087,8 +1212,9 @@
     const pitch = (e ? e.pitch : 0) * (chk('chk3dPitchInv') ? -1 : 1);
     const yaw = (e ? e.yaw : 0) * (chk('chkYawInvert') ? -1 : 1);
 
-    // 機体の姿勢。ヨーは「時計回りが正」の向きに合わせるため符号を反転して z 軸に入れる
-    const R = mul(rotZ(-yaw * Math.PI / 180), mul(rotY(pitch * Math.PI / 180), rotX(roll * Math.PI / 180)));
+    // 機体の姿勢。ヨーは「時計回りが正」、ピッチは「上向きが正」に合わせるため、
+    // どちらも符号を反転して行列に入れる（rotY は正で機首が下がる向きのため）
+    const R = mul(rotZ(-yaw * Math.PI / 180), mul(rotY(-pitch * Math.PI / 180), rotX(roll * Math.PI / 180)));
 
     // カメラ
     const az = cam.azim * Math.PI / 180, el = cam.elev * Math.PI / 180;
@@ -1222,6 +1348,7 @@
         ctx.strokeStyle = color;
         ctx.lineWidth = 1.8 * dpr;
         ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+        if (compact) continue;   // 小さいと文字だらけになるのでラベルは省く
         ctx.fillStyle = color;
         ctx.fillText(label, b[0] + 4 * dpr, b[1]);
       }
@@ -1229,9 +1356,9 @@
 
     if (!has) {
       ctx.fillStyle = '#8b949e';
-      ctx.font = `${12 * dpr}px ui-monospace, monospace`;
+      ctx.font = `${(compact ? 9 : 12) * dpr}px ui-monospace, monospace`;
       ctx.textAlign = 'center';
-      ctx.fillText('コントローラの姿勢角を待っています', w / 2, h - 12 * dpr);
+      ctx.fillText(compact ? '姿勢角を待っています' : 'コントローラの姿勢角を待っています', w / 2, h - 8 * dpr);
       ctx.textAlign = 'left';
     }
   }
@@ -1298,7 +1425,8 @@
   function loop() {
     renderMap();
     renderLevel();
-    renderPose();
+    renderPose(poseCanvas, poseCtx, false);
+    if (miniState.visible) renderPose(poseMiniCanvas, poseMiniCtx, true);
     requestAnimationFrame(loop);
   }
 
@@ -1312,6 +1440,7 @@
   captureDefaults();
   loadSettings();
   syncSettingOutputs();
+  applyMiniState();
   renderRoles();
   updateCommandUi();
   updateStatus();

@@ -9,8 +9,8 @@
   <meta name="description" content="toio コアキューブ 2 台を Web Bluetooth で接続し、片方を手に持つコントローラ、もう片方を操作対象にして、ヨー角の追従とピッチ角のスロットルで走らせるページ。">
   <!-- ?v= はキャッシュ避け。HTML だけ更新されて CSS/JS が古いままだと
        レイアウトが崩れるので、これらを変更したら必ず上げること -->
-  <link rel="stylesheet" href="../shared/base.css?v=20260813q">
-  <link rel="stylesheet" href="style.css?v=20260813q">
+  <link rel="stylesheet" href="../shared/base.css?v=20260813r">
+  <link rel="stylesheet" href="style.css?v=20260813r">
 </head>
 <body>
 
@@ -106,6 +106,7 @@
     <canvas id="poseCanvas"></canvas>
     <div class="row pose-toolbar">
       <span class="hint nomargin">ドラッグで視点を回せます</span>
+      <button class="btn ghost" id="btnPoseMiniToggle">ミニ表示を隠す</button>
       <button class="btn ghost" id="btnCamReset">視点リセット</button>
       <label class="check"><input type="checkbox" id="chkGrid" data-setting checked> 床</label>
       <label class="check"><input type="checkbox" id="chkAxes" data-setting checked> 軸</label>
@@ -224,20 +225,31 @@
         </label>
       </div>
       <div class="row">
-        <label>追従ゲイン P <input type="number" id="numYawKp" data-setting value="1.4" min="0" max="10" step="0.1"></label>
-        <label>制振ゲイン D <input type="number" id="numYawKd" data-setting value="0.15" min="0" max="3" step="0.05"></label>
-        <label>最大旋回速度 <input type="number" id="numTurnMax" data-setting value="60" min="0" max="115" step="1"></label>
+        <label>最大旋回速度 <input type="number" id="numTurnMax" data-setting value="38" min="0" max="115" step="1"></label>
+        <label>最低旋回速度 <input type="number" id="numTurnMin" data-setting value="7" min="0" max="60" step="1"></label>
+        <label>全速になる角度（度） <input type="number" id="numYawFull" data-setting value="75" min="5" max="180" step="5"></label>
         <label>不感帯（度） <input type="number" id="numYawDead" data-setting value="3" min="0" max="45" step="0.5"></label>
       </div>
       <div class="row">
+        <label>減速カーブ <output id="outYawCurve">70%</output>
+          <input type="range" id="numYawCurve" data-setting min="0" max="100" value="70">
+        </label>
+        <label>旋回のなまし（ms） <input type="number" id="numTurnRamp" data-setting value="120" min="0" max="1000" step="10"></label>
+        <label>制振ゲイン D <input type="number" id="numYawKd" data-setting value="0.06" min="0" max="3" step="0.02"></label>
+      </div>
+      <div class="row">
         <label>追従なしのときの旋回ゲイン
-          <input type="number" id="numRateGain" data-setting value="1.2" min="0" max="10" step="0.1">
+          <input type="number" id="numRateGain" data-setting value="0.8" min="0" max="10" step="0.1">
         </label>
         <label class="check"><input type="checkbox" id="chkYawInvert" data-setting> コントローラのヨーを反転</label>
         <label class="check"><input type="checkbox" id="chkHeadingInvert" data-setting> 操作対象のヨーを反転</label>
       </div>
       <p class="hint">
-        回りすぎて行ったり来たりするときは P を下げるか D を上げます。追いつかないときは P を上げます。
+        旋回の速さは「離れているほど速く、近づくほど緩やか」に決まります。<b>全速になる角度</b>まで離れたら
+        最大旋回速度、不感帯を出たところが最低旋回速度で、その間を<b>減速カーブ</b>がつなぎます
+        （カーブを上げるほど手前で減速します）。
+        行ったり来たりして揺れるときは、最大旋回速度を下げる・減速カーブを上げる・旋回のなましを長くする、
+        の順に試すのが効きます。逆に反応が鈍いときは全速になる角度を小さくしてください。
         向きが逆に回ってしまう場合は、キューブの IMU の符号が想定と逆なので「ヨーを反転」を試してください。
       </p>
     </div>
@@ -256,6 +268,8 @@
         <label class="check"><input type="checkbox" id="chkZeroPitch" data-setting checked> 基準にピッチも含める</label>
       </div>
       <p class="hint">
+        キューブのピッチは<b>上向きが正、下向きが負</b>です。前に傾ける（下向き）と前進、
+        後ろに傾ける（上向き）と後退します。逆のほうが好みなら「前後を反転」を入れてください。
         反応カーブを上げるほど、中央付近がゆるやかになって微速が出しやすくなります。
         「基準にピッチも含める」を切ると、水平（ピッチ 0°）が常に停止位置になります。
       </p>
@@ -375,7 +389,19 @@
   </p>
 </footer>
 
-<script src="../shared/toio.js?v=20260813q"></script>
-<script src="app.js?v=20260813q"></script>
+<!-- 姿勢のミニ表示。操縦しながらでも見えるよう画面に浮かせる -->
+<div id="poseMini" class="minimap solid">
+  <div class="minimap-bar">
+    <span class="minimap-title">姿勢</span>
+    <button class="minimap-btn" id="btnPoseMiniSize" title="大きさを変える">⤢</button>
+    <button class="minimap-btn" id="btnPoseMiniHide" title="閉じる">✕</button>
+  </div>
+  <div class="minimap-body">
+    <canvas id="poseMiniCanvas"></canvas>
+  </div>
+</div>
+
+<script src="../shared/toio.js?v=20260813r"></script>
+<script src="app.js?v=20260813r"></script>
 </body>
 </html>
