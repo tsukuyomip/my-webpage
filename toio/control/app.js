@@ -625,8 +625,11 @@
     // 片側だけ頭打ちにすると曲がり方が変わるので、比を保ったまま縮める
     const peak = Math.max(Math.abs(l), Math.abs(r));
     if (peak > 115) { l = l * 115 / peak; r = r * 115 / peak; }
-    joy.l = Math.round(l);
-    joy.r = Math.round(r);
+    // キューブが受け付ける速度は 0 か 8〜115 で、1〜7 を送っても動かない。
+    // 0 でなければ最低 8 は出しておかないと、そのぶんが無反応の帯になる
+    const atLeast8 = (v) => (v === 0 ? 0 : (Math.abs(v) < 8 ? Math.sign(v) * 8 : v));
+    joy.l = atLeast8(Math.round(l));
+    joy.r = atLeast8(Math.round(r));
     $('joyL').textContent = joy.l;
     $('joyR').textContent = joy.r;
     setSliders(joy.l, joy.r); // 「基本」タブのスライダーとも揃えておく

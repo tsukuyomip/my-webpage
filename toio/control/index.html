@@ -9,8 +9,8 @@
   <meta name="description" content="Web Bluetooth で toio コアキューブの BLE 機能をひととおり操作できるコントロールパネル。">
   <!-- ?v= はキャッシュ避け。HTML だけ更新されて CSS/JS が古いままだと
        レイアウトが崩れるので、これらを変更したら必ず上げること -->
-  <link rel="stylesheet" href="../shared/base.css?v=20260813x">
-  <link rel="stylesheet" href="style.css?v=20260813x">
+  <link rel="stylesheet" href="../shared/base.css?v=20260813y">
+  <link rel="stylesheet" href="style.css?v=20260813y">
 </head>
 <body>
 
@@ -110,11 +110,11 @@
 
       <p class="hint" id="joyHint">2本のスティックを同時に操作できます。倒した量に応じて連続的に変化し、離すと中央に戻ります。</p>
       <div class="row">
-        <label>前後の感度 <output id="outJoyMax">80</output>
-          <input type="range" id="joyMax" min="10" max="115" value="80">
+        <label>前後の感度 <output id="outJoyMax">100</output>
+          <input type="range" id="joyMax" min="10" max="115" value="100">
         </label>
-        <label>旋回の感度 <output id="outJoyTurn">70</output>
-          <input type="range" id="joyTurn" min="0" max="115" value="70">
+        <label>旋回の感度 <output id="outJoyTurn">35</output>
+          <input type="range" id="joyTurn" min="0" max="115" value="35">
         </label>
       </div>
       <div class="row">
@@ -509,7 +509,7 @@
 </div>
 
 <!-- BLE ラッパーは /toio/ 配下のページで共有している -->
-<script src="../shared/toio.js?v=20260813x"></script>
-<script src="app.js?v=20260813x"></script>
+<script src="../shared/toio.js?v=20260813y"></script>
+<script src="app.js?v=20260813y"></script>
 </body>
 </html>
