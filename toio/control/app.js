@@ -28,7 +28,7 @@
     // 印刷して使う「toio プログラミングマット」。A3 全面に 1200dpi の模様が
     // 入っていて、1 マス ≒ 1.36mm なので 310 x 216 マスぶんの広さになる。
     // 実機で (11750, 16000) と (11800, 16050) に行けたことから割り出した推定値
-    pgcmd: { name: 'プログラミングマット', minX: 11640, minY: 15895, maxX: 11950, maxY: 16115 },
+    pgcmd: { name: 'プログラミングマット', minX: 11640, minY: 15884, maxX: 11950, maxY: 16115 },
     ring: { name: 'リング', minX: 45, minY: 45, maxX: 455, maxY: 455 },
     colortile: { name: 'カラータイル', minX: 545, minY: 45, maxX: 955, maxY: 455 },
     simple: { name: 'シンプルプレイマット', minX: 98, minY: 142, maxX: 402, maxY: 358 },
@@ -191,7 +191,78 @@
     }
   }
 
-  setInterval(() => { stepDeadReckoning(); navStep(); }, 40);
+  // ---- マットから出たときの復帰 --------------------------------------
+  // 位置IDが読めなくなったら、警告音を鳴らしながらゆっくり戻す。位置が
+  // 分からない状態なので、出る直前の座標と向きを頼りにした相対的な操作になる。
+  let recover = null;   // {cube, startedAt, until, lastBeep, rel, base, ...}
+
+  function recoverStop(note) {
+    if (!recover) return;
+    const cube = recover.cube;
+    recover = null;
+    if (cube && cube.connected) {
+      cube.motor(0, 0);
+      const p = cube.soundStop();
+      if (p && p.catch) p.catch(() => {});
+    }
+    if (note) toast(note);
+  }
+
+  function recoverStart(cube) {
+    if (!$('autoRecover').checked || isDeadReckoning()) return;
+    if (recover || navGoal || joy.l || joy.r) return;   // 手動や自動移動の邪魔をしない
+    const s = readStats.get(cube);
+    if (!s || !s.lastPos || Date.now() - s.lastAt > 3000) return;
+
+    // 出た地点から見て、マットの中心はどちらか。角度は位置IDと同じ
+    // 「0°が +x、時計回りに増える」で揃えている
+    const mat = currentMat();
+    const cx = (mat.minX + mat.maxX) / 2, cy = (mat.minY + mat.maxY) / 2;
+    const want = Math.atan2(cy - s.lastPos.y, cx - s.lastPos.x) * 180 / Math.PI;
+    recover = {
+      cube,
+      startedAt: Date.now(), until: Date.now() + 12000, lastBeep: 0,
+      rel: ((want - s.lastPos.angle + 540) % 360) - 180,  // 中心を向くまでに回る量
+      base: estimateOf(cube).angle,                       // 回った量を測る基準
+      l: null, r: null, sentAt: 0,
+    };
+    toast('マットから出たので、ゆっくり戻します');
+  }
+
+  function recoverStep() {
+    if (!recover) return;
+    const c = recover.cube;
+    if (!c.connected) { recover = null; return; }
+    if (c.onMat && c.position) { recoverStop('マットに戻りました'); return; }
+    if (Date.now() > recover.until) { recoverStop('戻れなかったので止めました'); return; }
+
+    // 効果音は鳴り終わるので、鳴らし直して警告を続ける
+    if (Date.now() - recover.lastBeep > 1200) {
+      recover.lastBeep = Date.now();
+      const p = c.soundEffect(5, 200);   // 「Mat out」
+      if (p && p.catch) p.catch(() => {});
+    }
+
+    let l, r;
+    if (Date.now() - recover.startedAt < 1400) {
+      l = r = -20;            // まずは来た道をまっすぐ戻る。たいていはこれで復帰する
+    } else {
+      // それでも戻らないなら、マットの中心へ向き直してから進む。
+      // 向きは推測航法の積算値で追う（自分で出している指示なので追える）
+      const turned = ((estimateOf(c).angle - recover.base + 540) % 360) - 180;
+      const left = recover.rel - turned;
+      if (Math.abs(left) > 12) { const sg = Math.sign(left); l = 15 * sg; r = -15 * sg; }
+      else { l = r = 20; }
+    }
+
+    const now = Date.now();
+    if (l !== recover.l || r !== recover.r || now - recover.sentAt > 300) {
+      recover.l = l; recover.r = r; recover.sentAt = now;
+      c.motor(l, r);
+    }
+  }
+
+  setInterval(() => { stepDeadReckoning(); navStep(); recoverStep(); }, 40);
 
   /** 姿勢角の通知を有効にする。ヨーを向きに使うときに必要 */
   function enableAttitude(cube) {
@@ -377,6 +448,7 @@
       const s = statsOf(cube);
       s.pos++;
       s.lastText = `位置ID ${p.x}, ${p.y} (${p.angle}°)`;
+      s.lastPos = { x: p.x, y: p.y, angle: p.angle };
       s.lastAt = Date.now();
       const tr = trails.get(cube) || [];
       tr.push([p.x, p.y]);
@@ -390,7 +462,7 @@
       s.lastText = `標準ID ${v.value} (${v.angle}°)`;
       s.lastAt = Date.now();
     });
-    cube.on('positionMissed', () => { statsOf(cube).posMissed++; });
+    cube.on('positionMissed', () => { statsOf(cube).posMissed++; recoverStart(cube); });
     cube.on('standardMissed', () => { statsOf(cube).stdMissed++; });
     for (const ev of ['standard', 'positionMissed', 'standardMissed', 'motion', 'magnet',
       'attitude', 'button', 'motorSpeed', 'protocolVersion']) {
@@ -621,7 +693,9 @@
     btn.addEventListener('pointercancel', end);
   });
 
-  $('btnStop').addEventListener('click', () => { navStop(); setSliders(0, 0); send((c) => c.stop()); });
+  $('btnStop').addEventListener('click', () => {
+    navStop(); recoverStop(); setSliders(0, 0); send((c) => c.stop());
+  });
 
   $('btnMotorTimed').addEventListener('click', () => {
     const d = Number($('mDuration').value);
@@ -729,8 +803,11 @@
 
   /** 値が変わったときだけ実際に送る */
   function joyFlush() {
-    // 手で操作したら自動移動はやめる
-    if (navGoal && (joy.l || joy.r)) navStop('手動操作に切り替えたので自動移動をやめました');
+    // 手で操作したら自動の動きはやめる
+    if (joy.l || joy.r) {
+      if (navGoal) navStop('手動操作に切り替えたので自動移動をやめました');
+      if (recover) recoverStop('手動操作に切り替えたので復帰をやめました');
+    }
     if (joy.sent && joy.sent[0] === joy.l && joy.sent[1] === joy.r) return;
     joy.sent = [joy.l, joy.r];
     send((c) => c.motor(joy.l, joy.r));
