@@ -1416,7 +1416,30 @@
     }
   }
 
+  /**
+   * 読めている位置IDが、選んでいるマットの範囲の外にあるときに知らせる。
+   * 範囲外だとキューブの矢印が枠の外＝キャンバスの外に描かれ、
+   * 「読めていない」ようにしか見えないため。
+   */
+  function updateMatRangeHint() {
+    const el = $('matRangeHint');
+    const p = selected && selected.onMat && selected.position;
+    if (isDeadReckoning() || !p || $('matSelect').value === 'auto') {
+      el.classList.add('hidden');
+      return;
+    }
+    const mat = currentMat();
+    const out = p.x < mat.minX || p.x > mat.maxX || p.y < mat.minY || p.y > mat.maxY;
+    el.classList.toggle('hidden', !out);
+    if (out) {
+      el.textContent = `位置ID (${p.x}, ${p.y}) は選択中のマットの範囲（`
+        + `${mat.minX}–${mat.maxX} / ${mat.minY}–${mat.maxY}）の外です。`
+        + 'マットを「自動（実測範囲）」にすると表示され、タップでの移動も正しい座標になります。';
+    }
+  }
+
   function drawMat() {
+    updateMatRangeHint();
     renderMap(canvas, ctx, false);
     if (!$('minimap').classList.contains('hidden')) renderMap(miniCanvas, miniCtx, true);
   }

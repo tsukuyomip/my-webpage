@@ -9,8 +9,8 @@
   <meta name="description" content="Web Bluetooth で toio コアキューブの BLE 機能をひととおり操作できるコントロールパネル。">
   <!-- ?v= はキャッシュ避け。HTML だけ更新されて CSS/JS が古いままだと
        レイアウトが崩れるので、これらを変更したら必ず上げること -->
-  <link rel="stylesheet" href="../shared/base.css?v=20260813y">
-  <link rel="stylesheet" href="style.css?v=20260813y">
+  <link rel="stylesheet" href="../shared/base.css?v=20260813z">
+  <link rel="stylesheet" href="style.css?v=20260813z">
 </head>
 <body>
 
@@ -271,6 +271,7 @@
       モーターへの指示から位置を積算した推定値です。滑りや誤差が積み重なるので、
       進む距離や回り方が合わない場合は速度係数と輪距を調整してください。
     </p>
+    <p class="hint warn hidden" id="matRangeHint"></p>
     <canvas id="matCanvas"></canvas>
     <div class="readout" id="idReadout">
       <div><span>位置ID</span><b id="roPos">—</b></div>
@@ -509,7 +510,7 @@
 </div>
 
 <!-- BLE ラッパーは /toio/ 配下のページで共有している -->
-<script src="../shared/toio.js?v=20260813y"></script>
-<script src="app.js?v=20260813y"></script>
+<script src="../shared/toio.js?v=20260813z"></script>
+<script src="app.js?v=20260813z"></script>
 </body>
 </html>
