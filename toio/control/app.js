@@ -296,6 +296,10 @@
       await cube.connect();
       cubes.push(cube);
       selected = cube;
+      // 前に別のアプリなどで変えられていても位置IDが流れてくるように、
+      // 読み取りセンサーの通知設定をキューブの既定に戻しておく
+      cube.setIdNotification(0, 0xff).catch(() => {});
+      cube.setIdMissedNotification(70).catch(() => {});
       if (isDeadReckoning() || miniState.level) enableAttitude(cube);
       renderTabs();
       syncReadouts();
@@ -1529,6 +1533,27 @@
         { x, y, angle: Number($('tAngle').value), rotateType: Number($('tRotate').value) },
         targetOptions()));
     }
+  });
+
+  // 通知が一件も来ないときの切り分け用。通知の設定を既定に戻したうえで、
+  // 読み取りセンサーを直接読む。通知の経路が壊れていても、これなら値が取れる
+  $('btnReadId').addEventListener('click', async () => {
+    const c = selected;
+    if (!c || !c.connected) { toast('キューブが接続されていません'); return; }
+    try {
+      await c.setIdNotification(0, 0xff);   // 間隔0ms・変化があったとき（キューブの既定）
+      await c.setIdMissedNotification(70);
+    } catch (e) { /* 設定に失敗しても読み出しは試す */ }
+    try {
+      const bytes = await c.read('id');
+      if (!bytes.length) toast('読み取りセンサーは空を返しました（マットの模様を読めていません）');
+      else if (c.onMat && c.position) toast(`位置ID ${c.position.x}, ${c.position.y} を読めました`);
+      else if (c.onMat && c.standardId) toast(`標準ID ${c.standardId.value} を読めました`);
+      else toast('マットの模様を読めていません');
+    } catch (e) {
+      toast('読み出しに失敗: ' + (e.message || e));
+    }
+    syncReadouts();
   });
 
   $('btnClearTrail').addEventListener('click', () => {
