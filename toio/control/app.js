@@ -25,6 +25,10 @@
 
   const MATS = {
     wide: { name: '広域', minX: -500, minY: -500, maxX: 500, maxY: 500 },
+    // 印刷して使う「toio プログラミングマット」。A3 全面に 1200dpi の模様が
+    // 入っていて、1 マス ≒ 1.36mm なので 310 x 216 マスぶんの広さになる。
+    // 実機で (11750, 16000) と (11800, 16050) に行けたことから割り出した推定値
+    pgcmd: { name: 'プログラミングマット', minX: 11640, minY: 15895, maxX: 11950, maxY: 16115 },
     ring: { name: 'リング', minX: 45, minY: 45, maxX: 455, maxY: 455 },
     colortile: { name: 'カラータイル', minX: 545, minY: 45, maxX: 955, maxY: 455 },
     simple: { name: 'シンプルプレイマット', minX: 98, minY: 142, maxX: 402, maxY: 358 },
@@ -1612,47 +1616,68 @@
     }
   });
 
-  // 通知が一件も来ないときの切り分け用。通知の設定を既定に戻したうえで、
-  // 読み取りセンサーを直接読む。通知の経路が壊れていても、これなら値が取れる
+  // 位置IDの通知が一件も来ないときの切り分け。読み取りセンサーの通知設定を
+  // 順に当てはめて、どれなら通知が来るのかを実機で確かめる。あわせて GATT の
+  // 読み出しも試すので、通知の経路が死んでいても値が取れるなら分かる。
+  const ID_NOTIFY_COMBOS = [
+    { interval: 0, cond: 0xff, label: '間隔0ms / 条件0xFF' },
+    { interval: 0, cond: 0x01, label: '間隔0ms / 条件0x01' },
+    { interval: 0, cond: 0x00, label: '間隔0ms / 条件0x00' },
+    { interval: 100, cond: 0x00, label: '間隔100ms / 条件0x00' },
+  ];
+
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
   $('btnReadId').addEventListener('click', async () => {
     const c = selected;
     if (!c || !c.connected) { toast('キューブが接続されていません'); return; }
-    try {
-      await c.setIdNotification(0, 0xff);   // 間隔0ms・変化があったとき（キューブの既定）
-      await c.setIdMissedNotification(70);
-    } catch (e) { /* 設定に失敗しても読み出しは試す */ }
-    // 1回だけだと、たまたま読めない瞬間なのか、まったく読めないのかが分からない。
-    // 数秒かけて繰り返し読み、何回読めたかで判断する
+
     const btn = $('btnReadId');
+    const out = $('idDiag');
     const label = btn.textContent;
     btn.disabled = true;
-    const TRIES = 20;
-    let ok = 0, lastHead = null, lastError = null;
-    for (let i = 0; i < TRIES; i++) {
-      btn.textContent = `読み取り中… ${i + 1}/${TRIES}`;
+    out.classList.remove('hidden');
+
+    const lines = [];
+    let best = null;
+    for (let i = 0; i < ID_NOTIFY_COMBOS.length; i++) {
+      const combo = ID_NOTIFY_COMBOS[i];
+      btn.textContent = `診断中… ${i + 1}/${ID_NOTIFY_COMBOS.length}`;
+      const s = statsOf(c);
+      const before = s.pos + s.std + s.posMissed + s.stdMissed;
+      let err = '';
+      try {
+        await c.setIdNotification(combo.interval, combo.cond);
+        await c.setIdMissedNotification(70);
+      } catch (e) { err = ' 設定失敗:' + (e.message || e); }
+
+      await sleep(1600);   // この間にキューブを少し動かしてもらう
+      const got = (s.pos + s.std + s.posMissed + s.stdMissed) - before;
+
+      let head = '—';
       try {
         const bytes = await c.read('id');
-        if (bytes.length) {
-          lastHead = bytes[0];
-          if (bytes[0] === 0x01 || bytes[0] === 0x02) ok++;
-        } else {
-          lastHead = null;
-        }
-      } catch (e) {
-        lastError = e.message || String(e);
-      }
-      await new Promise((r) => setTimeout(r, 150));
+        head = bytes.length ? '0x' + bytes[0].toString(16).padStart(2, '0') : '空';
+      } catch (e) { head = '読み出し不可'; }
+
+      lines.push(`${combo.label}: 通知 ${got} 件 / 読み出し ${head}${err}`);
+      if (got > 0 && (!best || got > best.got)) best = { combo, got };
+      out.textContent = lines.join('\n');
     }
+
     btn.textContent = label;
     btn.disabled = false;
-    if (ok) {
-      toast(`${TRIES}回中 ${ok}回読めました`
-        + (c.position ? `（位置ID ${c.position.x}, ${c.position.y}）` : ''));
+
+    if (best) {
+      await c.setIdNotification(best.combo.interval, best.combo.cond).catch(() => {});
+      lines.push(`→ ${best.combo.label} で通知が来たので、この設定にしました`);
+      toast(`${best.combo.label} で通知を受け取れました`);
     } else {
-      const head = lastHead === null ? '空' : '0x' + lastHead.toString(16).padStart(2, '0');
-      toast(`${TRIES}回とも読めませんでした（応答の先頭: ${head}`
-        + (lastError ? ` / ${lastError}` : '') + '）');
+      lines.push('→ どの設定でも通知が来ませんでした。'
+        + '目標指定で狙った座標に止まるなら、キューブは読めていて通知だけが出ていない状態です。');
+      toast('どの設定でも位置IDの通知は来ませんでした');
     }
+    out.textContent = lines.join('\n');
     syncReadouts();
   });
 

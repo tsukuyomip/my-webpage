@@ -7,6 +7,9 @@
 .dr-status { font-size: 0.72rem; color: var(--accent); align-self: center; }
 .hint.warn { color: var(--warn); }
 
+/* 通知設定の診断結果。行ごとに読ませたいので改行を活かす */
+#idDiag { white-space: pre-wrap; font-family: ui-monospace, monospace; font-size: 0.72rem; }
+
 .cube-tabs:empty::after {
   content: '接続されているキューブはありません';
   color: var(--muted);
