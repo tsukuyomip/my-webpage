@@ -10,6 +10,19 @@
   let selected = null;
   const trails = new WeakMap();
 
+  // 読み取りセンサーの実績。マットの模様を読めているかを目で確かめられるように、
+  // 最後に読めた値と回数を、マットから外れたあとも残しておく。
+  const readStats = new WeakMap();  // cube -> {pos, posMissed, std, stdMissed, lastText, lastAt}
+
+  function statsOf(cube) {
+    let s = readStats.get(cube);
+    if (!s) {
+      s = { pos: 0, posMissed: 0, std: 0, stdMissed: 0, lastText: null, lastAt: 0 };
+      readStats.set(cube, s);
+    }
+    return s;
+  }
+
   const MATS = {
     ring: { name: 'リング', minX: 45, minY: 45, maxX: 455, maxY: 455 },
     colortile: { name: 'カラータイル', minX: 545, minY: 45, maxX: 955, maxY: 455 },
@@ -307,12 +320,24 @@
       toast(cube.name + ' が切断されました');
     });
     cube.on('position', (p) => {
+      const s = statsOf(cube);
+      s.pos++;
+      s.lastText = `位置ID ${p.x}, ${p.y} (${p.angle}°)`;
+      s.lastAt = Date.now();
       const tr = trails.get(cube) || [];
       tr.push([p.x, p.y]);
       if (tr.length > 600) tr.shift();
       trails.set(cube, tr);
       if (cube === selected) syncReadouts();
     });
+    cube.on('standard', (v) => {
+      const s = statsOf(cube);
+      s.std++;
+      s.lastText = `標準ID ${v.value} (${v.angle}°)`;
+      s.lastAt = Date.now();
+    });
+    cube.on('positionMissed', () => { statsOf(cube).posMissed++; });
+    cube.on('standardMissed', () => { statsOf(cube).stdMissed++; });
     for (const ev of ['standard', 'positionMissed', 'standardMissed', 'motion', 'magnet',
       'attitude', 'button', 'motorSpeed', 'protocolVersion']) {
       cube.on(ev, () => { if (cube === selected) syncReadouts(); });
@@ -370,6 +395,19 @@
     set('roAngle', c && c.position ? c.position.angle + '°' : null);
     set('roSensor', c && c.position ? `${c.position.sensorX}, ${c.position.sensorY}` : null);
     set('roStd', c && c.standardId ? `${c.standardId.value} (${c.standardId.angle}°)` : null);
+
+    // マット外の今この瞬間ではなく、「これまでに読めたことがあるか」を出す。
+    // 一瞬でも読めていれば、マット自体は読める＝設定や範囲の問題だと切り分けられる。
+    const st = c && readStats.get(c);
+    if (st && st.lastAt) {
+      const sec = Math.floor((Date.now() - st.lastAt) / 1000);
+      set('roLastRead', `${st.lastText} / ${sec < 1 ? 'たった今' : sec + '秒前'}`);
+    } else {
+      set('roLastRead', c ? 'まだ一度も読めていません' : null);
+    }
+    set('roReadStats', st
+      ? `読めた ${st.pos + st.std} / 読めず ${st.posMissed + st.stdMissed}`
+      : null);
 
     const m = c && c.motion;
     set('roFlat', m ? (m.flat ? '水平' : '傾いている') : null);
@@ -1423,11 +1461,20 @@
    */
   function updateMatRangeHint() {
     const el = $('matRangeHint');
-    const p = selected && selected.onMat && selected.position;
-    if (isDeadReckoning() || !p || $('matSelect').value === 'auto') {
-      el.classList.add('hidden');
+    if (isDeadReckoning() || !selected) { el.classList.add('hidden'); return; }
+
+    // 一度も読めていないなら、範囲の話より先に「模様が読めていない」ことを出す
+    const st = readStats.get(selected);
+    if (st && !st.pos && !st.std && st.posMissed + st.stdMissed >= 5) {
+      el.classList.remove('hidden');
+      el.textContent = 'キューブがマットの模様を一度も読めていません。'
+        + '印刷したマットは、レーザープリンタ（カーボントナー）で等倍・最高画質で刷ったものだけが読めます。'
+        + 'インクジェットや拡大縮小した印刷、光沢紙、ラミネートでは読めません。';
       return;
     }
+
+    const p = selected.onMat && selected.position;
+    if (!p || $('matSelect').value === 'auto') { el.classList.add('hidden'); return; }
     const mat = currentMat();
     const out = p.x < mat.minX || p.x > mat.maxX || p.y < mat.minY || p.y > mat.maxY;
     el.classList.toggle('hidden', !out);
@@ -1485,9 +1532,13 @@
   $('btnClearTrail').addEventListener('click', () => {
     for (const c of cubes) {
       if (isDeadReckoning()) estTrails.set(c, []);
-      else trails.set(c, []);
+      else { trails.set(c, []); readStats.delete(c); }
     }
+    syncReadouts();
   });
+
+  // 「最後に読めた」の経過秒だけは、通知が来なくても進めたい
+  setInterval(() => { if (selected) syncReadouts(); }, 1000);
 
   // ---------------------------------------------------------- 姿勢角の描画
   const attCanvas = $('attCanvas');

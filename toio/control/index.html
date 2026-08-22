@@ -9,8 +9,8 @@
   <meta name="description" content="Web Bluetooth で toio コアキューブの BLE 機能をひととおり操作できるコントロールパネル。">
   <!-- ?v= はキャッシュ避け。HTML だけ更新されて CSS/JS が古いままだと
        レイアウトが崩れるので、これらを変更したら必ず上げること -->
-  <link rel="stylesheet" href="../shared/base.css?v=20260813z">
-  <link rel="stylesheet" href="style.css?v=20260813z">
+  <link rel="stylesheet" href="../shared/base.css?v=20260822a">
+  <link rel="stylesheet" href="style.css?v=20260822a">
 </head>
 <body>
 
@@ -278,6 +278,8 @@
       <div><span>角度</span><b id="roAngle">—</b></div>
       <div><span>センサー座標</span><b id="roSensor">—</b></div>
       <div><span>標準ID</span><b id="roStd">—</b></div>
+      <div><span>最後に読めた</span><b id="roLastRead">—</b></div>
+      <div><span>読み取り回数</span><b id="roReadStats">—</b></div>
       <div class="hidden" id="roEstCell"><span>推定座標 (mm)</span><b id="roEst">—</b></div>
       <div class="hidden" id="roEstAngleCell"><span>推定角度</span><b id="roEstAngle">—</b></div>
     </div>
@@ -510,7 +512,7 @@
 </div>
 
 <!-- BLE ラッパーは /toio/ 配下のページで共有している -->
-<script src="../shared/toio.js?v=20260813z"></script>
-<script src="app.js?v=20260813z"></script>
+<script src="../shared/toio.js?v=20260822a"></script>
+<script src="app.js?v=20260822a"></script>
 </body>
 </html>
