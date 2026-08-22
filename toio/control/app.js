@@ -17,7 +17,7 @@
   function statsOf(cube) {
     let s = readStats.get(cube);
     if (!s) {
-      s = { pos: 0, posMissed: 0, std: 0, stdMissed: 0, lastText: null, lastAt: 0 };
+      s = { pos: 0, posMissed: 0, std: 0, stdMissed: 0, lastText: null, lastAt: 0, since: Date.now() };
       readStats.set(cube, s);
     }
     return s;
@@ -311,6 +311,7 @@
   });
 
   function hookCube(cube) {
+    statsOf(cube);   // 接続した瞬間から「読めた 0 / 読めず 0」と出す
     estimates.set(cube, { x: 0, y: 0, angle: 0 });
     estTrails.set(cube, []);
     cube.on('log', (entry) => appendLog(cube, entry));
@@ -1463,13 +1464,14 @@
     const el = $('matRangeHint');
     if (isDeadReckoning() || !selected) { el.classList.add('hidden'); return; }
 
-    // 一度も読めていないなら、範囲の話より先に「模様が読めていない」ことを出す
+    // 一度も読めていないなら、範囲の話より先に「模様が読めていない」ことを出す。
+    // マットの外にいるあいだ通知は来ないので、回数ではなく接続からの時間で判断する
     const st = readStats.get(selected);
-    if (st && !st.pos && !st.std && st.posMissed + st.stdMissed >= 5) {
+    if (st && !st.pos && !st.std && selected.connected && Date.now() - st.since > 10000) {
       el.classList.remove('hidden');
-      el.textContent = 'キューブがマットの模様を一度も読めていません。'
-        + '印刷したマットは、レーザープリンタ（カーボントナー）で等倍・最高画質で刷ったものだけが読めます。'
-        + 'インクジェットや拡大縮小した印刷、光沢紙、ラミネートでは読めません。';
+      el.textContent = '接続してから位置ID・標準IDを一度も読めていません。'
+        + '位置IDの模様は特殊な印刷が必要で、家庭用・コンビニのプリンタではまず再現できません。'
+        + '製品付属のマットか、模様が刷り込まれた開発用プレイマット／専用の印刷サービスをお使いください。';
       return;
     }
 
@@ -1532,7 +1534,13 @@
   $('btnClearTrail').addEventListener('click', () => {
     for (const c of cubes) {
       if (isDeadReckoning()) estTrails.set(c, []);
-      else { trails.set(c, []); readStats.delete(c); }
+      else {
+        trails.set(c, []);
+        // 消すのではなく数え直す。消すと「読めた 0」すら出せなくなる
+        const s = statsOf(c);
+        s.pos = s.posMissed = s.std = s.stdMissed = 0;
+        s.lastText = null; s.lastAt = 0; s.since = Date.now();
+      }
     }
     syncReadouts();
   });
