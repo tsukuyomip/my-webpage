@@ -1544,14 +1544,37 @@
       await c.setIdNotification(0, 0xff);   // 間隔0ms・変化があったとき（キューブの既定）
       await c.setIdMissedNotification(70);
     } catch (e) { /* 設定に失敗しても読み出しは試す */ }
-    try {
-      const bytes = await c.read('id');
-      if (!bytes.length) toast('読み取りセンサーは空を返しました（マットの模様を読めていません）');
-      else if (c.onMat && c.position) toast(`位置ID ${c.position.x}, ${c.position.y} を読めました`);
-      else if (c.onMat && c.standardId) toast(`標準ID ${c.standardId.value} を読めました`);
-      else toast('マットの模様を読めていません');
-    } catch (e) {
-      toast('読み出しに失敗: ' + (e.message || e));
+    // 1回だけだと、たまたま読めない瞬間なのか、まったく読めないのかが分からない。
+    // 数秒かけて繰り返し読み、何回読めたかで判断する
+    const btn = $('btnReadId');
+    const label = btn.textContent;
+    btn.disabled = true;
+    const TRIES = 20;
+    let ok = 0, lastHead = null, lastError = null;
+    for (let i = 0; i < TRIES; i++) {
+      btn.textContent = `読み取り中… ${i + 1}/${TRIES}`;
+      try {
+        const bytes = await c.read('id');
+        if (bytes.length) {
+          lastHead = bytes[0];
+          if (bytes[0] === 0x01 || bytes[0] === 0x02) ok++;
+        } else {
+          lastHead = null;
+        }
+      } catch (e) {
+        lastError = e.message || String(e);
+      }
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    btn.textContent = label;
+    btn.disabled = false;
+    if (ok) {
+      toast(`${TRIES}回中 ${ok}回読めました`
+        + (c.position ? `（位置ID ${c.position.x}, ${c.position.y}）` : ''));
+    } else {
+      const head = lastHead === null ? '空' : '0x' + lastHead.toString(16).padStart(2, '0');
+      toast(`${TRIES}回とも読めませんでした（応答の先頭: ${head}`
+        + (lastError ? ` / ${lastError}` : '') + '）');
     }
     syncReadouts();
   });
