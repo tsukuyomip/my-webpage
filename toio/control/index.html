@@ -9,8 +9,8 @@
   <meta name="description" content="Web Bluetooth で toio コアキューブの BLE 機能をひととおり操作できるコントロールパネル。">
   <!-- ?v= はキャッシュ避け。HTML だけ更新されて CSS/JS が古いままだと
        レイアウトが崩れるので、これらを変更したら必ず上げること -->
-  <link rel="stylesheet" href="../shared/base.css?v=20260822c">
-  <link rel="stylesheet" href="style.css?v=20260822c">
+  <link rel="stylesheet" href="../shared/base.css?v=20260822d">
+  <link rel="stylesheet" href="style.css?v=20260822d">
 </head>
 <body>
 
@@ -241,6 +241,7 @@
       </label>
       <label class="check"><input type="checkbox" id="showTrail" checked> 軌跡</label>
       <label class="check"><input type="checkbox" id="tapToMove" checked> タップで移動</label>
+      <button class="btn ghost" id="btnReadId">位置IDを今すぐ読む</button>
       <button class="btn ghost" id="btnClearTrail">軌跡クリア</button>
       <button class="btn ghost" id="btnMiniToggle">ミニマップ</button>
     </div>
@@ -512,7 +513,7 @@
 </div>
 
 <!-- BLE ラッパーは /toio/ 配下のページで共有している -->
-<script src="../shared/toio.js?v=20260822c"></script>
-<script src="app.js?v=20260822c"></script>
+<script src="../shared/toio.js?v=20260822d"></script>
+<script src="app.js?v=20260822d"></script>
 </body>
 </html>

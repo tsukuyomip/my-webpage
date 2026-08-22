@@ -277,6 +277,8 @@
 
     // ---- 受信の解釈 ----------------------------------------------------
     _handleNotify(charKey, bytes) {
+      // マット外での読み出しは空が返ることがある
+      if (!bytes.length) { this.log('rx', charKey, bytes, '空の応答'); return; }
       const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
       let note = '';
       try {
