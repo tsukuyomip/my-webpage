@@ -9,8 +9,8 @@
   <meta name="description" content="Web Bluetooth で toio コアキューブの BLE 機能をひととおり操作できるコントロールパネル。">
   <!-- ?v= はキャッシュ避け。HTML だけ更新されて CSS/JS が古いままだと
        レイアウトが崩れるので、これらを変更したら必ず上げること -->
-  <link rel="stylesheet" href="../shared/base.css?v=20260822e">
-  <link rel="stylesheet" href="style.css?v=20260822e">
+  <link rel="stylesheet" href="../shared/base.css?v=20260822f">
+  <link rel="stylesheet" href="style.css?v=20260822f">
 </head>
 <body>
 
@@ -229,6 +229,7 @@
       </label>
       <label id="matSelectWrap">マット
         <select id="matSelect">
+          <option value="wide" selected>広域 −500〜500</option>
           <option value="ring">リング 45–455</option>
           <option value="colortile">カラータイル 545–955</option>
           <option value="simple">シンプル 98–402 / 142–358</option>
@@ -513,7 +514,7 @@
 </div>
 
 <!-- BLE ラッパーは /toio/ 配下のページで共有している -->
-<script src="../shared/toio.js?v=20260822e"></script>
-<script src="app.js?v=20260822e"></script>
+<script src="../shared/toio.js?v=20260822f"></script>
+<script src="app.js?v=20260822f"></script>
 </body>
 </html>
