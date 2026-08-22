@@ -1715,7 +1715,11 @@
     btn.disabled = true;
     out.classList.remove('hidden');
 
-    const lines = [];
+    // まず「そもそも購読できているか」を出す。ここが失敗していると
+    // 通知設定をいくらいじっても届かない
+    const st = c.notifyStatus || {};
+    const lines = ['通知の購読: ' + Object.keys(st).map((k) => `${k}=${st[k]}`).join(' / ')];
+    $('idDiag').textContent = lines.join('\n');
     let best = null;
     for (let i = 0; i < ID_NOTIFY_COMBOS.length; i++) {
       const combo = ID_NOTIFY_COMBOS[i];

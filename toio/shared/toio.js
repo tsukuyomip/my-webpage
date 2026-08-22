@@ -80,6 +80,7 @@
       this.chars = {};
       this.listeners = {};
       this.connected = false;
+      this.notifyStatus = {};     // キャラクタリスティックごとの通知購読の結果
 
       this.protocolVersion = null;
       this.battery = null;
@@ -142,13 +143,26 @@
         }
       }
 
+      // 購読は properties.notify を見ずに、まず試す。このフラグを正しく
+      // 申告しないブラウザがあり、見て飛ばすと「エラーも出ないまま通知だけ
+      // 来ない」状態になって原因が分からなくなるため。
+      // 1 つ失敗しても残りは続け、結果を notifyStatus に残す。
+      this.notifyStatus = {};
       for (const key of NOTIFY_CHARS) {
         const c = this.chars[key];
-        if (!c || !c.properties.notify) continue;
+        if (!c) { this.notifyStatus[key] = 'キャラクタリスティックなし'; continue; }
         c.addEventListener('characteristicvaluechanged', (ev) => {
           this._handleNotify(key, new Uint8Array(ev.target.value.buffer));
         });
-        await c.startNotifications();
+        try {
+          await c.startNotifications();
+          this.notifyStatus[key] = 'ok';
+          this.log('info', key, null, '通知を購読'
+            + (c.properties && !c.properties.notify ? '（notify フラグは false だった）' : ''));
+        } catch (e) {
+          this.notifyStatus[key] = '失敗: ' + (e.message || e);
+          this.log('info', key, null, '通知の購読に失敗: ' + (e.message || e));
+        }
       }
 
       this.connected = true;
