@@ -5,6 +5,7 @@
  */
 
 .dr-status { font-size: 0.72rem; color: var(--accent); align-self: center; }
+.hint.warn { color: var(--warn); }
 
 .cube-tabs:empty::after {
   content: '接続されているキューブはありません';
