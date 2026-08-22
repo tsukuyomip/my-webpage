@@ -1,0 +1,74 @@
+/*
+ * デバッグページ固有のスタイル。土台は ../shared/base.css。
+ * 数字と生バイト列を読むための画面なので、等幅と行の詰まりを優先する。
+ */
+
+.table-wrap { overflow-x: auto; }
+
+#charTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: ui-monospace, monospace;
+  font-size: 0.72rem;
+}
+
+#charTable th, #charTable td {
+  border: 1px solid var(--border);
+  padding: 0.3rem 0.4rem;
+  text-align: left;
+  vertical-align: top;
+  white-space: pre-wrap;      /* セル内の改行を活かす */
+  word-break: break-all;
+}
+
+#charTable th { color: var(--muted); font-weight: 600; }
+#charTable td.good { color: var(--accent); }
+#charTable td.bad { color: var(--danger); }
+
+.steps { font-size: 0.82rem; line-height: 1.7; padding-left: 1.2rem; margin-bottom: 0.8rem; }
+.steps code { font-family: ui-monospace, monospace; color: var(--accent); }
+
+.log {
+  height: 40vh;
+  overflow-y: auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.4rem;
+  font-family: ui-monospace, monospace;
+  font-size: 0.68rem;
+  user-select: text;
+}
+
+.log-line { white-space: pre-wrap; word-break: break-all; padding: 1px 0; }
+.log-line.tx { color: var(--warn); }
+.log-line.rx { color: var(--accent); }
+.log-line.info { color: var(--muted); }
+
+.copy-area { width: 100%; height: 8rem; margin-top: 0.5rem; font-family: ui-monospace, monospace; font-size: 0.7rem; }
+
+/* コントロールパネルは JS で組み立てているが、ここは素直に CSS で持つ */
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 1.5rem;
+  transform: translateX(-50%);
+  background: var(--surface2, #1c232c);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  z-index: 200;
+  max-width: 90vw;
+  text-align: center;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+}
+
+.toast.hidden { display: none; }
+
+@media (max-width: 700px) {
+  #charTable { font-size: 0.66rem; }
+  .log { height: 50vh; }
+}

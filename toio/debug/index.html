@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>toio BLE デバッグ</title>
+  <meta name="description" content="toio コアキューブの BLE 通知が本当に届いているかを、生のまま確かめるための検査ページ。">
+  <link rel="stylesheet" href="../shared/base.css?v=20260822a">
+  <link rel="stylesheet" href="style.css?v=20260822a">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="home" href="../control/">&larr;</a>
+    <h1>toio BLE デバッグ</h1>
+    <div class="spacer"></div>
+    <button id="btnConnect" class="btn primary">キューブを接続</button>
+  </div>
+</header>
+
+<div id="unsupported" class="banner hidden">
+  <strong>このブラウザは Web Bluetooth に対応していません。</strong>
+</div>
+
+<main class="grid">
+
+  <section class="panel wide">
+    <h2>キャラクタリスティック<span class="sub">取得と購読の結果、受信件数</span></h2>
+    <p class="hint">
+      通知は 2 通りの受け方を同時に仕掛けてあります。<code>addEventListener</code> だけに来るのか、
+      <code>oncharacteristicvaluechanged</code> だけに来るのかで、ブラウザの実装差が分かります。
+    </p>
+    <div class="table-wrap">
+      <table id="charTable">
+        <thead>
+          <tr>
+            <th>名前</th><th>取得</th><th>notify<br>フラグ</th><th>購読</th>
+            <th>listener<br>受信</th><th>onchar<br>受信</th><th>最後の受信</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p class="hint" id="protoLine">BLEプロトコルバージョン: —</p>
+  </section>
+
+  <section class="panel wide">
+    <h2>通知が届くかを確かめる<span class="sub">マット無しでもできる順に</span></h2>
+
+    <ol class="steps">
+      <li>
+        <b>ボタン</b> — キューブ上面のボタンを押して離す。<code>button</code> の受信が増えれば、
+        このブラウザで通知そのものは届いている。
+      </li>
+      <li>
+        <b>ダブルタップ / 衝突</b> — キューブを 2 回叩く、または軽くぶつける。
+        <code>sensor</code> の受信が増える。
+      </li>
+      <li>
+        <b>モーターの応答</b> — 下の「目標指定を送る」で <code>motor</code> の受信が増える。
+        <b>応答理由</b>が判定の要。<b>0（正常終了）</b>ならキューブはマットを読めている。
+        <b>2（toio ID missed）</b>なら読めていない。
+      </li>
+      <li>
+        <b>位置ID</b> — マットに載せて手で滑らせる。<code>id</code> の受信が増えれば読めている。
+      </li>
+    </ol>
+
+    <div class="row">
+      <label>X <input type="number" id="tX" value="11750"></label>
+      <label>Y <input type="number" id="tY" value="16000"></label>
+      <label>角度 <input type="number" id="tAngle" value="0" min="0" max="8191"></label>
+      <button class="btn primary" id="btnTarget">目標指定を送る</button>
+      <button class="btn danger" id="btnStop">停止</button>
+    </div>
+    <p class="hint mono" id="motorResult">目標指定の応答: —</p>
+
+    <div class="row">
+      <label>ID通知 間隔(ms) <input type="number" id="cfgInterval" value="0" min="0" max="2550" step="10"></label>
+      <label>条件 <input type="number" id="cfgCond" value="255" min="0" max="255"></label>
+      <button class="btn" id="btnIdCfg">ID通知設定を書く</button>
+      <button class="btn ghost" id="btnReadAll">全部を読み出してみる</button>
+    </div>
+  </section>
+
+  <section class="panel wide">
+    <h2>生ログ<span class="sub">送受信をそのまま</span></h2>
+    <div class="row">
+      <label class="check"><input type="checkbox" id="logId" checked> 位置IDも記録する（多いので注意）</label>
+      <button class="btn ghost" id="btnClearLog">クリア</button>
+      <button class="btn ghost" id="btnCopyLog">全部コピー</button>
+    </div>
+    <div id="log" class="log"></div>
+  </section>
+
+</main>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="app.js?v=20260822a"></script>
+</body>
+</html>
