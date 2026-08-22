@@ -24,6 +24,7 @@
   }
 
   const MATS = {
+    wide: { name: '広域', minX: -500, minY: -500, maxX: 500, maxY: 500 },
     ring: { name: 'リング', minX: 45, minY: 45, maxX: 455, maxY: 455 },
     colortile: { name: 'カラータイル', minX: 545, minY: 45, maxX: 955, maxY: 455 },
     simple: { name: 'シンプルプレイマット', minX: 98, minY: 142, maxX: 402, maxY: 358 },
@@ -147,7 +148,46 @@
     }
   }
 
-  setInterval(stepDeadReckoning, 40);
+  // ---- 推定座標だけで目標へ寄せる ------------------------------------
+  // マットが読めない場所では目標指定(0x03)が使えない。推測航法の推定値を
+  // 頼りに、向きを合わせながら近づく。誤差は積もるのであくまで大まかな移動。
+  let navGoal = null;   // {cube, x, y, until}
+
+  function navStop(note) {
+    if (!navGoal) return;
+    const cube = navGoal.cube;
+    navGoal = null;
+    if (cube && cube.connected) cube.motor(0, 0);
+    if (note) toast(note);
+  }
+
+  function navStep() {
+    if (!navGoal) return;
+    const cube = navGoal.cube;
+    if (!cube.connected) { navGoal = null; return; }
+    if (Date.now() > navGoal.until) { navStop('時間切れで止めました'); return; }
+
+    const e = estimateOf(cube);
+    const dx = navGoal.x - e.x, dy = navGoal.y - e.y;
+    const dist = Math.hypot(dx, dy);
+    if (dist < 12) { navStop(`目標に着きました（推定 ${Math.round(e.x)}, ${Math.round(e.y)}）`); return; }
+
+    const want = Math.atan2(dy, dx) * 180 / Math.PI;
+    const err = ((want - e.angle + 540) % 360) - 180;   // -180〜180
+    // 大きく向きがずれているあいだはその場で回り、揃ってきたら前へ出す
+    const turn = Math.max(-45, Math.min(45, err * 0.9));
+    const fwd = Math.abs(err) > 50 ? 0 : Math.min(70, 20 + dist * 0.6);
+    const floor8 = (v) => (Math.abs(v) < 8 ? 0 : Math.max(-115, Math.min(115, Math.round(v))));
+    const l = floor8(fwd + turn), r = floor8(fwd - turn);
+    // BLE を詰まらせないよう、値が変わったときと 300ms ごとだけ送る
+    const now = Date.now();
+    if (l !== navGoal.l || r !== navGoal.r || now - navGoal.sentAt > 300) {
+      navGoal.l = l; navGoal.r = r; navGoal.sentAt = now;
+      cube.motor(l, r);
+    }
+  }
+
+  setInterval(() => { stepDeadReckoning(); navStep(); }, 40);
 
   /** 姿勢角の通知を有効にする。ヨーを向きに使うときに必要 */
   function enableAttitude(cube) {
@@ -227,7 +267,8 @@
 
   /** 推測航法モードでの表示範囲。実測の軌跡に合わせて広げる（回した後の座標で） */
   function deadView() {
-    let minX = -150, minY = -150, maxX = 150, maxY = 150;
+    // 既定は位置IDのときと同じ −500〜500。走った先がそれを超えたら広げる
+    let minX = -500, minY = -500, maxX = 500, maxY = 500;
     for (const c of cubes) {
       const pts = (estTrails.get(c) || []).slice();
       const e = estimates.get(c);
@@ -239,7 +280,11 @@
       }
     }
     const pad = 40;
-    return { name: '推測航法', minX: minX - pad, minY: minY - pad, maxX: maxX + pad, maxY: maxY + pad };
+    return {
+      name: '推測航法',
+      minX: Math.min(-500, minX - pad), minY: Math.min(-500, minY - pad),
+      maxX: Math.max(500, maxX + pad), maxY: Math.max(500, maxY + pad),
+    };
   }
 
   /** コマンドの送信先 */
@@ -572,7 +617,7 @@
     btn.addEventListener('pointercancel', end);
   });
 
-  $('btnStop').addEventListener('click', () => { setSliders(0, 0); send((c) => c.stop()); });
+  $('btnStop').addEventListener('click', () => { navStop(); setSliders(0, 0); send((c) => c.stop()); });
 
   $('btnMotorTimed').addEventListener('click', () => {
     const d = Number($('mDuration').value);
@@ -680,6 +725,8 @@
 
   /** 値が変わったときだけ実際に送る */
   function joyFlush() {
+    // 手で操作したら自動移動はやめる
+    if (navGoal && (joy.l || joy.r)) navStop('手動操作に切り替えたので自動移動をやめました');
     if (joy.sent && joy.sent[0] === joy.l && joy.sent[1] === joy.r) return;
     joy.sent = [joy.l, joy.r];
     send((c) => c.motor(joy.l, joy.r));
@@ -816,6 +863,7 @@
       x: Number($('tX').value), y: Number($('tY').value),
       angle: Number($('tAngle').value), rotateType: Number($('tRotate').value),
     };
+    if (t.x < 0 || t.y < 0) { toast('負の座標はキューブに送れません（位置IDは 0 以上）'); return; }
     send((c) => c.motorTarget(t, targetOptions()));
   });
 
@@ -1397,6 +1445,20 @@
       ctx.font = `${11 * dpr}px ui-monospace, monospace`;
       ctx.textBaseline = 'alphabetic';
       if (!compact) ctx.fillText('原点', X(0) + 6 * dpr, Y(0) - 6 * dpr);
+      // 自動移動の目標
+      if (navGoal) {
+        const g = drRotate(navGoal.x, navGoal.y);
+        ctx.strokeStyle = '#d29922';
+        ctx.fillStyle = '#d29922';
+        ctx.beginPath();
+        ctx.arc(X(g[0]), Y(g[1]), (compact ? 3 : 5) * dpr, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(X(g[0]) - 8 * dpr, Y(g[1])); ctx.lineTo(X(g[0]) + 8 * dpr, Y(g[1]));
+        ctx.moveTo(X(g[0]), Y(g[1]) - 8 * dpr); ctx.lineTo(X(g[0]), Y(g[1]) + 8 * dpr);
+        ctx.stroke();
+        ctx.fillStyle = '#8b949e';
+      }
     } else {
       // 目標マーカー
       ctx.strokeStyle = '#d29922';
@@ -1511,18 +1573,33 @@
     const start = tapStart;
     tapStart = null;
     if (!start) return;
-    if (isDeadReckoning()) return; // 推定座標に向けて動かしても意味がない
     if (Math.hypot(e.clientX - start.x, e.clientY - start.y) > 12) return;
     if (Date.now() - start.t > 700) return;
     if (!$('tapToMove').checked) return;
     const dpr = window.devicePixelRatio || 1;
     const rect = canvas.getBoundingClientRect();
-    const mat = currentMat();
+    const dead = isDeadReckoning();
+    const mat = dead ? deadView() : currentMat();
     const tf = matTransform(mat, rect.width * dpr, rect.height * dpr);
-    const x = Math.round((((e.clientX - rect.left) * dpr) - tf.ox) / tf.scale);
-    const y = Math.round((((e.clientY - rect.top) * dpr) - tf.oy) / tf.scale);
+    const u = Math.round((((e.clientX - rect.left) * dpr) - tf.ox) / tf.scale);
+    const v = Math.round((((e.clientY - rect.top) * dpr) - tf.oy) / tf.scale);
+
+    if (dead) {
+      // 表示は 90 度回してあるので、推定座標へ戻してから目標にする
+      const cube = selected;
+      if (!cube || !cube.connected) { toast('キューブが接続されていません'); return; }
+      navGoal = { cube, x: -v, y: u, until: Date.now() + 30000, l: null, r: null, sentAt: 0 };
+      toast(`推定 ${-v}, ${u} へ移動します（推測航法なので大まかです）`);
+      return;
+    }
+
+    const x = u, y = v;
     $('tX').value = x;
     $('tY').value = y;
+    if (x < 0 || y < 0) {
+      toast('負の座標はキューブに送れません（位置IDは 0 以上）');
+      return;
+    }
 
     if (activeMotorTab() === 'multi') {
       if (multiTargets.length >= 29) { toast('目標は最大 29 点です'); return; }
