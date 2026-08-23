@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>toio BLE デバッグ</title>
   <meta name="description" content="toio コアキューブの BLE 通知が本当に届いているかを、生のまま確かめるための検査ページ。">
-  <link rel="stylesheet" href="../shared/base.css?v=20260823c">
-  <link rel="stylesheet" href="style.css?v=20260823c">
+  <link rel="stylesheet" href="../shared/base.css?v=20260823d">
+  <link rel="stylesheet" href="style.css?v=20260823d">
 </head>
 <body>
 
@@ -104,6 +104,16 @@
     </p>
     <button class="btn primary" id="btnIdTest">走らせながら通知テスト</button>
     <pre class="hint mono" id="idTest"></pre>
+
+    <h3>通知を入れたまま目標指定で走らせる</h3>
+    <p class="hint">
+      ここまでのテストは基本制御（0x01）で走らせていました。<b>目標指定（0x03）で走っている間は、
+      キューブが位置IDを読んでいることが応答理由 0 で確実に分かります。</b>
+      その最中に位置IDの通知が何を返すかは、まだ一度も見ていません。
+      通知を有効にしてから目標指定を送り、到達するまでの受信を数えます。
+    </p>
+    <button class="btn primary" id="btnTargetWatch">通知ONで目標指定を走らせる</button>
+    <pre class="hint mono" id="targetWatch"></pre>
   </section>
 
   <section class="panel wide">
@@ -120,6 +130,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="app.js?v=20260823c"></script>
+<script src="app.js?v=20260823d"></script>
 </body>
 </html>

@@ -409,6 +409,65 @@
     out.textContent = lines.join('\n');
   });
 
+  // 目標指定で走っている最中の位置IDを見る。応答理由 0 で「キューブは読めていた」
+  // ことが確定するので、そのあいだの通知が何なのかを突き合わせられる
+  $('btnTargetWatch').addEventListener('click', async () => {
+    if (!state.id.char) { toast('先に接続してください'); return; }
+    const btn = $('btnTargetWatch');
+    const out = $('targetWatch');
+    const label = btn.textContent;
+    btn.disabled = true;
+    out.textContent = '通知を有効にしています…';
+
+    await write('config', [0x18, 0x00, 0, 0xff]);
+    await sleep(300);
+
+    const s = state.id;
+    const before = s.nListener + s.nOnchar;
+    const beforeValid = s.nValid;
+    const seen = [];
+    const spy = (ev) => {
+      const b = new Uint8Array(ev.target.value.buffer);
+      if (seen.length < 8) seen.push(`${hex(b)} (${b.length}バイト)`);
+    };
+    s.char.addEventListener('characteristicvaluechanged', spy);
+
+    const x = Number($('tX').value) | 0, y = Number($('tY').value) | 0;
+    btn.textContent = '走行中…';
+    const t0 = Date.now();
+    const reason = await new Promise((resolve) => {
+      motorWaiter = resolve;
+      setTimeout(() => { if (motorWaiter === resolve) { motorWaiter = null; resolve(null); } }, 12000);
+      const buf = new Uint8Array(13);
+      const dv = new DataView(buf.buffer);
+      dv.setUint8(0, 0x03); dv.setUint8(2, 10); dv.setUint8(4, 80);
+      dv.setUint16(7, Math.max(0, Math.min(0xffff, x)), true);
+      dv.setUint16(9, Math.max(0, Math.min(0xffff, y)), true);
+      write('motor', Array.from(buf));
+    });
+
+    s.char.removeEventListener('characteristicvaluechanged', spy);
+    btn.textContent = label;
+    btn.disabled = false;
+
+    const got = (s.nListener + s.nOnchar) - before;
+    const valid = s.nValid - beforeValid;
+    const lines = [
+      `目標 (${x}, ${y}) / 走行 ${((Date.now() - t0) / 1000).toFixed(1)} 秒`,
+      `応答理由: ${reason === null ? '返らなかった' : reason
+        + (reason === 0 ? '（正常終了＝キューブはマットを読めていた）' : '')}`,
+      `走行中の位置ID通知: ${got} 件（うち位置ID ${valid} 件）`,
+      seen.length ? '中身: ' + seen.join(' / ') : '中身: 届かず',
+    ];
+    lines.push(reason === 0 && valid === 0
+      ? '→ キューブは読めていたのに、位置IDの中身は返っていません。'
+        + 'この個体・この経路では位置IDをそのまま取れないと考えるのが妥当です'
+      : valid > 0
+        ? '→ 位置IDが取れました'
+        : '→ 応答理由が 0 ではないので、マットの上で試し直してください');
+    out.textContent = lines.join('\n');
+  });
+
   $('btnReadAll').addEventListener('click', async () => {
     for (const c of CHARS) {
       const s = state[c.key];
