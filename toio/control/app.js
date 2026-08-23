@@ -38,13 +38,13 @@
 
   const MATS = {
     wide: { name: '広域', minX: -500, minY: -500, maxX: 500, maxY: 500 },
-    // 印刷して使う「toio プログラミングマット」。A3 全面に 1200dpi の模様が
-    // 入っていて、1 マス ≒ 1.36mm なので 310 x 231 マスぶんの広さになる。
-    // 実測（到達した座標の軌跡）で 11640-11950 / 15884-16115 まで届いた。
-    // その実測値の各辺から 5% 内側を有効範囲にする。端をタップしても
-    // マットから出ないようにするため
+    // 印刷して使う「toio プログラミングマット」（A3 全面・1200dpi、1 マス ≒ 1.36mm）。
+    // 市販マットの一覧に無いので、到達した座標の軌跡から実測した。
+    // 外周をなぞらせた結果、実際に届いたのは 11668-11898 / 15929-16096。
+    // その各辺から 5% 内側を有効範囲にする。端をタップしてもマットから
+    // 出ないようにするため
     pgcmd: inset({ name: 'プログラミングマット',
-      minX: 11640, minY: 15884, maxX: 11950, maxY: 16115 }, 0.05),
+      minX: 11668, minY: 15929, maxX: 11898, maxY: 16096 }, 0.05),
     ring: { name: 'リング', minX: 45, minY: 45, maxX: 455, maxY: 455 },
     colortile: { name: 'カラータイル', minX: 545, minY: 45, maxX: 955, maxY: 455 },
     simple: { name: 'シンプルプレイマット', minX: 98, minY: 142, maxX: 402, maxY: 358 },
@@ -486,8 +486,21 @@
       // 位置IDの通知が来ない個体では、これが唯一の絶対座標の手がかりになる。
       if (r.reason === 0 && cube.lastTarget) {
         const t = cube.lastTarget;
-        statsOf(cube).arrival++;
-        applyPositionFix(cube, t, `到達位置 ${t.x}, ${t.y} (${t.angle}°)`);
+        const s = statsOf(cube);
+        s.arrival++;
+        // 回転タイプ 5「角度指定なし」/ 6「書き込み角度を無視」では、着いたときの
+        // 向きは指定していない。進んできた方向がそのまま向きになるので、
+        // 直前の位置から割り出す。初回など前の位置が無ければ前回の向きを保つ
+        const free = t.rotateType === 5 || t.rotateType === 6;
+        let angle = t.angle;
+        if (free) {
+          const p = s.lastPos;
+          const dx = p ? t.x - p.x : 0, dy = p ? t.y - p.y : 0;
+          angle = (dx || dy) ? Math.round((Math.atan2(dy, dx) * 180 / Math.PI + 360) % 360)
+            : (p ? p.angle : 0);
+        }
+        applyPositionFix(cube, { x: t.x, y: t.y, angle },
+          `到達位置 ${t.x}, ${t.y} (${angle}°${free ? ' 進行方向' : ''})`);
       } else if (r.reason !== 0) {
         toast(`目標指定の応答: ${r.reasonText}`);
       }
