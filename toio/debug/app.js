@@ -158,15 +158,33 @@
   // ---------------------------------------------------------------- 接続
   if (!navigator.bluetooth) $('unsupported').classList.remove('hidden');
 
+  // iOS では characteristic の取得が 1 つ 360ms ほどかかり、接続に 3 秒近くかかる。
+  // その途中でも state.*.char は埋まっていくので、char の有無だけを見て
+  // 操作を許すと「購読が終わる前にコマンドを送る」ことが起きる。実際に起きて、
+  // 目標指定の応答すら受け取れないログを 1 回無駄にした。購読まで終わるまで塞ぐ。
+  const ACTION_BTNS = ['btnTarget', 'btnStop', 'btnIdCfg', 'btnReadAll', 'btnIdTest', 'btnTargetWatch'];
+  let ready = false;
+  const setReady = (v) => {
+    ready = v;
+    for (const id of ACTION_BTNS) { const b = $(id); if (b) b.disabled = !v; }
+  };
+  const requireReady = () => {
+    if (!ready) { toast('まだ接続中です。購読が終わるまで待ってください'); return false; }
+    return true;
+  };
+  setReady(false);
+
   $('btnConnect').addEventListener('click', async () => {
     try {
       $('btnConnect').disabled = true;
+      setReady(false);
       device = await navigator.bluetooth.requestDevice({
         filters: [{ services: [SERVICE] }],
         optionalServices: [SERVICE],
       });
       log('info', '-', `デバイス: ${device.name || '(名前なし)'} id=${device.id}`);
       device.addEventListener('gattserverdisconnected', () => {
+        setReady(false);
         log('info', '-', '切断されました');
         toast('切断されました');
       });
@@ -215,8 +233,9 @@
       // バージョンを聞く（設定の通知が来るかの確認も兼ねる）
       await write('config', [0x01, 0x00]);
 
+      setReady(true);
       renderTable();
-      toast('接続しました');
+      toast('接続しました。ここから操作できます');
     } catch (e) {
       if (e && e.name === 'NotFoundError') { $('btnConnect').disabled = false; return; }
       log('info', '-', '接続失敗: ' + (e.message || e));
@@ -273,6 +292,7 @@
 
   // ---------------------------------------------------------------- 実験
   $('btnTarget').addEventListener('click', () => {
+    if (!requireReady()) return;
     const x = Number($('tX').value) | 0;
     const y = Number($('tY').value) | 0;
     const angle = Number($('tAngle').value) | 0;
@@ -292,9 +312,13 @@
     write('motor', Array.from(buf));
   });
 
-  $('btnStop').addEventListener('click', () => write('motor', [0x01, 0x01, 1, 0, 0x02, 1, 0]));
+  $('btnStop').addEventListener('click', () => {
+    if (!requireReady()) return;
+    write('motor', [0x01, 0x01, 1, 0, 0x02, 1, 0]);
+  });
 
   $('btnIdCfg').addEventListener('click', () => {
+    if (!requireReady()) return;
     const interval = Math.max(0, Math.min(255, Math.round(Number($('cfgInterval').value) / 10)));
     const cond = Math.max(0, Math.min(255, Number($('cfgCond').value) | 0));
     write('config', [0x18, 0x00, interval, cond]);
@@ -313,7 +337,7 @@
   ];
 
   $('btnIdTest').addEventListener('click', async () => {
-    if (!state.id.char) { toast('先に接続してください'); return; }
+    if (!requireReady()) return;
     const btn = $('btnIdTest');
     const out = $('idTest');
     const label = btn.textContent;
@@ -412,7 +436,7 @@
   // 目標指定で走っている最中の位置IDを見る。応答理由 0 で「キューブは読めていた」
   // ことが確定するので、そのあいだの通知が何なのかを突き合わせられる
   $('btnTargetWatch').addEventListener('click', async () => {
-    if (!state.id.char) { toast('先に接続してください'); return; }
+    if (!requireReady()) return;
     const btn = $('btnTargetWatch');
     const out = $('targetWatch');
     const label = btn.textContent;
@@ -476,6 +500,7 @@
   });
 
   $('btnReadAll').addEventListener('click', async () => {
+    if (!requireReady()) return;
     for (const c of CHARS) {
       const s = state[c.key];
       if (!s.char) continue;
