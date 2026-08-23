@@ -9,8 +9,8 @@
   <meta name="description" content="Web Bluetooth で toio コアキューブの BLE 機能をひととおり操作できるコントロールパネル。">
   <!-- ?v= はキャッシュ避け。HTML だけ更新されて CSS/JS が古いままだと
        レイアウトが崩れるので、これらを変更したら必ず上げること -->
-  <link rel="stylesheet" href="../shared/base.css?v=20260823k">
-  <link rel="stylesheet" href="style.css?v=20260823k">
+  <link rel="stylesheet" href="../shared/base.css?v=20260823m">
+  <link rel="stylesheet" href="style.css?v=20260823m">
 </head>
 <body>
 
@@ -280,6 +280,11 @@
     <p class="hint warn hidden" id="matRangeHint"></p>
     <p class="hint mono hidden" id="idDiag"></p>
     <canvas id="matCanvas"></canvas>
+    <p class="hint" id="mapLegend">
+      <b style="color:#3fb950">緑の破線</b>＝これから向かう目標（走っている間だけ。タップし直すと引き直す）／
+      <b style="color:#58a6ff">青の線</b>＝到達して確定した軌跡。
+      矢印が<b>薄い</b>ときは、いま読めている位置ではなく最後に到達した位置です。
+    </p>
     <div class="readout" id="idReadout">
       <div><span>位置ID</span><b id="roPos">—</b></div>
       <div><span>角度</span><b id="roAngle">—</b></div>
@@ -520,7 +525,7 @@
 </div>
 
 <!-- BLE ラッパーは /toio/ 配下のページで共有している -->
-<script src="../shared/toio.js?v=20260823k"></script>
-<script src="app.js?v=20260823k"></script>
+<script src="../shared/toio.js?v=20260823m"></script>
+<script src="app.js?v=20260823m"></script>
 </body>
 </html>

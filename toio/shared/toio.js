@@ -86,7 +86,8 @@
       this.battery = null;
       this.button = false;
       this.position = null;       // {x, y, angle, sensorX, sensorY}
-      this.lastTarget = null;     // 直近に送った目標指定 {x, y, angle, controlId}
+      this.lastTarget = null;     // 直近に送った目標指定 {x, y, angle, rotateType, controlId}
+      this.targetPending = false; // その目標がまだ応答待ちか（＝走っている最中か）
       this.standardId = null;     // {value, angle}
       this.onMat = false;
       this.motion = null;         // {flat, collision, doubleTap, posture, shake}
@@ -203,6 +204,7 @@
     }
 
     _handleDisconnected() {
+      this.targetPending = false;
       clearTimeout(this._speedTimer);
       this.speedEstimate = { left: 0, right: 0 };
       this.connected = false;
@@ -425,6 +427,8 @@
           reason: dv.getUint8(2),
           reasonText: MOTOR_RESPONSE_REASON[dv.getUint8(2)] || `エラー（コード ${dv.getUint8(2)}）`,
         };
+        // 応答が返った時点で、送っていた目標は確定（到達）か失敗のどちらかに決まる
+        this.targetPending = false;
         this.emit('motorResponse', res);
         return `${res.multi ? '複数' : ''}目標指定の応答 制御識別値=${res.controlId} ${res.reasonText}`;
       }
@@ -499,6 +503,7 @@
         angle: clamp(t.angle, 0, 0x1fff), rotateType: clamp(t.rotateType, 0, 7),
         controlId: clamp(o.controlId, 0, 255),
       };
+      this.targetPending = true;
       return this.write('motor', buf, { note: `目標指定 (${t.x}, ${t.y}, ${t.angle}°)` });
     }
 
@@ -528,6 +533,7 @@
         angle: clamp(last.angle, 0, 0x1fff), rotateType: clamp(last.rotateType, 0, 7),
         controlId: clamp(o.controlId, 0, 255),
       } : null;
+      this.targetPending = !!last;
       return this.write('motor', buf, { note: `複数目標指定 ${n} 点` });
     }
 
