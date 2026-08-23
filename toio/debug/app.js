@@ -31,7 +31,7 @@
   for (const c of CHARS) {
     state[c.key] = {
       char: null, got: '—', notifyFlag: '—', subscribe: '—',
-      nListener: 0, nOnchar: 0, last: '—', lastAt: 0,
+      nListener: 0, nOnchar: 0, nValid: 0, last: '—', lastAt: 0,
     };
   }
 
@@ -75,7 +75,7 @@
         s.got,
         s.notifyFlag,
         s.subscribe,
-        String(s.nListener),
+        String(s.nListener) + (c.key === 'id' ? `\n有効 ${s.nValid}` : ''),
         String(s.nOnchar),
         s.lastAt ? `${s.last}\n${Math.round((Date.now() - s.lastAt) / 1000)}秒前` : '—',
       ];
@@ -135,6 +135,9 @@
   function onNotify(key, bytes, via) {
     const s = state[key];
     if (via === 'listener') s.nListener++; else s.nOnchar++;
+    // 中身が仕様どおりのものだけを別に数える。読み出しの反射など、
+    // 件数だけ増えて意味のない通知に騙されないため
+    if (key === 'id' && bytes.length && (bytes[0] === 0x01 || bytes[0] === 0x02)) s.nValid++;
     s.last = hex(bytes);
     s.lastAt = Date.now();
 
@@ -320,12 +323,13 @@
 
       const s = state.id;
       const before = s.nListener + s.nOnchar;
+      const beforeValid = s.nValid;
 
       // 通知を待つのと並行して、走っているあいだ読み出しも試す。
       // 止まっているときの読み出しは 0x00 しか返らなかったが、
       // 読み取り中なら値が入るかもしれない（入るなら定期読み出しで代用できる）
       let polls = 0, hits = 0, lastRead = '';
-      let polling = true;
+      let polling = $('pollWhileDriving').checked;
       const poller = (async () => {
         while (polling) {
           try {
@@ -348,8 +352,10 @@
       await poller;
 
       const got = (s.nListener + s.nOnchar) - before;
+      const valid = s.nValid - beforeValid;
       lines.push(`間隔${t.interval}ms / 条件0x${t.cond.toString(16).padStart(2, '0')}: `
-        + `通知 ${got} 件 / 走行中の読み出し ${hits}/${polls} 件`
+        + `通知 ${got} 件（うち位置ID ${valid} 件）`
+        + (polls ? ` / 走行中の読み出し ${hits}/${polls} 件` : '')
         + (got ? ` / 最後の通知 ${s.last}` : '')
         + (hits ? ` / 読めた値 ${lastRead}` : ''));
       out.textContent = lines.join('\n');
@@ -357,15 +363,20 @@
 
     btn.textContent = label;
     btn.disabled = false;
-    const gotNotify = lines.some((l) => /通知 [1-9]/.test(l));
+    const gotValid = lines.some((l) => /うち位置ID [1-9]/.test(l));
     const gotRead = lines.some((l) => /読み出し [1-9]/.test(l));
-    lines.push(gotNotify
-      ? '→ 通知が届く設定が見つかりました。その設定を使えば位置IDが取れます'
+    const gotEmpty = lines.some((l) => /通知 [1-9]/.test(l)) && !gotValid;
+    lines.push(gotValid
+      ? '→ 位置IDが届く設定が見つかりました。その設定を使えば座標が取れます'
       : gotRead
-        ? '→ 通知は来ませんが、走行中の読み出しでは値が取れました。'
+        ? '→ 通知は駄目ですが、走行中の読み出しでは値が取れました。'
           + '定期的に読み出す形にすれば位置IDを追えます'
-        : '→ 通知も読み出しも駄目でした。位置IDをそのまま取る方法はこの環境にはありません。'
-          + '目標指定の応答と推測航法を組み合わせる形に切り替えるのが現実的です');
+        : (gotEmpty
+          ? '→ 通知は来ますが中身が空（0x00）で、位置IDになっていません。'
+            + '読み出しを有効にしている場合、その反射を数えているだけの可能性があります。'
+          : '→ 通知が一件も来ませんでした。')
+          + '別のブラウザ（Android Chrome / PC の Chrome）で同じページを試すと、'
+          + 'ブラウザ側の問題かどうかが切り分けられます');
     out.textContent = lines.join('\n');
   });
 
