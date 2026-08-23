@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>toio BLE デバッグ</title>
   <meta name="description" content="toio コアキューブの BLE 通知が本当に届いているかを、生のまま確かめるための検査ページ。">
-  <link rel="stylesheet" href="../shared/base.css?v=20260823g">
-  <link rel="stylesheet" href="style.css?v=20260823g">
+  <link rel="stylesheet" href="../shared/base.css?v=20260823i">
+  <link rel="stylesheet" href="style.css?v=20260823i">
 </head>
 <body>
 
@@ -88,6 +88,13 @@
       読み出したあとの「通知が来た」は、その反射かもしれません。
     </p>
     <p class="hint warn">
+      <b>ただし <code>0x18</code> を書くと本物の通知が始まります。</b>実機では読み出しを一度もして
+      いないのに、<code>0x18</code> を書いた直後から約 180ms ごとに <code>00</code>（1バイト）が
+      流れ続けました。間隔を 0 から 100ms に変えても間隔は変わりません。
+      <b>キューブは設定を受理しておきながら、自分のペースで中身が空の通知を投げています。</b>
+      通知の経路は生きていて、中身だけが空、という状態です。
+    </p>
+    <p class="hint warn">
       <b>間隔 0 は書かないこと。</b>間隔 0 が「通知しない」を意味する疑いがあり、
       しかもこの設定が電源を入れ直しても残るなら、一度書くと戻せなくなります。
       初期値は <b>100ms / 条件 0x01（変化があったとき）</b>にしてあります。
@@ -120,6 +127,8 @@
       ここまでのテストは基本制御（0x01）で走らせていました。<b>目標指定（0x03）で走っている間は、
       キューブが位置IDを読んでいることが応答理由 0 で確実に分かります。</b>
       その最中に位置IDの通知が何を返すかを、到達するまで数えます。
+      <b>あわせて走行中に 200ms ごとに読み出し（read）も行い、戻り値をそのまま出します。</b>
+      キューブが確実に読めていると分かっている状態での読み出しは、これが初めてです。
     </p>
     <p class="hint warn">
       <b>既定では通知設定を書きません。</b><code>@toio/cube</code> も <code>p5toio</code> も
@@ -153,6 +162,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="app.js?v=20260823g"></script>
+<script src="app.js?v=20260823i"></script>
 </body>
 </html>

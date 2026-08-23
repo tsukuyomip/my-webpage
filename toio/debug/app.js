@@ -463,6 +463,18 @@
     };
     s.char.addEventListener('characteristicvaluechanged', spy);
 
+    // 目標指定で走っている最中の read。基本制御で走らせながらの read は試したが、
+    // 「キューブが確実に読めている」と分かっている状態での read はこれが初めて。
+    // read は通知としても跳ね返るので、件数ではなく read の戻り値そのものを見る
+    const reads = [];
+    const poll = setInterval(() => {
+      if (reads.length >= 8) return;
+      readChar('id').then((v) => {
+        const b = new Uint8Array(v.buffer);
+        reads.push(`${hex(b)} (${b.length}バイト)`);
+      }).catch((e) => { if (reads.length < 8) reads.push('読めず: ' + (e.message || e)); });
+    }, 200);
+
     const x = Number($('tX').value) | 0, y = Number($('tY').value) | 0;
     btn.textContent = '走行中…';
     const t0 = Date.now();
@@ -477,6 +489,7 @@
       write('motor', Array.from(buf));
     });
 
+    clearInterval(poll);
     s.char.removeEventListener('characteristicvaluechanged', spy);
     btn.textContent = label;
     btn.disabled = false;
@@ -488,14 +501,22 @@
       `応答理由: ${reason === null ? '返らなかった' : reason
         + (reason === 0 ? '（正常終了＝キューブはマットを読めていた）' : '')}`,
       `走行中の位置ID通知: ${got} 件（うち位置ID ${valid} 件）`,
-      seen.length ? '中身: ' + seen.join(' / ') : '中身: 届かず',
+      seen.length ? '通知の中身: ' + seen.join(' / ') : '通知の中身: 届かず',
+      reads.length ? '走行中の読み出し: ' + reads.join(' / ') : '走行中の読み出し: なし',
     ];
-    lines.push(reason === 0 && valid === 0
-      ? '→ キューブは読めていたのに、位置IDの中身は返っていません。'
-        + 'この個体・この経路では位置IDをそのまま取れないと考えるのが妥当です'
-      : valid > 0
-        ? '→ 位置IDが取れました'
-        : '→ 応答理由が 0 ではないので、マットの上で試し直してください');
+    // 読み出しの戻り値に位置IDが入っていたら、通知が空でも定期的な read で追える
+    const readOk = reads.some((t) => /^01 /.test(t));
+    if (readOk) {
+      lines.push('→ 通知は空でも、走行中の読み出しには位置IDが入っています。'
+        + '定期的に read する形にすれば絶対座標を追えます');
+    } else if (reason === 0 && valid === 0) {
+      lines.push('→ キューブは読めていたのに、通知にも読み出しにも位置IDの中身がありません。'
+        + 'この個体・この経路では位置IDをそのまま取れないと考えるのが妥当です');
+    } else if (valid > 0) {
+      lines.push('→ 位置IDが取れました');
+    } else {
+      lines.push('→ 応答理由が 0 ではないので、マットの上で試し直してください');
+    }
     out.textContent = lines.join('\n');
   });
 
