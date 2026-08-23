@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>toio BLE デバッグ</title>
   <meta name="description" content="toio コアキューブの BLE 通知が本当に届いているかを、生のまま確かめるための検査ページ。">
-  <link rel="stylesheet" href="../shared/base.css?v=20260823a">
-  <link rel="stylesheet" href="style.css?v=20260823a">
+  <link rel="stylesheet" href="../shared/base.css?v=20260823b">
+  <link rel="stylesheet" href="style.css?v=20260823b">
 </head>
 <body>
 
@@ -95,6 +95,13 @@
       <b>キューブが走ります。</b>マットの真ん中に置いて、前後に 10cm ほどの余裕を空けてから押してください。
       全部で 15 秒ほどかかります。
     </p>
+    <label class="check">
+      <input type="checkbox" id="pollWhileDriving"> 走行中に読み出しも試す
+    </label>
+    <p class="hint">
+      読み出しを有効にすると、ブラウザによっては <b>read の結果が通知としても飛んでくる</b>ため、
+      通知の件数が水増しされます。まずはオフのまま試してください。
+    </p>
     <button class="btn primary" id="btnIdTest">走らせながら通知テスト</button>
     <pre class="hint mono" id="idTest"></pre>
   </section>
@@ -113,6 +120,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="app.js?v=20260823a"></script>
+<script src="app.js?v=20260823b"></script>
 </body>
 </html>
