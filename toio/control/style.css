@@ -120,6 +120,9 @@
 }
 
 .step-row input[type="number"] { max-width: 5.5rem; }
+/* 数値欄が並ぶだけだと何の値か分からないので、小さな見出しを上に添える */
+.step-row .field { display: flex; flex-direction: column; gap: 0.1rem; }
+.step-row .field > span { color: var(--muted); font-size: 0.68rem; line-height: 1; }
 .step-row select { max-width: 6.5rem; }
 .step-row .idx { color: var(--muted); font-size: 0.75rem; min-width: 1.4rem; }
 .step-row .del { margin-left: auto; color: var(--muted); background: none; border: none; cursor: pointer; font-size: 1rem; }
