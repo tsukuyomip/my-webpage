@@ -1243,24 +1243,36 @@
         label.textContent = T.noteName(m.note);
       });
 
+      // 数値の入力欄が並ぶだけだと、どれが長さでどれが音量か分からない。
+      // 単位つきの見出しを各欄に添える
+      const durCell = document.createElement('label');
+      durCell.className = 'field';
+      const durName = document.createElement('span');
+      durName.textContent = '長さ ms';
       const dur = document.createElement('input');
       dur.type = 'number';
       dur.min = 10; dur.max = 2550; dur.step = 10;
       dur.value = m.durationMs;
       dur.addEventListener('input', () => { m.durationMs = Number(dur.value); });
+      durCell.append(durName, dur);
 
+      const volCell = document.createElement('label');
+      volCell.className = 'field';
+      const volName = document.createElement('span');
+      volName.textContent = '音量 0-255';
       const vol = document.createElement('input');
       vol.type = 'number';
       vol.min = 0; vol.max = 255;
       vol.value = m.volume;
       vol.addEventListener('input', () => { m.volume = Number(vol.value); });
+      volCell.append(volName, vol);
 
       const del = document.createElement('button');
       del.className = 'del';
       del.textContent = '✕';
       del.addEventListener('click', () => { melody.splice(i, 1); renderMelody(); });
 
-      row.append(idx, note, label, dur, vol, del);
+      row.append(idx, note, label, durCell, volCell, del);
       wrap.appendChild(row);
     });
   }
@@ -1269,6 +1281,31 @@
     if (melody.length >= 59) { toast('音は最大 59 です'); return; }
     melody.push({ note: 60, durationMs: 200, volume: Number($('sVolume').value) });
     renderMelody();
+  });
+
+  // 音量スライダーは「これから追加する音」にしか効かないので、
+  // すでに並べた音へまとめて反映する手を用意しておく
+  $('btnMelodyVolumeAll').addEventListener('click', () => {
+    if (!melody.length) { toast('音がありません'); return; }
+    const v = Number($('sVolume').value);
+    melody.forEach((m) => { m.volume = v; });
+    renderMelody();
+    toast(`${melody.length} 音の音量を ${v} にしました`);
+  });
+
+  // MIDI は 1 音ごとに音量を持てる。それが分かりやすいように、
+  // 前半で上げて後半で下げる形をひと押しで作れるようにする
+  $('btnMelodyFade').addEventListener('click', () => {
+    if (melody.length < 2) { toast('音が 2 つ以上必要です'); return; }
+    const peak = Number($('sVolume').value);
+    const last = melody.length - 1;
+    melody.forEach((m, i) => {
+      // 山なりに。両端が 0 だと聞こえないので下限を少し残す
+      const t = 1 - Math.abs(i / last * 2 - 1);
+      m.volume = Math.round(peak * (0.15 + 0.85 * t));
+    });
+    renderMelody();
+    toast('音量を山なりにしました');
   });
 
   $('btnMelodyClear').addEventListener('click', () => { melody.length = 0; renderMelody(); });

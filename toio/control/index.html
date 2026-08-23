@@ -9,8 +9,8 @@
   <meta name="description" content="Web Bluetooth で toio コアキューブの BLE 機能をひととおり操作できるコントロールパネル。">
   <!-- ?v= はキャッシュ避け。HTML だけ更新されて CSS/JS が古いままだと
        レイアウトが崩れるので、これらを変更したら必ず上げること -->
-  <link rel="stylesheet" href="../shared/base.css?v=20260823m">
-  <link rel="stylesheet" href="style.css?v=20260823m">
+  <link rel="stylesheet" href="../shared/base.css?v=20260823n">
+  <link rel="stylesheet" href="style.css?v=20260823n">
 </head>
 <body>
 
@@ -330,6 +330,11 @@
       </label>
       <button class="btn danger" id="btnSoundStop">再生停止</button>
     </div>
+    <p class="hint">
+      この音量は<b>効果音・鍵盤・これから追加する音</b>に使います。
+      MIDI は<b>1 音ごとに音量を持てる</b>ので、シーケンスに並べた音は各行の「音量」で個別に決まります。
+      すでに並べた音をまとめて変えたいときは「音量を全音に適用」を押してください。
+    </p>
     <h3>効果音</h3>
     <div class="se-grid" id="seGrid"></div>
     <h3>MIDI（半音単位・最大59音）</h3>
@@ -339,6 +344,8 @@
     <div class="row">
       <button class="btn ghost" id="btnMelodyAdd">音を追加</button>
       <button class="btn ghost" id="btnMelodyPreset">プリセット</button>
+      <button class="btn ghost" id="btnMelodyVolumeAll">音量を全音に適用</button>
+      <button class="btn ghost" id="btnMelodyFade">フェードイン / アウト</button>
       <button class="btn ghost" id="btnMelodyClear">クリア</button>
     </div>
     <div class="row">
@@ -525,7 +532,7 @@
 </div>
 
 <!-- BLE ラッパーは /toio/ 配下のページで共有している -->
-<script src="../shared/toio.js?v=20260823m"></script>
-<script src="app.js?v=20260823m"></script>
+<script src="../shared/toio.js?v=20260823n"></script>
+<script src="app.js?v=20260823n"></script>
 </body>
 </html>
