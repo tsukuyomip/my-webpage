@@ -266,6 +266,57 @@
     write('config', [0x18, 0x00, interval, cond]);
   });
 
+  // ---- 走らせながらの通知テスト ----------------------------------------
+  // 止まったままだと「変化があったときのみ」の設定では何も来ないので、
+  // 設定を書くたびに必ず座標が変わるよう前後に動かして数える。
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const ID_TEST = [
+    { interval: 0, cond: 0xff },
+    { interval: 0, cond: 0x01 },
+    { interval: 0, cond: 0x00 },
+    { interval: 100, cond: 0x00 },
+    { interval: 100, cond: 0x01 },
+  ];
+
+  $('btnIdTest').addEventListener('click', async () => {
+    if (!state.id.char) { toast('先に接続してください'); return; }
+    const btn = $('btnIdTest');
+    const out = $('idTest');
+    const label = btn.textContent;
+    btn.disabled = true;
+    const lines = [];
+
+    for (let i = 0; i < ID_TEST.length; i++) {
+      const t = ID_TEST[i];
+      btn.textContent = `テスト中… ${i + 1}/${ID_TEST.length}`;
+      await write('config', [0x18, 0x00, Math.round(t.interval / 10), t.cond]);
+      await sleep(250);
+
+      const s = state.id;
+      const before = s.nListener + s.nOnchar;
+      await write('motor', [0x01, 0x01, 1, 20, 0x02, 1, 20]);   // 前進
+      await sleep(700);
+      await write('motor', [0x01, 0x01, 2, 20, 0x02, 2, 20]);   // 後退
+      await sleep(700);
+      await write('motor', [0x01, 0x01, 1, 0, 0x02, 1, 0]);     // 停止
+      await sleep(300);
+      const got = (s.nListener + s.nOnchar) - before;
+
+      lines.push(`間隔${t.interval}ms / 条件0x${t.cond.toString(16).padStart(2, '0')}: `
+        + `走行中の位置ID ${got} 件` + (got ? ` / 最後 ${s.last}` : ''));
+      out.textContent = lines.join('\n');
+    }
+
+    btn.textContent = label;
+    btn.disabled = false;
+    const worked = lines.filter((l) => !/ 0 件/.test(l));
+    lines.push(worked.length
+      ? '→ 件数が 0 でない設定なら通知が届きます'
+      : '→ どの設定でも、走らせていても位置IDは届きませんでした。'
+        + 'キューブは読めている（目標指定が正常終了する）のに、通知だけが出ない状態です。');
+    out.textContent = lines.join('\n');
+  });
+
   $('btnReadAll').addEventListener('click', async () => {
     for (const c of CHARS) {
       const s = state[c.key];

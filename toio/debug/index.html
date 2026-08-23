@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>toio BLE デバッグ</title>
   <meta name="description" content="toio コアキューブの BLE 通知が本当に届いているかを、生のまま確かめるための検査ページ。">
-  <link rel="stylesheet" href="../shared/base.css?v=20260822a">
-  <link rel="stylesheet" href="style.css?v=20260822a">
+  <link rel="stylesheet" href="../shared/base.css?v=20260822b">
+  <link rel="stylesheet" href="style.css?v=20260822b">
 </head>
 <body>
 
@@ -85,6 +85,21 @@
   </section>
 
   <section class="panel wide">
+    <h2>位置IDの通知テスト<span class="sub">設定を変えながら実際に走らせる</span></h2>
+    <p class="hint">
+      止まったままだと「変化があったときのみ」の設定では何も来ません。
+      そこで設定を書くたびに、<b>前進 0.7 秒 → 後退 0.7 秒</b>で必ず座標を変えて、
+      そのあいだに位置IDの通知が何件届くかを数えます。
+    </p>
+    <p class="hint warn">
+      <b>キューブが走ります。</b>マットの真ん中に置いて、前後に 10cm ほどの余裕を空けてから押してください。
+      全部で 15 秒ほどかかります。
+    </p>
+    <button class="btn primary" id="btnIdTest">走らせながら通知テスト</button>
+    <pre class="hint mono" id="idTest"></pre>
+  </section>
+
+  <section class="panel wide">
     <h2>生ログ<span class="sub">送受信をそのまま</span></h2>
     <div class="row">
       <label class="check"><input type="checkbox" id="logId" checked> 位置IDも記録する（多いので注意）</label>
@@ -98,6 +113,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="app.js?v=20260822a"></script>
+<script src="app.js?v=20260822b"></script>
 </body>
 </html>
