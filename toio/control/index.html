@@ -9,8 +9,8 @@
   <meta name="description" content="Web Bluetooth で toio コアキューブの BLE 機能をひととおり操作できるコントロールパネル。">
   <!-- ?v= はキャッシュ避け。HTML だけ更新されて CSS/JS が古いままだと
        レイアウトが崩れるので、これらを変更したら必ず上げること -->
-  <link rel="stylesheet" href="../shared/base.css?v=20260823n">
-  <link rel="stylesheet" href="style.css?v=20260823n">
+  <link rel="stylesheet" href="../shared/base.css?v=20260823p">
+  <link rel="stylesheet" href="style.css?v=20260823p">
 </head>
 <body>
 
@@ -352,6 +352,28 @@
       <label>繰り返し(0=無限) <input type="number" id="sRepeat" value="1" min="0" max="255"></label>
       <button class="btn primary" id="btnMelodyRun">シーケンス再生</button>
     </div>
+
+    <h3>MIDIファイルを読み込む</h3>
+    <p class="hint">
+      標準MIDIファイル（<code>.mid</code>）を選ぶと、キューブで鳴らせる形に変換します。
+      キューブは<b>同時に 1 音しか鳴らせない</b>ので、和音は<b>いちばん高い音</b>だけを残します
+      （たいていそれが主旋律です）。
+    </p>
+    <div class="row">
+      <input type="file" id="midiFile" accept=".mid,.midi,audio/midi,audio/x-midi">
+    </div>
+    <p class="hint mono" id="midiInfo">ファイルが選ばれていません</p>
+    <div class="row hidden" id="midiOpts">
+      <label>トラック <select id="midiTrack"></select></label>
+      <label>移調(半音) <input type="number" id="midiTranspose" value="0" min="-48" max="48"></label>
+      <label>速さ(%) <input type="number" id="midiRate" value="100" min="10" max="400" step="10"></label>
+    </div>
+    <div class="row hidden" id="midiActions">
+      <button class="btn" id="btnMidiToSeq">先頭59音をシーケンスへ</button>
+      <button class="btn primary" id="btnMidiPlay">通しで再生</button>
+      <button class="btn danger" id="btnMidiStop">停止</button>
+    </div>
+    <p class="hint" id="midiPlayState"></p>
   </section>
 
   <!-- ============ センサー ============ -->
@@ -532,7 +554,8 @@
 </div>
 
 <!-- BLE ラッパーは /toio/ 配下のページで共有している -->
-<script src="../shared/toio.js?v=20260823n"></script>
-<script src="app.js?v=20260823n"></script>
+<script src="../shared/toio.js?v=20260823p"></script>
+<script src="../shared/midi.js?v=20260823p"></script>
+<script src="app.js?v=20260823p"></script>
 </body>
 </html>
