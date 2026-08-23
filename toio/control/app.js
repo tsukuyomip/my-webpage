@@ -1617,7 +1617,37 @@
         }
         ctx.stroke();
       }
-      const pose = dead ? estimates.get(cube) : (cube.onMat ? cube.position : null);
+      // 位置IDの通知が来ない個体では cube.position がいつまでも空なので、
+      // 到達で確定した座標（statsOf().lastPos）に落とす。live が false のときは
+      // 「いま読めている値」ではないので、矢印を薄く描いて区別する
+      const live = !dead && cube.onMat && cube.position;
+      const pose = dead ? estimates.get(cube) : (live || statsOf(cube).lastPos);
+
+      // 応答待ちの目標は緑の破線で出す。到達したら青い軌跡に変わる
+      if (!dead && cube.targetPending && cube.lastTarget) {
+        const t = cube.lastTarget;
+        const [gx, gy] = toScreen(t.x, t.y);
+        ctx.save();
+        ctx.strokeStyle = '#3fb950';
+        ctx.fillStyle = '#3fb950';
+        ctx.lineWidth = 2 * dpr;
+        ctx.setLineDash([6 * dpr, 4 * dpr]);
+        if (pose) {
+          const [ax, ay] = toScreen(pose.x, pose.y);
+          ctx.beginPath();
+          ctx.moveTo(ax, ay); ctx.lineTo(gx, gy);
+          ctx.stroke();
+        }
+        ctx.setLineDash([]);
+        ctx.beginPath();
+        ctx.arc(gx, gy, (compact ? 3 : 5) * dpr, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(gx, gy, 1.5 * dpr, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+
       if (!pose) continue;
       const [px, py] = toScreen(pose.x, pose.y);
       const rad = (pose.angle - (dead ? 90 : 0)) * Math.PI / 180;
@@ -1626,6 +1656,9 @@
       ctx.translate(px, py);
       ctx.rotate(rad);
       ctx.fillStyle = color;
+      // いま読めている値でないなら薄くする。到達で確定した最後の位置を
+      // 出しているだけ、ということが見て分かるように
+      if (!dead && !live) ctx.globalAlpha = 0.5;
       ctx.beginPath();
       ctx.moveTo(14 * dpr * s, 0);
       ctx.lineTo(-9 * dpr * s, 8 * dpr * s);
