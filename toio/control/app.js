@@ -24,12 +24,27 @@
     return s;
   }
 
+  /**
+   * マットの実測範囲から、縁に寄りすぎないよう内側に margin ぶんの余裕を取る。
+   * 端をタップしたときに実際のマットから出てしまうのを防ぐため。
+   * @param {number} margin 各辺を詰める割合（0.05 なら 5%）
+   */
+  function inset(mat, margin) {
+    const dx = Math.round((mat.maxX - mat.minX) * margin);
+    const dy = Math.round((mat.maxY - mat.minY) * margin);
+    return { name: mat.name, minX: mat.minX + dx, minY: mat.minY + dy,
+      maxX: mat.maxX - dx, maxY: mat.maxY - dy };
+  }
+
   const MATS = {
     wide: { name: '広域', minX: -500, minY: -500, maxX: 500, maxY: 500 },
     // 印刷して使う「toio プログラミングマット」。A3 全面に 1200dpi の模様が
-    // 入っていて、1 マス ≒ 1.36mm なので 310 x 216 マスぶんの広さになる。
-    // 実機で (11750, 16000) と (11800, 16050) に行けたことから割り出した推定値
-    pgcmd: { name: 'プログラミングマット', minX: 11640, minY: 15884, maxX: 11950, maxY: 16115 },
+    // 入っていて、1 マス ≒ 1.36mm なので 310 x 231 マスぶんの広さになる。
+    // 実測（到達した座標の軌跡）で 11640-11950 / 15884-16115 まで届いた。
+    // その実測値の各辺から 5% 内側を有効範囲にする。端をタップしても
+    // マットから出ないようにするため
+    pgcmd: inset({ name: 'プログラミングマット',
+      minX: 11640, minY: 15884, maxX: 11950, maxY: 16115 }, 0.05),
     ring: { name: 'リング', minX: 45, minY: 45, maxX: 455, maxY: 455 },
     colortile: { name: 'カラータイル', minX: 545, minY: 45, maxX: 955, maxY: 455 },
     simple: { name: 'シンプルプレイマット', minX: 98, minY: 142, maxX: 402, maxY: 358 },
