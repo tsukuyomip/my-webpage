@@ -4,6 +4,7 @@
 
   const $ = (id) => document.getElementById(id);
   const T = window.Toio;
+  const MIDI = window.ToioMidi;   // MIDI ファイルの読み込みと変換
 
   // ---------------------------------------------------------------- 状態
   const cubes = [];
@@ -1322,6 +1323,121 @@
     if (!melody.length) { toast('音がありません'); return; }
     const repeat = Number($('sRepeat').value);
     send((c) => c.soundMidi(melody, repeat));
+  });
+
+  // ------------------------------------------------------ MIDI ファイル
+  // キューブは 1 コマンド 59 音までしか受け取れないので、長い曲は
+  // 59 音ずつに割って、鳴り終わる頃に次を送る形で繋いでいく。
+  let midiData = null;      // ToioMidi.parse() の結果
+  let midiTimer = 0;        // 次のまとまりを送るためのタイマー
+
+  function midiSequence() {
+    if (!midiData) return [];
+    const track = midiData.tracks[Number($('midiTrack').value) || 0];
+    if (!track) return [];
+    return MIDI.toSequence(track.notes, {
+      transpose: Number($('midiTranspose').value) || 0,
+      rate: Number($('midiRate').value) || 100,
+      volume: Number($('sVolume').value),
+    });
+  }
+
+  function midiStop(note) {
+    clearTimeout(midiTimer);
+    midiTimer = 0;
+    $('midiPlayState').textContent = note || '';
+  }
+
+  function fmtSec(ms) {
+    const s = Math.round(ms / 1000);
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  }
+
+  $('midiFile').addEventListener('change', async (e) => {
+    const file = e.target.files && e.target.files[0];
+    if (!file) return;
+    midiStop();
+    try {
+      midiData = MIDI.parse(await file.arrayBuffer());
+    } catch (err) {
+      midiData = null;
+      $('midiOpts').classList.add('hidden');
+      $('midiActions').classList.add('hidden');
+      $('midiInfo').textContent = '読めませんでした: ' + (err.message || err);
+      toast('MIDI を読めませんでした');
+      return;
+    }
+    // 音の入っていないトラック（テンポだけの 1 本目など）は選ばせない
+    const sel = $('midiTrack');
+    sel.textContent = '';
+    midiData.tracks.forEach((t, i) => {
+      if (!t.notes.length) return;
+      const op = document.createElement('option');
+      op.value = String(i);
+      op.textContent = `${t.name}（${t.notes.length}音）`;
+      sel.appendChild(op);
+    });
+    if (!sel.options.length) {
+      $('midiInfo').textContent = `${file.name}: 音の入ったトラックがありません`;
+      $('midiOpts').classList.add('hidden');
+      $('midiActions').classList.add('hidden');
+      return;
+    }
+    // いちばん音数の多いトラックを既定にする。主旋律であることが多い
+    const best = [...sel.options].reduce((a, b) =>
+      midiData.tracks[Number(b.value)].notes.length > midiData.tracks[Number(a.value)].notes.length ? b : a);
+    sel.value = best.value;
+    $('midiOpts').classList.remove('hidden');
+    $('midiActions').classList.remove('hidden');
+    updateMidiInfo(file.name);
+  });
+
+  function updateMidiInfo(fileName) {
+    if (!midiData) return;
+    const seq = midiSequence();
+    const parts = MIDI.chunk(seq);
+    const name = fileName || ($('midiInfo').dataset.name || 'MIDI');
+    $('midiInfo').dataset.name = name;
+    $('midiInfo').textContent = `${name} / 元の長さ ${fmtSec(midiData.durationMs)}`
+      + ` / 単音に潰して ${seq.length}音（${fmtSec(MIDI.totalMs(seq))}、${parts.length}回に分けて送信）`;
+  }
+
+  for (const id of ['midiTrack', 'midiTranspose', 'midiRate', 'sVolume']) {
+    $(id).addEventListener('input', () => { if (midiData) updateMidiInfo(); });
+  }
+
+  $('btnMidiToSeq').addEventListener('click', () => {
+    const seq = midiSequence();
+    if (!seq.length) { toast('鳴らせる音がありません'); return; }
+    melody.length = 0;
+    seq.slice(0, 59).forEach((s) => melody.push(s));
+    renderMelody();
+    toast(seq.length > 59
+      ? `先頭 59 音を入れました（全 ${seq.length} 音。通しで聴くなら「通しで再生」）`
+      : `${melody.length} 音を入れました`);
+  });
+
+  $('btnMidiPlay').addEventListener('click', () => {
+    const seq = midiSequence();
+    if (!seq.length) { toast('鳴らせる音がありません'); return; }
+    midiStop();
+    const parts = MIDI.chunk(seq);
+    let i = 0;
+    const next = () => {
+      if (i >= parts.length) { midiStop('再生し終わりました'); return; }
+      const part = parts[i];
+      send((c) => c.soundMidi(part, 1));
+      $('midiPlayState').textContent = `再生中 ${i + 1}/${parts.length}`;
+      i++;
+      // 鳴り終わる少し手前で次を送る。BLE の往復ぶんの間が空くため
+      midiTimer = setTimeout(next, Math.max(50, MIDI.totalMs(part) - 60));
+    };
+    next();
+  });
+
+  $('btnMidiStop').addEventListener('click', () => {
+    midiStop('止めました');
+    send((c) => c.soundStop());
   });
 
   // -------------------------------------------------------------- センサー
