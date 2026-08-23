@@ -417,10 +417,17 @@
     const out = $('targetWatch');
     const label = btn.textContent;
     btn.disabled = true;
-    out.textContent = '通知を有効にしています…';
 
-    await write('config', [0x18, 0x00, 0, 0xff]);
-    await sleep(300);
+    // 通知設定は既定では触らない。@toio/cube も p5toio も一度も書かず、購読するだけで
+    // 位置IDを受け取っている。以前ここで間隔 0 を書いていたが、それが「通知しない」を
+    // 意味するなら、テストの直前に通知を切っていたことになる。
+    if ($('watchWriteCfg').checked) {
+      out.textContent = '通知設定を書いています…';
+      await write('config', [0x18, 0x00, 10, 0x01]);   // 100ms / 変化があったとき
+      await sleep(300);
+    } else {
+      out.textContent = '走らせています…';
+    }
 
     const s = state.id;
     const before = s.nListener + s.nOnchar;

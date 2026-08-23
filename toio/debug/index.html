@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>toio BLE デバッグ</title>
   <meta name="description" content="toio コアキューブの BLE 通知が本当に届いているかを、生のまま確かめるための検査ページ。">
-  <link rel="stylesheet" href="../shared/base.css?v=20260823d">
-  <link rel="stylesheet" href="style.css?v=20260823d">
+  <link rel="stylesheet" href="../shared/base.css?v=20260823e">
+  <link rel="stylesheet" href="style.css?v=20260823e">
 </head>
 <body>
 
@@ -82,6 +82,12 @@
       <button class="btn" id="btnIdCfg">ID通知設定を書く</button>
       <button class="btn ghost" id="btnReadAll">全部を読み出してみる</button>
     </div>
+    <p class="hint warn">
+      <b>read はこのブラウザで通知としても跳ね返ります。</b>実機のログで
+      <code>id(listener)</code> → <code>id(onchar)</code> → <code>id(read)</code> の3連が確認できました。
+      読み出したあとの「通知が来た」は、その反射かもしれません。
+      また <b>ID通知設定は電源を切るまでキューブに残ります。</b>
+    </p>
   </section>
 
   <section class="panel wide">
@@ -109,9 +115,17 @@
     <p class="hint">
       ここまでのテストは基本制御（0x01）で走らせていました。<b>目標指定（0x03）で走っている間は、
       キューブが位置IDを読んでいることが応答理由 0 で確実に分かります。</b>
-      その最中に位置IDの通知が何を返すかは、まだ一度も見ていません。
-      通知を有効にしてから目標指定を送り、到達するまでの受信を数えます。
+      その最中に位置IDの通知が何を返すかを、到達するまで数えます。
     </p>
+    <p class="hint warn">
+      <b>既定では通知設定を書きません。</b><code>@toio/cube</code> も <code>p5toio</code> も
+      <code>0x18</code> を一度も書かず、購読するだけで位置IDを受け取っています。
+      書いた設定は<b>電源を切るまでキューブに残る</b>ので、素の状態を確かめたいときは
+      チェックを外したまま、キューブの電源を入れ直してから試してください。
+    </p>
+    <label class="check">
+      <input type="checkbox" id="watchWriteCfg"> 走らせる前に ID通知設定（100ms / 変化時）を書く
+    </label>
     <button class="btn primary" id="btnTargetWatch">通知ONで目標指定を走らせる</button>
     <pre class="hint mono" id="targetWatch"></pre>
   </section>
@@ -130,6 +144,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="app.js?v=20260823d"></script>
+<script src="app.js?v=20260823e"></script>
 </body>
 </html>
