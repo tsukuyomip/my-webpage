@@ -26,6 +26,7 @@
 
   const state = {};   // key -> {char, got, notifyFlag, subscribe, nListener, nOnchar, last, lastAt}
   let device = null;
+  let motorWaiter = null;   // 目標指定の応答を待つときだけ入る
 
   for (const c of CHARS) {
     state[c.key] = {
@@ -142,6 +143,7 @@
 
     if (key === 'motor' && (bytes[0] === 0x83 || bytes[0] === 0x84)) {
       $('motorResult').textContent = '目標指定の応答: ' + describe(key, bytes);
+      if (motorWaiter) { const w = motorWaiter; motorWaiter = null; w(bytes[2]); }
     }
     if (key === 'config' && bytes[0] === 0x81) {
       $('protoLine').textContent = 'BLEプロトコルバージョン: '
@@ -284,7 +286,31 @@
     const out = $('idTest');
     const label = btn.textContent;
     btn.disabled = true;
+    // まず、いまマットの上にいるかを目標指定の応答で確かめる。
+    // 載っていない状態で「0 件」を集めても意味がないため
+    btn.textContent = 'マットの上か確認中…';
+    const x = Number($('tX').value) | 0, y = Number($('tY').value) | 0;
+    const reason = await new Promise((resolve) => {
+      motorWaiter = resolve;
+      setTimeout(() => { if (motorWaiter === resolve) { motorWaiter = null; resolve(null); } }, 9000);
+      const buf = new Uint8Array(13);
+      const dv = new DataView(buf.buffer);
+      dv.setUint8(0, 0x03); dv.setUint8(2, 8); dv.setUint8(4, 80);
+      dv.setUint16(7, Math.max(0, Math.min(0xffff, x)), true);
+      dv.setUint16(9, Math.max(0, Math.min(0xffff, y)), true);
+      write('motor', Array.from(buf));
+    });
+
     const lines = [];
+    if (reason === 0) {
+      lines.push(`マット確認: 目標 (${x}, ${y}) に到達（理由0）。読めている状態でテストします`);
+    } else if (reason === null) {
+      lines.push('マット確認: 応答が返りませんでした。そのまま続けます');
+    } else {
+      lines.push(`マット確認: 理由${reason} が返りました。`
+        + 'マットの上に置いていないか、読めていない状態です。結果は参考程度に');
+    }
+    out.textContent = lines.join('\n');
 
     for (let i = 0; i < ID_TEST.length; i++) {
       const t = ID_TEST[i];
@@ -294,26 +320,52 @@
 
       const s = state.id;
       const before = s.nListener + s.nOnchar;
+
+      // 通知を待つのと並行して、走っているあいだ読み出しも試す。
+      // 止まっているときの読み出しは 0x00 しか返らなかったが、
+      // 読み取り中なら値が入るかもしれない（入るなら定期読み出しで代用できる）
+      let polls = 0, hits = 0, lastRead = '';
+      let polling = true;
+      const poller = (async () => {
+        while (polling) {
+          try {
+            const v = await state.id.char.readValue();
+            const b = new Uint8Array(v.buffer);
+            polls++;
+            if (b.length && (b[0] === 0x01 || b[0] === 0x02)) { hits++; lastRead = hex(b); }
+          } catch (e) { polls++; }
+          await sleep(120);
+        }
+      })();
+
       await write('motor', [0x01, 0x01, 1, 20, 0x02, 1, 20]);   // 前進
       await sleep(700);
       await write('motor', [0x01, 0x01, 2, 20, 0x02, 2, 20]);   // 後退
       await sleep(700);
       await write('motor', [0x01, 0x01, 1, 0, 0x02, 1, 0]);     // 停止
       await sleep(300);
-      const got = (s.nListener + s.nOnchar) - before;
+      polling = false;
+      await poller;
 
+      const got = (s.nListener + s.nOnchar) - before;
       lines.push(`間隔${t.interval}ms / 条件0x${t.cond.toString(16).padStart(2, '0')}: `
-        + `走行中の位置ID ${got} 件` + (got ? ` / 最後 ${s.last}` : ''));
+        + `通知 ${got} 件 / 走行中の読み出し ${hits}/${polls} 件`
+        + (got ? ` / 最後の通知 ${s.last}` : '')
+        + (hits ? ` / 読めた値 ${lastRead}` : ''));
       out.textContent = lines.join('\n');
     }
 
     btn.textContent = label;
     btn.disabled = false;
-    const worked = lines.filter((l) => !/ 0 件/.test(l));
-    lines.push(worked.length
-      ? '→ 件数が 0 でない設定なら通知が届きます'
-      : '→ どの設定でも、走らせていても位置IDは届きませんでした。'
-        + 'キューブは読めている（目標指定が正常終了する）のに、通知だけが出ない状態です。');
+    const gotNotify = lines.some((l) => /通知 [1-9]/.test(l));
+    const gotRead = lines.some((l) => /読み出し [1-9]/.test(l));
+    lines.push(gotNotify
+      ? '→ 通知が届く設定が見つかりました。その設定を使えば位置IDが取れます'
+      : gotRead
+        ? '→ 通知は来ませんが、走行中の読み出しでは値が取れました。'
+          + '定期的に読み出す形にすれば位置IDを追えます'
+        : '→ 通知も読み出しも駄目でした。位置IDをそのまま取る方法はこの環境にはありません。'
+          + '目標指定の応答と推測航法を組み合わせる形に切り替えるのが現実的です');
     out.textContent = lines.join('\n');
   });
 
