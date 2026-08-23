@@ -416,10 +416,10 @@
       await cube.connect();
       cubes.push(cube);
       selected = cube;
-      // 前に別のアプリなどで変えられていても位置IDが流れてくるように、
-      // 読み取りセンサーの通知設定をキューブの既定に戻しておく
-      cube.setIdNotification(0, 0xff).catch(() => {});
-      cube.setIdMissedNotification(70).catch(() => {});
+      // 読み取りセンサーの通知設定は書かない。@toio/cube も p5toio も一度も書かず、
+      // 購読するだけで位置IDが流れる。ここで 0x18 を送っていたのが位置IDが
+      // 来なかった原因の疑いが濃い（通知間隔 0 を「既定」と思い込んで書いていた）。
+      // 設定は電源を切るまでキューブに残るため、一度書くと後の接続にも尾を引く。
       if (isDeadReckoning() || miniState.level) enableAttitude(cube);
       renderTabs();
       syncReadouts();
@@ -1696,11 +1696,14 @@
   // 位置IDの通知が一件も来ないときの切り分け。読み取りセンサーの通知設定を
   // 順に当てはめて、どれなら通知が来るのかを実機で確かめる。あわせて GATT の
   // 読み出しも試すので、通知の経路が死んでいても値が取れるなら分かる。
+  // 先頭は「何も書かない」。これが本来の姿で、@toio/cube も p5toio もこの状態のまま
+  // 位置IDを受け取っている。書いた設定は電源を切るまでキューブに残るので、
+  // 手を加える前の状態をいちばん先に測っておかないと結果が汚れる。
   const ID_NOTIFY_COMBOS = [
-    { interval: 0, cond: 0xff, label: '間隔0ms / 条件0xFF' },
-    { interval: 0, cond: 0x01, label: '間隔0ms / 条件0x01' },
-    { interval: 0, cond: 0x00, label: '間隔0ms / 条件0x00' },
+    { interval: null, cond: null, label: '設定を書かない（キューブのまま）' },
+    { interval: 10, cond: 0x01, label: '間隔10ms / 条件0x01' },
     { interval: 100, cond: 0x00, label: '間隔100ms / 条件0x00' },
+    { interval: 0, cond: 0xff, label: '間隔0ms / 条件0xFF' },
   ];
 
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -1727,10 +1730,11 @@
       const s = statsOf(c);
       const before = s.pos + s.std + s.posMissed + s.stdMissed;
       let err = '';
-      try {
-        await c.setIdNotification(combo.interval, combo.cond);
-        await c.setIdMissedNotification(70);
-      } catch (e) { err = ' 設定失敗:' + (e.message || e); }
+      if (combo.interval !== null) {
+        try {
+          await c.setIdNotification(combo.interval, combo.cond);
+        } catch (e) { err = ' 設定失敗:' + (e.message || e); }
+      }
 
       await sleep(1600);   // この間にキューブを少し動かしてもらう
       const got = (s.pos + s.std + s.posMissed + s.stdMissed) - before;
@@ -1756,6 +1760,8 @@
     } else {
       lines.push('→ どの設定でも通知が来ませんでした。'
         + '目標指定で狙った座標に止まるなら、キューブは読めていて通知だけが出ていない状態です。');
+      lines.push('※ ここで書いた設定は電源を切るまでキューブに残ります。'
+        + '素の状態で試し直すときは、キューブを充電器に載せるなどして一度電源を入れ直してください。');
       toast('どの設定でも位置IDの通知は来ませんでした');
     }
     out.textContent = lines.join('\n');
