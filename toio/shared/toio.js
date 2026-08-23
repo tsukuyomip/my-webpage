@@ -86,6 +86,7 @@
       this.battery = null;
       this.button = false;
       this.position = null;       // {x, y, angle, sensorX, sensorY}
+      this.lastTarget = null;     // 直近に送った目標指定 {x, y, angle, controlId}
       this.standardId = null;     // {value, angle}
       this.onMat = false;
       this.motion = null;         // {flat, collision, doubleTap, posture, shake}
@@ -491,6 +492,12 @@
       dv.setUint16(7, clamp(t.x, 0, 0xffff), true);
       dv.setUint16(9, clamp(t.y, 0, 0xffff), true);
       dv.setUint16(11, (clamp(t.rotateType, 0, 7) << 13) | clamp(t.angle, 0, 0x1fff), true);
+      // 到達（応答理由 0）したときは、キューブがこの座標に居ることが確定する。
+      // 位置IDの通知が来ない個体でも、これを絶対座標の観測として使える
+      this.lastTarget = {
+        x: clamp(t.x, 0, 0xffff), y: clamp(t.y, 0, 0xffff),
+        angle: clamp(t.angle, 0, 0x1fff), controlId: clamp(o.controlId, 0, 255),
+      };
       return this.write('motor', buf, { note: `目標指定 (${t.x}, ${t.y}, ${t.angle}°)` });
     }
 
@@ -513,6 +520,12 @@
         dv.setUint16(10 + 6 * i, clamp(t.y, 0, 0xffff), true);
         dv.setUint16(12 + 6 * i, (clamp(t.rotateType, 0, 7) << 13) | clamp(t.angle, 0, 0x1fff), true);
       }
+      // 最後の 1 点に着けば全部を通ったことになるので、それを観測点にする
+      const last = targets[n - 1];
+      this.lastTarget = last ? {
+        x: clamp(last.x, 0, 0xffff), y: clamp(last.y, 0, 0xffff),
+        angle: clamp(last.angle, 0, 0x1fff), controlId: clamp(o.controlId, 0, 255),
+      } : null;
       return this.write('motor', buf, { note: `複数目標指定 ${n} 点` });
     }
 

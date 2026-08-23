@@ -17,7 +17,8 @@
   function statsOf(cube) {
     let s = readStats.get(cube);
     if (!s) {
-      s = { pos: 0, posMissed: 0, std: 0, stdMissed: 0, lastText: null, lastAt: 0, since: Date.now() };
+      s = { pos: 0, posMissed: 0, std: 0, stdMissed: 0, arrival: 0,
+        lastText: null, lastAt: 0, since: Date.now() };
       readStats.set(cube, s);
     }
     return s;
@@ -445,16 +446,8 @@
       toast(cube.name + ' が切断されました');
     });
     cube.on('position', (p) => {
-      const s = statsOf(cube);
-      s.pos++;
-      s.lastText = `位置ID ${p.x}, ${p.y} (${p.angle}°)`;
-      s.lastPos = { x: p.x, y: p.y, angle: p.angle };
-      s.lastAt = Date.now();
-      const tr = trails.get(cube) || [];
-      tr.push([p.x, p.y]);
-      if (tr.length > 600) tr.shift();
-      trails.set(cube, tr);
-      if (cube === selected) syncReadouts();
+      statsOf(cube).pos++;
+      applyPositionFix(cube, p, `位置ID ${p.x}, ${p.y} (${p.angle}°)`);
     });
     cube.on('standard', (v) => {
       const s = statsOf(cube);
@@ -473,8 +466,33 @@
     cube.on('collision', () => { if (cube === selected) flash('evCollision'); });
     cube.on('doubleTap', () => { if (cube === selected) flash('evDoubleTap'); });
     cube.on('motorResponse', (r) => {
-      if (r.reason !== 0) toast(`目標指定の応答: ${r.reasonText}`);
+      // 到達（理由 0）は、そのままキューブの絶対座標の観測になる。目標指定は
+      // 座標へ追い込む閉ループ制御なので、着いたということは指定座標に居るということ。
+      // 位置IDの通知が来ない個体では、これが唯一の絶対座標の手がかりになる。
+      if (r.reason === 0 && cube.lastTarget) {
+        const t = cube.lastTarget;
+        statsOf(cube).arrival++;
+        applyPositionFix(cube, t, `到達位置 ${t.x}, ${t.y} (${t.angle}°)`);
+      } else if (r.reason !== 0) {
+        toast(`目標指定の応答: ${r.reasonText}`);
+      }
     });
+  }
+
+  /**
+   * 絶対座標が 1 点わかったときの共通処理。位置IDの通知からでも、
+   * 目標指定の到達からでも、同じ扱いで地図と軌跡に載せる。
+   */
+  function applyPositionFix(cube, p, text) {
+    const s = statsOf(cube);
+    s.lastText = text;
+    s.lastPos = { x: p.x, y: p.y, angle: p.angle };
+    s.lastAt = Date.now();
+    const tr = trails.get(cube) || [];
+    tr.push([p.x, p.y]);
+    if (tr.length > 600) tr.shift();
+    trails.set(cube, tr);
+    if (cube === selected) syncReadouts();
   }
 
   function flash(id) {
@@ -533,6 +551,7 @@
     }
     set('roReadStats', st
       ? `読めた ${st.pos + st.std} / 読めず ${st.posMissed + st.stdMissed}`
+        + (st.arrival ? ` / 到達 ${st.arrival}` : '')
       : null);
 
     const m = c && c.motion;
@@ -1616,9 +1635,17 @@
     const st = readStats.get(selected);
     if (st && !st.pos && !st.std && selected.connected && Date.now() - st.since > 10000) {
       el.classList.remove('hidden');
-      el.textContent = '接続してから位置ID・標準IDを一度も読めていません。'
-        + '印刷したマットなら、指定の用紙サイズ・等倍（100%）・白黒・1200dpi で刷れているか確認してください。'
-        + '「用紙に合わせる」による数％の縮小やカラー印刷、画像に変換した原稿では模様が読めなくなります。';
+      if (st.arrival) {
+        // 目標指定が理由 0 で返るなら、キューブはマットを読めている。
+        // 通知だけが出ていない個体なので、印刷の話をしても筋違いになる
+        el.textContent = '位置IDの通知は一度も来ていませんが、目標指定は到達しています。'
+          + 'キューブはマットを読めていて、通知だけが出ていない状態です。'
+          + '地図の位置は到達したときに更新されます。';
+      } else {
+        el.textContent = '接続してから位置ID・標準IDを一度も読めていません。'
+          + 'まず「地図をタップして移動」で目標指定を送ってみてください。'
+          + '到達すれば読めています。「toio ID missed」が返るなら読めていません。';
+      }
       return;
     }
 
@@ -1776,7 +1803,7 @@
         // 消すのではなく数え直す。消すと「読めた 0」すら出せなくなる
         const s = statsOf(c);
         s.pos = s.posMissed = s.std = s.stdMissed = 0;
-        s.lastText = null; s.lastAt = 0; s.since = Date.now();
+        s.lastText = null; s.lastAt = 0; s.arrival = 0; s.since = Date.now();
       }
     }
     syncReadouts();
