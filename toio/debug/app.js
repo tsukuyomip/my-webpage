@@ -142,7 +142,8 @@
     s.lastAt = Date.now();
 
     if (key === 'id' && !$('logId').checked) return;
-    log('rx', `${key}(${via})`, `${hex(bytes)}  ${describe(key, bytes)}`);
+    log('rx', `${key}(${via})`,
+      `${hex(bytes)}${key === 'id' ? ` (${bytes.length}バイト)` : ''}  ${describe(key, bytes)}`);
 
     if (key === 'motor' && (bytes[0] === 0x83 || bytes[0] === 0x84)) {
       $('motorResult').textContent = '目標指定の応答: ' + describe(key, bytes);
@@ -225,21 +226,49 @@
     }
   });
 
+  // BLE は GATT 操作を重ねると落ちる。1 本のキューに直列化し、
+  // 失敗したら少し待って数回やり直す（Android Chrome で
+  // 「GATT operation failed for unknown reason」が頻発したため）
+  let gattChain = Promise.resolve();
+
+  function gatt(fn) {
+    const run = gattChain.then(fn, fn);
+    gattChain = run.catch(() => {});
+    return run;
+  }
+
   async function write(key, bytes) {
     const s = state[key];
     if (!s.char) { toast(key + ' が使えません'); return; }
     const buf = new Uint8Array(bytes);
     log('tx', key, hex(buf));
-    try {
-      if (s.char.properties && s.char.properties.writeWithoutResponse) {
-        await s.char.writeValueWithoutResponse(buf);
-      } else {
-        await s.char.writeValue(buf);
+    return gatt(async () => {
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          if (s.char.properties && s.char.properties.writeWithoutResponse) {
+            await s.char.writeValueWithoutResponse(buf);
+          } else {
+            await s.char.writeValue(buf);
+          }
+          if (attempt > 1) log('info', key, `${attempt} 回目で書き込めました`);
+          return;
+        } catch (e) {
+          if (attempt === 3) {
+            log('info', key, '書き込み失敗: ' + (e.message || e));
+            toast('書き込み失敗: ' + (e.message || e));
+            return;
+          }
+          await new Promise((r) => setTimeout(r, 60 * attempt));
+        }
       }
-    } catch (e) {
-      log('info', key, '書き込み失敗: ' + (e.message || e));
-      toast('書き込み失敗: ' + (e.message || e));
-    }
+    });
+  }
+
+  /** 読み出しも同じキューに載せる */
+  function readChar(key) {
+    const s = state[key];
+    if (!s.char) return Promise.reject(new Error(key + ' が使えません'));
+    return gatt(() => s.char.readValue());
   }
 
   // ---------------------------------------------------------------- 実験
@@ -333,7 +362,7 @@
       const poller = (async () => {
         while (polling) {
           try {
-            const v = await state.id.char.readValue();
+            const v = await readChar('id');
             const b = new Uint8Array(v.buffer);
             polls++;
             if (b.length && (b[0] === 0x01 || b[0] === 0x02)) { hits++; lastRead = hex(b); }
@@ -385,7 +414,7 @@
       const s = state[c.key];
       if (!s.char) continue;
       try {
-        const v = await s.char.readValue();
+        const v = await readChar(c.key);
         const b = new Uint8Array(v.buffer);
         log('rx', c.key + '(read)', `${hex(b)}  ${describe(c.key, b)}`);
       } catch (e) {
