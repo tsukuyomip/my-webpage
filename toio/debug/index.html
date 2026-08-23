@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>toio BLE デバッグ</title>
   <meta name="description" content="toio コアキューブの BLE 通知が本当に届いているかを、生のまま確かめるための検査ページ。">
-  <link rel="stylesheet" href="../shared/base.css?v=20260823f">
-  <link rel="stylesheet" href="style.css?v=20260823f">
+  <link rel="stylesheet" href="../shared/base.css?v=20260823g">
+  <link rel="stylesheet" href="style.css?v=20260823g">
 </head>
 <body>
 
@@ -77,8 +77,8 @@
     <p class="hint mono" id="motorResult">目標指定の応答: —</p>
 
     <div class="row">
-      <label>ID通知 間隔(ms) <input type="number" id="cfgInterval" value="0" min="0" max="2550" step="10"></label>
-      <label>条件 <input type="number" id="cfgCond" value="255" min="0" max="255"></label>
+      <label>ID通知 間隔(ms) <input type="number" id="cfgInterval" value="100" min="0" max="2550" step="10"></label>
+      <label>条件 <input type="number" id="cfgCond" value="1" min="0" max="255"></label>
       <button class="btn" id="btnIdCfg">ID通知設定を書く</button>
       <button class="btn ghost" id="btnReadAll">全部を読み出してみる</button>
     </div>
@@ -86,7 +86,11 @@
       <b>read はこのブラウザで通知としても跳ね返ります。</b>実機のログで
       <code>id(listener)</code> → <code>id(onchar)</code> → <code>id(read)</code> の3連が確認できました。
       読み出したあとの「通知が来た」は、その反射かもしれません。
-      また <b>ID通知設定は電源を切るまでキューブに残ります。</b>
+    </p>
+    <p class="hint warn">
+      <b>間隔 0 は書かないこと。</b>間隔 0 が「通知しない」を意味する疑いがあり、
+      しかもこの設定が電源を入れ直しても残るなら、一度書くと戻せなくなります。
+      初期値は <b>100ms / 条件 0x01（変化があったとき）</b>にしてあります。
     </p>
   </section>
 
@@ -120,8 +124,13 @@
     <p class="hint warn">
       <b>既定では通知設定を書きません。</b><code>@toio/cube</code> も <code>p5toio</code> も
       <code>0x18</code> を一度も書かず、購読するだけで位置IDを受け取っています。
-      書いた設定は<b>電源を切るまでキューブに残る</b>ので、素の状態を確かめたいときは
-      チェックを外したまま、キューブの電源を入れ直してから試してください。
+      素の状態を確かめたいときはチェックを外したまま試してください。
+      逆に、以前書いた間隔 0 が<b>電源を入れ直しても残っている</b>可能性を潰すには、
+      チェックを入れて別の値を上書きします。
+    </p>
+    <p class="hint">
+      実機での結果: <b>電源リセット後・設定書き込みなし・購読済みでも通知は 0 件</b>。
+      そのとき目標指定は理由 0 で返っており、キューブはマットを読めていた。
     </p>
     <label class="check">
       <input type="checkbox" id="watchWriteCfg"> 走らせる前に ID通知設定（100ms / 変化時）を書く
@@ -144,6 +153,6 @@
 
 <div id="toast" class="toast hidden"></div>
 
-<script src="app.js?v=20260823f"></script>
+<script src="app.js?v=20260823g"></script>
 </body>
 </html>
