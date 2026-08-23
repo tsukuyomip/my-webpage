@@ -496,7 +496,8 @@
       // 位置IDの通知が来ない個体でも、これを絶対座標の観測として使える
       this.lastTarget = {
         x: clamp(t.x, 0, 0xffff), y: clamp(t.y, 0, 0xffff),
-        angle: clamp(t.angle, 0, 0x1fff), controlId: clamp(o.controlId, 0, 255),
+        angle: clamp(t.angle, 0, 0x1fff), rotateType: clamp(t.rotateType, 0, 7),
+        controlId: clamp(o.controlId, 0, 255),
       };
       return this.write('motor', buf, { note: `目標指定 (${t.x}, ${t.y}, ${t.angle}°)` });
     }
@@ -524,7 +525,8 @@
       const last = targets[n - 1];
       this.lastTarget = last ? {
         x: clamp(last.x, 0, 0xffff), y: clamp(last.y, 0, 0xffff),
-        angle: clamp(last.angle, 0, 0x1fff), controlId: clamp(o.controlId, 0, 255),
+        angle: clamp(last.angle, 0, 0x1fff), rotateType: clamp(last.rotateType, 0, 7),
+        controlId: clamp(o.controlId, 0, 255),
       } : null;
       return this.write('motor', buf, { note: `複数目標指定 ${n} 点` });
     }

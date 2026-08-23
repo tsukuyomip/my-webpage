@@ -9,8 +9,8 @@
   <meta name="description" content="Web Bluetooth で toio コアキューブの BLE 機能をひととおり操作できるコントロールパネル。">
   <!-- ?v= はキャッシュ避け。HTML だけ更新されて CSS/JS が古いままだと
        レイアウトが崩れるので、これらを変更したら必ず上げること -->
-  <link rel="stylesheet" href="../shared/base.css?v=20260823j">
-  <link rel="stylesheet" href="style.css?v=20260823j">
+  <link rel="stylesheet" href="../shared/base.css?v=20260823k">
+  <link rel="stylesheet" href="style.css?v=20260823k">
 </head>
 <body>
 
@@ -151,7 +151,9 @@
             <option value="2">2: 絶対角度・負方向</option>
             <option value="3">3: 相対角度・正方向</option>
             <option value="4">4: 相対角度・負方向</option>
-            <option value="5">5: 角度指定なし</option>
+            <!-- 既定はこれ。0 だと着くたびに必ず 0° へ向き直してしまうので、
+                 進んできた向きのまま止まるほうが自然 -->
+            <option value="5" selected>5: 角度指定なし</option>
             <option value="6">6: 書き込み角度を無視</option>
           </select>
         </label>
@@ -518,7 +520,7 @@
 </div>
 
 <!-- BLE ラッパーは /toio/ 配下のページで共有している -->
-<script src="../shared/toio.js?v=20260823j"></script>
-<script src="app.js?v=20260823j"></script>
+<script src="../shared/toio.js?v=20260823k"></script>
+<script src="app.js?v=20260823k"></script>
 </body>
 </html>
