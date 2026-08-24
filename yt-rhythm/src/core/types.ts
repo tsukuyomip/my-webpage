@@ -55,8 +55,8 @@ export interface Chart {
 }
 
 export const DEFAULT_DISPLAY: ChartDisplay = {
-  dimOpacity: 0.3,
-  approachMs: 1100,
+  dimOpacity: 0.5,
+  approachMs: 800,
 }
 
 /** 設定・譜面ともにこの範囲に収める。 */
