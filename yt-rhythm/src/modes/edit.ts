@@ -4,6 +4,7 @@ import { saveDraft } from '../core/draft.ts'
 import { clamp01, hitRadius, noteRadius } from '../core/geometry.ts'
 import { newId } from '../core/id.ts'
 import type { Settings } from '../core/settings.ts'
+import { sfx } from '../core/sfx.ts'
 import type { Chart, Note } from '../core/types.ts'
 import { drawGhostNotes, clearCanvas, drawNotes } from '../render/renderer.ts'
 import { button, downloadText, formatTime, h, pickFile, toast } from '../ui/dom.ts'
@@ -47,6 +48,11 @@ export class EditScreen {
   /** seek 直後はプレイヤーの報告時刻が古いので、落ち着くまで採用しない。 */
   private seekSettleUntil = 0
   private saveTimer: number | undefined
+  /** 再生プレビュー中にノーツ音を鳴らすか。 */
+  private sfxOn = true
+  private sfxIndex = 0
+  private lastSfxTime = Number.NaN
+  private adShown = false
 
   // UI 参照
   private readonly timeLabel: HTMLElement
@@ -56,6 +62,8 @@ export class EditScreen {
   private readonly noteTimeInput: HTMLInputElement
   private readonly toolButtons: Record<Tool, HTMLButtonElement>
   private readonly snapBtn: HTMLButtonElement
+  private readonly sfxBtn: HTMLButtonElement
+  private readonly adBadge: HTMLElement
   private readonly undoBtn: HTMLButtonElement
   private readonly redoBtn: HTMLButtonElement
 
@@ -106,6 +114,8 @@ export class EditScreen {
       select: button('↖ 選択', () => this.setTool('select'), 'btn btn-toggle'),
     }
     this.snapBtn = button('スナップ OFF', () => this.toggleSnap(), 'btn btn-toggle')
+    this.sfxBtn = button('🔊 ノーツ音', () => this.toggleSfx(), 'btn btn-toggle active')
+    this.adBadge = h('span', { class: 'ad-badge hidden', text: '広告の再生中' })
     this.undoBtn = button('↩ 元に戻す', () => this.undo(), 'btn')
     this.redoBtn = button('↪ やり直し', () => this.redo(), 'btn')
 
@@ -192,6 +202,9 @@ export class EditScreen {
   // ---------- 再生制御 ----------
 
   private togglePlay(): void {
+    // 音はユーザー操作の中で用意する。
+    sfx.ensure()
+    sfx.setVolume(this.opts.settings.sfxVolume)
     if (this.playing) this.stage.player.pause()
     else {
       this.flushSeek(true)
@@ -453,6 +466,7 @@ export class EditScreen {
     return h('div', { class: 'edit-topbar' }, [
       button('◀', () => this.opts.onExit(), 'icon-btn'),
       h('span', { class: 'play-title', text: 'クリエイトモード' }),
+      this.adBadge,
       button('▶ 試遊', () => this.opts.onPlaytest(this.chart), 'btn btn-small'),
       button('⬇ 書き出し', () => this.exportChart(), 'btn btn-small btn-primary'),
       button('⬆ 読み込み', () => void this.importChart(), 'btn btn-small'),
@@ -547,6 +561,7 @@ export class EditScreen {
       this.undoBtn,
       this.redoBtn,
       this.snapBtn,
+      this.sfxBtn,
     ])
 
     this.metaInputs = {
@@ -632,6 +647,24 @@ export class EditScreen {
     this.toolButtons.select.classList.toggle('active', tool === 'select')
   }
 
+  private toggleSfx(): void {
+    this.sfxOn = !this.sfxOn
+    this.sfxBtn.classList.toggle('active', this.sfxOn)
+  }
+
+  /** 再生プレビューで、ノーツを通過した瞬間に音を鳴らす（タイミング確認用）。 */
+  private playPassedSfx(t: number): void {
+    const index = lowerBound(this.chart.notes, t)
+    const jumped =
+      !Number.isFinite(this.lastSfxTime) || t < this.lastSfxTime || t - this.lastSfxTime > 0.4
+    if (!jumped && this.playing && this.sfxOn && index > this.sfxIndex) {
+      // シークや低速再生でまとめて溜まったときに連打しない。
+      for (let i = 0; i < Math.min(3, index - this.sfxIndex); i += 1) sfx.play('perfect')
+    }
+    this.sfxIndex = index
+    this.lastSfxTime = t
+  }
+
   private toggleSnap(): void {
     this.snapOn = !this.snapOn
     this.snapBtn.textContent = this.snapOn ? 'スナップ ON' : 'スナップ OFF'
@@ -674,6 +707,23 @@ export class EditScreen {
   }
 
   private tick(): void {
+    // 広告のあいだは時刻を進めず、終わったら元の位置に戻す。
+    const isAd = this.stage.player.pollAd()
+    if (isAd !== this.adShown) {
+      this.adShown = isAd
+      this.adBadge.classList.toggle('hidden', !isAd)
+      // 広告中はプレイヤーを直接操作できるようにする（スキップ用）。
+      this.stage.setPlayerInteractive(isAd)
+      if (!isAd) {
+        this.seekVideo(this.pausedTime)
+        this.flushSeek(true)
+      }
+    }
+    if (isAd) {
+      clearCanvas(this.stage.ctx, this.stage.rect)
+      return
+    }
+
     if (this.playing) {
       this.clock.sample(this.stage.player.getTime())
       this.pausedTime = this.clock.now()
@@ -682,6 +732,7 @@ export class EditScreen {
     }
     this.flushSeek()
     const t = this.chartTime()
+    this.playPassedSfx(t)
     this.timeLabel.textContent = formatTime(t)
     this.timeline.update(this.chart.notes, this.selectedId, this.grid())
     this.timeline.draw(t)

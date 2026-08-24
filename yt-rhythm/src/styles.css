@@ -275,6 +275,15 @@ body {
   pointer-events: none;
 }
 
+.stage-frame.player-interactive .stage-player,
+.stage-frame.player-interactive .stage-player iframe {
+  pointer-events: auto;
+}
+
+.stage-frame.player-interactive .stage-canvas {
+  pointer-events: none;
+}
+
 .stage-canvas {
   position: absolute;
   inset: 0;
@@ -471,4 +480,40 @@ body {
   .timeline {
     height: 56px;
   }
+}
+
+.ad-banner {
+  position: absolute;
+  top: 0.6rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  max-width: 92%;
+  padding: 0.5rem 0.9rem;
+  border-radius: 12px;
+  background: rgba(12, 18, 30, 0.92);
+  border: 1px solid #8a6a1e;
+  color: #ffd54a;
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-align: center;
+  /* 広告のスキップボタンを押せるよう、クリックは通す。 */
+  pointer-events: none;
+}
+
+.ad-banner .small {
+  display: block;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.ad-badge {
+  padding: 0.25rem 0.5rem;
+  border-radius: 999px;
+  background: #4a3a12;
+  border: 1px solid #8a6a1e;
+  color: #ffd54a;
+  font-size: 0.75rem;
+  font-weight: 700;
+  white-space: nowrap;
 }

@@ -59,6 +59,14 @@ export class Stage {
     this.layout()
   }
 
+  /**
+   * 広告の再生中など、プレイヤー自体を触らせたいときに呼ぶ。
+   * 通常はキャンバスが入力を全部受け取り、iframe には渡さない。
+   */
+  setPlayerInteractive(on: boolean): void {
+    this.frame.classList.toggle('player-interactive', on)
+  }
+
   layout(): void {
     if (this.destroyed) return
     const bounds = this.root.getBoundingClientRect()

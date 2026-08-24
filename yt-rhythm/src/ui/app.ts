@@ -1,6 +1,7 @@
 import { createEmptyChart, parseChart } from '../core/chart.ts'
 import { clearDraft, loadDraft } from '../core/draft.ts'
 import { DEFAULT_SETTINGS, loadSettings, saveSettings, type Settings } from '../core/settings.ts'
+import { sfx } from '../core/sfx.ts'
 import type { Chart } from '../core/types.ts'
 import { EditScreen } from '../modes/edit.ts'
 import { PlayScreen } from '../modes/play.ts'
@@ -75,6 +76,7 @@ export class App {
       step: number,
       format: (v: number) => string,
       apply: (v: number) => void,
+      preview?: () => void,
     ) => {
       const readout = h('span', { class: 'slider-value', text: format(value) })
       const input = h('input', {
@@ -87,6 +89,7 @@ export class App {
             apply(v)
             saveSettings(this.settings)
           },
+          change: () => preview?.(),
         },
       })
       input.value = String(value)
@@ -124,6 +127,24 @@ export class App {
       (v) => `${v.toFixed(2)}x`,
       (v) => {
         this.settings.noteScale = v
+      },
+    )
+    addSlider(
+      '効果音の音量',
+      this.settings.sfxVolume,
+      0,
+      1,
+      0.05,
+      (v) => (v <= 0 ? 'OFF' : `${Math.round(v * 100)}%`),
+      (v) => {
+        this.settings.sfxVolume = v
+        sfx.setVolume(v)
+      },
+      () => {
+        // 動かしたその場で音を確かめられるようにする。
+        sfx.ensure()
+        sfx.setVolume(this.settings.sfxVolume)
+        sfx.play('perfect')
       },
     )
 

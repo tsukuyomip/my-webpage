@@ -12,6 +12,7 @@ import {
 } from '../core/judge.ts'
 import type { Chart, Note } from '../core/types.ts'
 import type { Settings } from '../core/settings.ts'
+import { sfx } from '../core/sfx.ts'
 import { EffectLayer } from '../render/effects.ts'
 import { drawHud, drawTimingBar } from '../render/hud.ts'
 import { clearCanvas, drawNotes } from '../render/renderer.ts'
@@ -28,6 +29,8 @@ export interface PlayScreenOptions {
 
 /** 譜面の頭出し位置。最初のノーツの少し前から始める。 */
 const LEAD_IN_SEC = 3
+/** この数ごとにコンボ演出を出す。 */
+const COMBO_MILESTONE = 25
 
 export class PlayScreen {
   readonly root: HTMLElement
@@ -44,7 +47,13 @@ export class PlayScreen {
   private running = false
   private finished = false
   private startTime = 0
+  /** 広告で中断しているか。 */
+  private adPaused = false
+  private adResumeAt = 0
+  /** 一度でも本編が流れたか（前置き広告と途中広告を区別する）。 */
+  private contentStarted = false
   private readonly overlay: HTMLElement
+  private readonly adBanner: HTMLElement
   private readonly pauseBtn: HTMLButtonElement
 
   constructor(private readonly opts: PlayScreenOptions) {
@@ -63,6 +72,13 @@ export class PlayScreen {
     })
 
     this.overlay = h('div', { class: 'overlay' })
+    this.adBanner = h('div', { class: 'ad-banner hidden' }, [
+      h('span', { text: '広告の再生中' }),
+      h('span', {
+        class: 'small',
+        text: 'スキップできる広告はプレイヤーを操作してください。終わると自動で再開します。',
+      }),
+    ])
     this.pauseBtn = button('⏸', () => this.pause(), 'icon-btn')
 
     const topbar = h('div', { class: 'play-topbar' }, [
@@ -71,6 +87,7 @@ export class PlayScreen {
       this.pauseBtn,
     ])
 
+    this.stage.root.appendChild(this.adBanner)
     this.root = h('div', { class: 'screen screen-play' }, [topbar, this.stage.root, this.overlay])
   }
 
@@ -131,6 +148,9 @@ export class PlayScreen {
   }
 
   private begin(): void {
+    // 音は必ずユーザー操作の中で用意する。
+    sfx.ensure()
+    sfx.setVolume(this.opts.settings.sfxVolume)
     this.hideOverlay()
     this.stage.player.seek(this.startTime)
     this.stage.player.play()
@@ -138,6 +158,8 @@ export class PlayScreen {
   }
 
   private handlePlayerState(state: string): void {
+    // 広告中の状態変化でゲームを再開させない。
+    if (this.adPaused && state !== 'ended') return
     if (state === 'playing') {
       this.clock.start(this.stage.player.getTime())
       this.clock.setRate(this.stage.player.getRate())
@@ -190,6 +212,7 @@ export class PlayScreen {
     this.recentDeltas = []
     this.effects.clear()
     this.finished = false
+    this.contentStarted = false
     this.hideOverlay()
     this.stage.player.seek(this.startTime)
     this.stage.player.play()
@@ -216,8 +239,19 @@ export class PlayScreen {
     const dt = Math.min(0.1, (nowMs - this.lastFrameMs) / 1000)
     this.lastFrameMs = nowMs
 
+    if (this.stage.player.pollAd()) {
+      if (!this.adPaused) this.enterAd()
+      // 広告の上にノーツを描かない（広告の操作も邪魔しない）。
+      clearCanvas(this.stage.ctx, this.stage.rect)
+      return
+    }
+    if (this.adPaused) this.leaveAd()
+
     this.clock.sample(this.stage.player.getTime())
-    if (this.running) this.checkMisses()
+    if (this.running) {
+      this.contentStarted = true
+      this.checkMisses()
+    }
     this.effects.update(dt)
     this.draw()
 
@@ -225,6 +259,30 @@ export class PlayScreen {
       const last = this.notes[this.notes.length - 1]
       if (last && this.judgeTime() > last.time + MISS_WINDOW + 1.5) this.finish()
     }
+  }
+
+  /**
+   * 広告は埋め込みプレイヤーの仕様で消せないので、流れているあいだは
+   * ゲームを止めて待ち、終わったら続きから自動で再開する。
+   */
+  private enterAd(): void {
+    this.adPaused = true
+    this.adResumeAt = this.contentStarted ? this.clock.now() : this.startTime
+    this.running = false
+    this.effects.clear()
+    // スキップボタンを押せるよう、広告のあいだはプレイヤーに触れるようにする。
+    this.stage.setPlayerInteractive(true)
+    this.adBanner.classList.remove('hidden')
+  }
+
+  private leaveAd(): void {
+    this.adPaused = false
+    this.adBanner.classList.add('hidden')
+    this.stage.setPlayerInteractive(false)
+    const resumeAt = Math.max(this.startTime, this.adResumeAt - 1)
+    this.stage.player.seek(resumeAt)
+    this.clock.start(resumeAt)
+    this.running = true
   }
 
   private checkMisses(): void {
@@ -271,12 +329,27 @@ export class PlayScreen {
       this.recentDeltas.push(delta)
       if (this.recentDeltas.length > 24) this.recentDeltas.shift()
     }
+    const radius = noteRadius(this.stage.rect, this.opts.settings)
     this.effects.spawn(note.fx, {
       px: note.x * this.stage.rect.width,
       py: note.y * this.stage.rect.height,
-      radius: noteRadius(this.stage.rect, this.opts.settings),
+      radius,
       judgement,
     })
+    sfx.play(judgement)
+
+    // コンボの節目にごほうびを出す。
+    const combo = this.score.combo
+    if (judgement !== 'miss' && combo > 0 && combo % COMBO_MILESTONE === 0) {
+      this.effects.spawn('milestone', {
+        px: this.stage.rect.width / 2,
+        py: this.stage.rect.height * 0.46,
+        radius,
+        judgement,
+        text: `${combo} COMBO!`,
+      })
+      sfx.play('milestone')
+    }
   }
 
   private draw(): void {

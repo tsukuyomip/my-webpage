@@ -7,12 +7,15 @@ export interface Settings {
   approachMs: number
   /** ノーツの大きさ倍率。 */
   noteScale: number
+  /** 効果音の音量（0 で無音）。 */
+  sfxVolume: number
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   offsetMs: 0,
   approachMs: 1100,
   noteScale: 1,
+  sfxVolume: 0.7,
 }
 
 export function loadSettings(): Settings {
@@ -24,6 +27,7 @@ export function loadSettings(): Settings {
       offsetMs: clampNum(parsed.offsetMs, -500, 500, DEFAULT_SETTINGS.offsetMs),
       approachMs: clampNum(parsed.approachMs, 300, 3000, DEFAULT_SETTINGS.approachMs),
       noteScale: clampNum(parsed.noteScale, 0.5, 2, DEFAULT_SETTINGS.noteScale),
+      sfxVolume: clampNum(parsed.sfxVolume, 0, 1, DEFAULT_SETTINGS.sfxVolume),
     }
   } catch {
     return { ...DEFAULT_SETTINGS }

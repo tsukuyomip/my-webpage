@@ -87,6 +87,9 @@ export interface PlayerCallbacks {
 export class VideoPlayer {
   private player: YT.Player | null = null
   private ready = false
+  /** 本編の長さ（秒）。広告かどうかの判定に使う。 */
+  private baseDuration = 0
+  private adActive = false
   state: PlayerStateName = 'unstarted'
 
   constructor(private readonly callbacks: PlayerCallbacks = {}) {}
@@ -130,6 +133,37 @@ export class VideoPlayer {
         },
       })
     })
+    await this.captureDuration()
+  }
+
+  /**
+   * 再生前に本編の長さを控えておく。広告が挟まると getDuration() が
+   * 広告の長さに変わるので、その差で広告再生中を見分けられる。
+   */
+  private async captureDuration(): Promise<void> {
+    for (let i = 0; i < 25; i += 1) {
+      const duration = this.getDuration()
+      if (duration > 0) {
+        this.baseDuration = duration
+        return
+      }
+      await new Promise((resolve) => setTimeout(resolve, 120))
+    }
+  }
+
+  /**
+   * 広告が再生中かを推定する。埋め込みプレイヤーは広告の有無を教えてくれないので、
+   * 本編の長さとの食い違いで見る。長さが取れない場合（生配信など）は常に false。
+   */
+  pollAd(): boolean {
+    const duration = this.getDuration()
+    if (!Number.isFinite(duration) || duration <= 0) return this.adActive
+    if (this.baseDuration <= 0) {
+      if (this.state !== 'playing') this.baseDuration = duration
+      return false
+    }
+    this.adActive = Math.abs(duration - this.baseDuration) > 1
+    return this.adActive
   }
 
   get isReady(): boolean {
@@ -157,7 +191,10 @@ export class VideoPlayer {
   }
 
   load(videoId: string): void {
+    this.baseDuration = 0
+    this.adActive = false
     this.player?.cueVideoById(videoId)
+    void this.captureDuration()
   }
 
   setRate(rate: number): void {
