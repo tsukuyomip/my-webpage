@@ -5,8 +5,8 @@ import { clamp01, hitRadius, noteRadius } from '../core/geometry.ts'
 import { newId } from '../core/id.ts'
 import type { Settings } from '../core/settings.ts'
 import { sfx } from '../core/sfx.ts'
-import type { Chart, Note } from '../core/types.ts'
-import { drawGhostNotes, clearCanvas, drawNotes } from '../render/renderer.ts'
+import { APPROACH_RANGE, DIM_RANGE, type Chart, type Note } from '../core/types.ts'
+import { drawGhostNotes, clearCanvas, drawDim, drawNotes } from '../render/renderer.ts'
 import { button, downloadText, formatTime, h, pickFile, toast } from '../ui/dom.ts'
 import { Stage } from '../ui/stage.ts'
 import { Timeline, type GridSpec } from '../ui/timeline.ts'
@@ -20,6 +20,10 @@ export interface EditScreenOptions {
 }
 
 type Tool = 'add' | 'select'
+
+function formatDim(v: number): string {
+  return v <= 0 ? 'なし' : `${Math.round(v * 100)}%`
+}
 
 const RATES = [0.25, 0.5, 0.75, 1]
 const UNDO_LIMIT = 100
@@ -193,6 +197,11 @@ export class EditScreen {
     return Math.round((time - offset) / step) * step + offset
   }
 
+  /** 編集中は譜面の値をそのまま使う（プレイ時の上書きは反映しない）。 */
+  private approachSec(): number {
+    return this.chart.display.approachMs / 1000
+  }
+
   private grid(): GridSpec | null {
     const { bpm, beatOffsetMs = 0, division = 1 } = this.chart.timing
     if (!bpm || bpm <= 0) return null
@@ -319,7 +328,7 @@ export class EditScreen {
   private pickNote(px: number, py: number): Note | null {
     const t = this.chartTime()
     const radius = hitRadius(this.stage.rect, this.opts.settings)
-    const approach = this.opts.settings.approachMs / 1000
+    const approach = this.approachSec()
     let best: Note | null = null
     let bestScore = Number.POSITIVE_INFINITY
     for (let i = lowerBound(this.chart.notes, t - 0.6); i < this.chart.notes.length; i += 1) {
@@ -462,6 +471,49 @@ export class EditScreen {
   private metaInputs: Record<'title' | 'author' | 'difficulty' | 'offset' | 'bpm' | 'beatOffset', HTMLInputElement> =
     {} as never
 
+  /** 見た目の既定値（暗さ・ノーツ速度）のスライダー。 */
+  private displayInputs: {
+    dim: HTMLInputElement
+    dimOut: HTMLElement
+    approach: HTMLInputElement
+    approachOut: HTMLElement
+  } = {} as never
+
+  /**
+   * 譜面が持つ見た目の既定値を編集するスライダー。
+   * ここで決めた値がプレイ時の初期値になる（プレイ側の設定で上書きも可）。
+   */
+  private displaySlider(
+    label: string,
+    value: number,
+    min: number,
+    max: number,
+    step: number,
+    format: (v: number) => string,
+    apply: (v: number) => void,
+  ): { field: HTMLElement; input: HTMLInputElement; readout: HTMLElement } {
+    const readout = h('span', { class: 'small muted', text: format(value) })
+    const input = h('input', {
+      class: 'mini-slider',
+      attrs: { type: 'range', min: String(min), max: String(max), step: String(step) },
+      on: {
+        input: () => {
+          const v = Number(input.value)
+          readout.textContent = format(v)
+          apply(v)
+          this.markDirty()
+        },
+      },
+    })
+    input.value = String(value)
+    const field = h('div', { class: 'slider-field' }, [
+      h('span', { class: 'small', text: label }),
+      input,
+      readout,
+    ])
+    return { field, input, readout }
+  }
+
   private buildTopbar(): HTMLElement {
     return h('div', { class: 'edit-topbar' }, [
       button('◀', () => this.opts.onExit(), 'icon-btn'),
@@ -511,6 +563,10 @@ export class EditScreen {
     this.metaInputs.offset.value = String(this.chart.timing.offsetMs)
     this.metaInputs.bpm.value = String(this.chart.timing.bpm ?? '')
     this.metaInputs.beatOffset.value = String(this.chart.timing.beatOffsetMs ?? 0)
+    this.displayInputs.dim.value = String(this.chart.display.dimOpacity)
+    this.displayInputs.dimOut.textContent = formatDim(this.chart.display.dimOpacity)
+    this.displayInputs.approach.value = String(this.chart.display.approachMs)
+    this.displayInputs.approachOut.textContent = `${this.chart.display.approachMs} ms`
   }
 
   private buildPanel(): HTMLElement {
@@ -611,6 +667,35 @@ export class EditScreen {
       divisionSelect.appendChild(option)
     }
 
+    const dim = this.displaySlider(
+      '画面の暗さ',
+      this.chart.display.dimOpacity,
+      DIM_RANGE.min,
+      DIM_RANGE.max,
+      0.05,
+      formatDim,
+      (v) => {
+        this.chart.display.dimOpacity = v
+      },
+    )
+    const approach = this.displaySlider(
+      'ノーツ速度',
+      this.chart.display.approachMs,
+      APPROACH_RANGE.min,
+      APPROACH_RANGE.max,
+      50,
+      (v) => `${v} ms`,
+      (v) => {
+        this.chart.display.approachMs = v
+      },
+    )
+    this.displayInputs = {
+      dim: dim.input,
+      dimOut: dim.readout,
+      approach: approach.input,
+      approachOut: approach.readout,
+    }
+
     const details = h('details', { class: 'meta-details' }, [
       h('summary', { text: '譜面情報 / タイミング設定' }),
       h('div', { class: 'panel-row' }, [
@@ -635,6 +720,11 @@ export class EditScreen {
       h('p', {
         class: 'muted small',
         text: 'BPM と拍オフセットを入れるとタイムラインに拍線が出て、スナップが効くようになります。',
+      }),
+      h('div', { class: 'panel-row' }, [dim.field, approach.field]),
+      h('p', {
+        class: 'muted small',
+        text: '暗さとノーツ速度は譜面に保存され、プレイ時の初期値になります（プレイ側の設定で上書きも可）。',
       }),
     ])
 
@@ -749,9 +839,10 @@ export class EditScreen {
   private draw(): void {
     const { ctx, rect } = this.stage
     const t = this.chartTime()
-    const approach = this.opts.settings.approachMs / 1000
+    const approach = this.approachSec()
     const selected = this.selectedId ? new Set([this.selectedId]) : undefined
     clearCanvas(ctx, rect)
+    drawDim(ctx, rect, this.chart.display.dimOpacity)
     // これから来るノーツを薄く出しておくと、置く位置を決めやすい。
     drawGhostNotes(
       ctx,

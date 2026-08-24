@@ -36,14 +36,32 @@ export interface ChartTiming {
   division?: number
 }
 
+/** 見た目の既定値。譜面が持ち、プレイ側で上書きできる。 */
+export interface ChartDisplay {
+  /** 動画にかける黒のオーバーレイの濃さ（0 = なし, 1 = 真っ黒）。 */
+  dimOpacity: number
+  /** ノーツが出現してから判定時刻までの長さ（ms）。小さいほど高速。 */
+  approachMs: number
+}
+
 export interface Chart {
   formatVersion: number
   meta: ChartMeta
   timing: ChartTiming
+  display: ChartDisplay
   notes: Note[]
   /** 将来のエフェクト定義用の予約領域。読み書きでそのまま保持する。 */
   fx?: unknown[]
 }
+
+export const DEFAULT_DISPLAY: ChartDisplay = {
+  dimOpacity: 0.3,
+  approachMs: 1100,
+}
+
+/** 設定・譜面ともにこの範囲に収める。 */
+export const DIM_RANGE = { min: 0, max: 0.85 } as const
+export const APPROACH_RANGE = { min: 400, max: 2400 } as const
 
 export const DEFAULT_TIMING: ChartTiming = {
   offsetMs: 0,

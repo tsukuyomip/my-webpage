@@ -11,11 +11,11 @@ import {
   type ScoreSnapshot,
 } from '../core/judge.ts'
 import type { Chart, Note } from '../core/types.ts'
-import type { Settings } from '../core/settings.ts'
+import { resolveDisplay, type ResolvedDisplay, type Settings } from '../core/settings.ts'
 import { sfx } from '../core/sfx.ts'
 import { EffectLayer } from '../render/effects.ts'
 import { drawHud, drawTimingBar } from '../render/hud.ts'
-import { clearCanvas, drawNotes } from '../render/renderer.ts'
+import { clearCanvas, drawDim, drawNotes } from '../render/renderer.ts'
 import { button, h, toast } from '../ui/dom.ts'
 import { Stage } from '../ui/stage.ts'
 
@@ -52,12 +52,15 @@ export class PlayScreen {
   private adResumeAt = 0
   /** 一度でも本編が流れたか（前置き広告と途中広告を区別する）。 */
   private contentStarted = false
+  /** 譜面の既定値と設定の上書きを合わせた見た目の値。 */
+  private readonly display: ResolvedDisplay
   private readonly overlay: HTMLElement
   private readonly adBanner: HTMLElement
   private readonly pauseBtn: HTMLButtonElement
 
   constructor(private readonly opts: PlayScreenOptions) {
     this.notes = sortNotes(opts.chart.notes)
+    this.display = resolveDisplay(opts.chart, opts.settings)
     this.score = new ScoreKeeper(this.notes.length)
     this.startTime = Math.max(0, (this.notes[0]?.time ?? 0) - LEAD_IN_SEC)
 
@@ -108,7 +111,7 @@ export class PlayScreen {
   }
 
   private get approachSec(): number {
-    return this.opts.settings.approachMs / 1000
+    return this.display.approachSec
   }
 
   /** 判定・描画の基準時刻。動画時刻からオフセットを引いたもの。 */
@@ -355,6 +358,7 @@ export class PlayScreen {
   private draw(): void {
     const { ctx, rect } = this.stage
     clearCanvas(ctx, rect)
+    drawDim(ctx, rect, this.display.dimOpacity)
     const t = this.judgeTime()
     drawNotes(ctx, rect, this.notes, t, {
       approachSec: this.approachSec,

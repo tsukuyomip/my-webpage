@@ -26,6 +26,18 @@ export function clearCanvas(ctx: CanvasRenderingContext2D, rect: StageRect): voi
   ctx.clearRect(0, 0, rect.width, rect.height)
 }
 
+/**
+ * 動画の上に黒をかけて、ノーツを見やすくする。
+ * 濃さは譜面が持ち、プレイ側の設定で上書きできる。
+ */
+export function drawDim(ctx: CanvasRenderingContext2D, rect: StageRect, opacity: number): void {
+  if (opacity <= 0) return
+  ctx.save()
+  ctx.fillStyle = `rgba(0, 0, 0, ${Math.min(1, opacity)})`
+  ctx.fillRect(0, 0, rect.width, rect.height)
+  ctx.restore()
+}
+
 /** now を基準に、見えている範囲のノーツだけを描く。 */
 export function drawNotes(
   ctx: CanvasRenderingContext2D,

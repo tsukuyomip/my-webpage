@@ -1,11 +1,22 @@
 import { newId } from './id.ts'
-import { DEFAULT_TIMING, FORMAT_VERSION, type Chart, type ChartTiming, type Note } from './types.ts'
+import {
+  APPROACH_RANGE,
+  DEFAULT_DISPLAY,
+  DEFAULT_TIMING,
+  DIM_RANGE,
+  FORMAT_VERSION,
+  type Chart,
+  type ChartDisplay,
+  type ChartTiming,
+  type Note,
+} from './types.ts'
 
 export function createEmptyChart(videoId: string, title = ''): Chart {
   return {
     formatVersion: FORMAT_VERSION,
     meta: { title: title || '無題の譜面', videoId },
     timing: { ...DEFAULT_TIMING },
+    display: { ...DEFAULT_DISPLAY },
     notes: [],
   }
 }
@@ -28,6 +39,7 @@ export function serializeChart(chart: Chart): string {
     formatVersion: FORMAT_VERSION,
     meta: { ...chart.meta },
     timing: { ...chart.timing },
+    display: { ...chart.display },
     notes: sortNotes(chart.notes).map((n) => ({
       ...n,
       time: roundTime(n.time),
@@ -62,6 +74,10 @@ function clamp01(v: number): number {
   return v < 0 ? 0 : v > 1 ? 1 : v
 }
 
+function clampRange(v: number, range: { min: number; max: number }): number {
+  return Math.min(range.max, Math.max(range.min, v))
+}
+
 function parseTiming(raw: unknown, warnings: string[]): ChartTiming {
   const r = asRecord(raw)
   if (!r) return { ...DEFAULT_TIMING }
@@ -77,6 +93,15 @@ function parseTiming(raw: unknown, warnings: string[]): ChartTiming {
     timing.division = d >= 1 ? d : 1
   }
   return timing
+}
+
+function parseDisplay(raw: unknown): ChartDisplay {
+  const r = asRecord(raw)
+  if (!r) return { ...DEFAULT_DISPLAY }
+  return {
+    dimOpacity: clampRange(num(r.dimOpacity, DEFAULT_DISPLAY.dimOpacity), DIM_RANGE),
+    approachMs: clampRange(num(r.approachMs, DEFAULT_DISPLAY.approachMs), APPROACH_RANGE),
+  }
 }
 
 function parseNote(raw: unknown, index: number, warnings: string[]): Note | null {
@@ -149,6 +174,7 @@ export function parseChart(text: string): ParseResult {
       difficulty: str(meta.difficulty) || undefined,
     },
     timing: parseTiming(root.timing, warnings),
+    display: parseDisplay(root.display),
     notes: sortNotes(notes),
   }
   if (Array.isArray(root.fx)) chart.fx = root.fx

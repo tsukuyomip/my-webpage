@@ -1,10 +1,18 @@
+import { APPROACH_RANGE, DEFAULT_DISPLAY, DIM_RANGE, type Chart } from './types.ts'
+
 const KEY = 'yt-rhythm:settings:v1'
 
 export interface Settings {
   /** 判定オフセット（ms）。判定時刻 = 動画時刻 - offsetMs。遅れて押しがちなら + 方向。 */
   offsetMs: number
-  /** ノーツが出現してから判定時刻までの長さ（ms）。小さいほど高速。 */
+  /** ノーツ速度を譜面の値ではなく下の approachMs で上書きするか。 */
+  overrideApproach: boolean
+  /** 上書き時に使うノーツ速度（ms）。 */
   approachMs: number
+  /** 画面の暗さを譜面の値ではなく下の dimOpacity で上書きするか。 */
+  overrideDim: boolean
+  /** 上書き時に使う暗さ（0..1）。 */
+  dimOpacity: number
   /** ノーツの大きさ倍率。 */
   noteScale: number
   /** 効果音の音量（0 で無音）。 */
@@ -13,9 +21,28 @@ export interface Settings {
 
 export const DEFAULT_SETTINGS: Settings = {
   offsetMs: 0,
-  approachMs: 1100,
+  overrideApproach: false,
+  approachMs: DEFAULT_DISPLAY.approachMs,
+  overrideDim: false,
+  dimOpacity: DEFAULT_DISPLAY.dimOpacity,
   noteScale: 1,
   sfxVolume: 0.7,
+}
+
+/**
+ * 譜面の既定値と端末側の上書きを合わせて、実際に使う値を決める。
+ * 上書きが OFF なら譜面の値をそのまま使う。
+ */
+export interface ResolvedDisplay {
+  dimOpacity: number
+  approachMs: number
+  approachSec: number
+}
+
+export function resolveDisplay(chart: Chart, settings: Settings): ResolvedDisplay {
+  const approachMs = settings.overrideApproach ? settings.approachMs : chart.display.approachMs
+  const dimOpacity = settings.overrideDim ? settings.dimOpacity : chart.display.dimOpacity
+  return { approachMs, approachSec: approachMs / 1000, dimOpacity }
 }
 
 export function loadSettings(): Settings {
@@ -25,7 +52,20 @@ export function loadSettings(): Settings {
     const parsed = JSON.parse(raw) as Partial<Settings>
     return {
       offsetMs: clampNum(parsed.offsetMs, -500, 500, DEFAULT_SETTINGS.offsetMs),
-      approachMs: clampNum(parsed.approachMs, 300, 3000, DEFAULT_SETTINGS.approachMs),
+      overrideApproach: parsed.overrideApproach === true,
+      approachMs: clampNum(
+        parsed.approachMs,
+        APPROACH_RANGE.min,
+        APPROACH_RANGE.max,
+        DEFAULT_SETTINGS.approachMs,
+      ),
+      overrideDim: parsed.overrideDim === true,
+      dimOpacity: clampNum(
+        parsed.dimOpacity,
+        DIM_RANGE.min,
+        DIM_RANGE.max,
+        DEFAULT_SETTINGS.dimOpacity,
+      ),
       noteScale: clampNum(parsed.noteScale, 0.5, 2, DEFAULT_SETTINGS.noteScale),
       sfxVolume: clampNum(parsed.sfxVolume, 0, 1, DEFAULT_SETTINGS.sfxVolume),
     }
