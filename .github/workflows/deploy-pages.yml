@@ -32,6 +32,7 @@ jobs:
             train-sandbox/package-lock.json
             make-medley/package-lock.json
             sensitive-font/package-lock.json
+            yt-rhythm/package-lock.json
 
       - name: Build mixer
         working-directory: mixer
@@ -69,9 +70,15 @@ jobs:
           npm ci
           npm run build
 
-      - name: Assemble site (root static page + /mixer/ + /make-medley/ + /media-vault/ + /gkms-sprtcrd/ + /train-sandbox/ + /sensitive-font/ + /dopamine_calc/ + /dopamine-slot/ + /tmmn-house/ + /toio/)
+      - name: Build yt-rhythm
+        working-directory: yt-rhythm
         run: |
-          mkdir -p _site/mixer _site/make-medley _site/media-vault _site/gkms-sprtcrd _site/train-sandbox _site/sensitive-font _site/dopamine_calc _site/dopamine-slot
+          npm ci
+          npm run build
+
+      - name: Assemble site (root static page + /mixer/ + /make-medley/ + /media-vault/ + /gkms-sprtcrd/ + /train-sandbox/ + /sensitive-font/ + /yt-rhythm/ + /dopamine_calc/ + /dopamine-slot/ + /tmmn-house/ + /toio/)
+        run: |
+          mkdir -p _site/mixer _site/make-medley _site/media-vault _site/gkms-sprtcrd _site/train-sandbox _site/sensitive-font _site/yt-rhythm _site/dopamine_calc _site/dopamine-slot
           cp index.html style.css _site/
           cp -r mixer/dist/* _site/mixer/
           cp -r make-medley/dist/* _site/make-medley/
@@ -79,6 +86,7 @@ jobs:
           cp -r gkms-sprtcrd/dist/* _site/gkms-sprtcrd/
           cp -r train-sandbox/dist/* _site/train-sandbox/
           cp -r sensitive-font/dist/* _site/sensitive-font/
+          cp -r yt-rhythm/dist/* _site/yt-rhythm/
           # dopamine_calc / dopamine-slot はビルド不要の静的アプリなのでそのままコピー
           cp dopamine_calc/index.html dopamine_calc/style.css dopamine_calc/app.js _site/dopamine_calc/
           cp dopamine-slot/index.html dopamine-slot/style.css dopamine-slot/app.js _site/dopamine-slot/

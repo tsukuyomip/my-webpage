@@ -1,0 +1,206 @@
+import { lowerBound } from '../core/chart.ts'
+import type { Note } from '../core/types.ts'
+import { h } from './dom.ts'
+
+export interface GridSpec {
+  bpm: number
+  beatOffsetMs: number
+  division: number
+}
+
+export interface TimelineCallbacks {
+  /** 現在時刻を取得する（ドラッグ開始時の基準）。 */
+  getTime: () => number
+  /** スクラブ。 */
+  onSeek: (time: number) => void
+  /** ノーツを掴んだ（Undo 用のスナップショットを取るタイミング）。 */
+  onGrab: (note: Note) => void
+  /** ノーツの時刻をドラッグ中。 */
+  onMoveNote: (note: Note, time: number) => void
+  /** ドラッグ終了。 */
+  onCommit: () => void
+}
+
+const HEIGHT = 68
+/** タップでノーツを掴める距離（px）。 */
+const GRAB_PX = 18
+
+/**
+ * 時刻軸のミニビュー。中央が現在時刻。
+ * ノーツを横にドラッグするとタイミングを微調整できる（スマホでの主操作）。
+ */
+export class Timeline {
+  readonly root: HTMLElement
+  private readonly canvas: HTMLCanvasElement
+  private readonly ctx: CanvasRenderingContext2D
+  private width = 300
+  /** 画面の半分に相当する秒数。小さいほど拡大。 */
+  windowSec = 2
+  private dragNote: Note | null = null
+  private dragStartX = 0
+  private dragStartTime = 0
+  private scrubbing = false
+  private scrubStartX = 0
+  private scrubStartTime = 0
+  private notes: Note[] = []
+  private selectedId: string | null = null
+  private grid: GridSpec | null = null
+
+  constructor(private readonly callbacks: TimelineCallbacks) {
+    this.canvas = h('canvas', { class: 'timeline-canvas' })
+    this.root = h('div', { class: 'timeline' }, [this.canvas])
+    const ctx = this.canvas.getContext('2d')
+    if (!ctx) throw new Error('このブラウザは Canvas に対応していません。')
+    this.ctx = ctx
+    new ResizeObserver(() => this.resize()).observe(this.root)
+    this.bind()
+  }
+
+  private resize(): void {
+    const bounds = this.root.getBoundingClientRect()
+    if (bounds.width < 2) return
+    this.width = bounds.width
+    const dpr = Math.min(window.devicePixelRatio || 1, 2.5)
+    this.canvas.width = Math.round(bounds.width * dpr)
+    this.canvas.height = Math.round(HEIGHT * dpr)
+    this.canvas.style.width = `${bounds.width}px`
+    this.canvas.style.height = `${HEIGHT}px`
+    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+  }
+
+  zoom(factor: number): void {
+    this.windowSec = Math.min(16, Math.max(0.25, this.windowSec * factor))
+  }
+
+  private pxPerSec(): number {
+    return this.width / 2 / this.windowSec
+  }
+
+  private timeToX(time: number, now: number): number {
+    return this.width / 2 + (time - now) * this.pxPerSec()
+  }
+
+  private bind(): void {
+    this.canvas.addEventListener(
+      'pointerdown',
+      (e) => {
+        e.preventDefault()
+        this.canvas.setPointerCapture(e.pointerId)
+        const x = e.clientX - this.canvas.getBoundingClientRect().left
+        const now = this.callbacks.getTime()
+        const hit = this.hitTest(x, now)
+        if (hit) {
+          this.dragNote = hit
+          this.dragStartX = x
+          this.dragStartTime = hit.time
+          this.callbacks.onGrab(hit)
+        } else {
+          this.scrubbing = true
+          this.scrubStartX = x
+          this.scrubStartTime = now
+        }
+      },
+      { passive: false },
+    )
+    this.canvas.addEventListener('pointermove', (e) => {
+      if (!this.dragNote && !this.scrubbing) return
+      const x = e.clientX - this.canvas.getBoundingClientRect().left
+      if (this.dragNote) {
+        const dt = (x - this.dragStartX) / this.pxPerSec()
+        this.callbacks.onMoveNote(this.dragNote, this.dragStartTime + dt)
+      } else {
+        const dt = (this.scrubStartX - x) / this.pxPerSec()
+        this.callbacks.onSeek(Math.max(0, this.scrubStartTime + dt))
+      }
+    })
+    const end = () => {
+      if (this.dragNote || this.scrubbing) this.callbacks.onCommit()
+      this.dragNote = null
+      this.scrubbing = false
+    }
+    this.canvas.addEventListener('pointerup', end)
+    this.canvas.addEventListener('pointercancel', end)
+    this.canvas.addEventListener('contextmenu', (e) => e.preventDefault())
+  }
+
+  private hitTest(x: number, now: number): Note | null {
+    let best: Note | null = null
+    let bestDist = GRAB_PX
+    const from = lowerBound(this.notes, now - this.windowSec * 1.2)
+    for (let i = from; i < this.notes.length; i += 1) {
+      const note = this.notes[i]
+      if (note.time > now + this.windowSec * 1.2) break
+      const dist = Math.abs(this.timeToX(note.time, now) - x)
+      if (dist <= bestDist) {
+        best = note
+        bestDist = dist
+      }
+    }
+    return best
+  }
+
+  update(notes: Note[], selectedId: string | null, grid: GridSpec | null): void {
+    this.notes = notes
+    this.selectedId = selectedId
+    this.grid = grid
+  }
+
+  draw(now: number): void {
+    const ctx = this.ctx
+    const w = this.width
+    ctx.clearRect(0, 0, w, HEIGHT)
+    ctx.fillStyle = '#0e1420'
+    ctx.fillRect(0, 0, w, HEIGHT)
+
+    // ビートグリッド
+    if (this.grid && this.grid.bpm > 0) {
+      const step = 60 / this.grid.bpm / Math.max(1, this.grid.division)
+      const offset = this.grid.beatOffsetMs / 1000
+      const beatStep = 60 / this.grid.bpm
+      const first = Math.floor((now - this.windowSec - offset) / step)
+      const last = Math.ceil((now + this.windowSec - offset) / step)
+      for (let i = first; i <= last; i += 1) {
+        const t = offset + i * step
+        const x = this.timeToX(t, now)
+        if (x < -2 || x > w + 2) continue
+        const onBeat = Math.abs(t - offset - Math.round((t - offset) / beatStep) * beatStep) < 1e-6
+        ctx.fillStyle = onBeat ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.09)'
+        ctx.fillRect(x, onBeat ? 8 : 18, 1, HEIGHT - (onBeat ? 16 : 36))
+      }
+    }
+
+    // 秒目盛り
+    ctx.fillStyle = 'rgba(140,170,200,0.5)'
+    ctx.font = '10px system-ui, sans-serif'
+    ctx.textAlign = 'center'
+    const secFrom = Math.ceil(now - this.windowSec)
+    const secTo = Math.floor(now + this.windowSec)
+    for (let s = secFrom; s <= secTo; s += 1) {
+      const x = this.timeToX(s, now)
+      ctx.fillRect(x, HEIGHT - 12, 1, 6)
+      ctx.fillText(`${s}`, x, HEIGHT - 2)
+    }
+
+    // ノーツ
+    const from = lowerBound(this.notes, now - this.windowSec * 1.2)
+    for (let i = from; i < this.notes.length; i += 1) {
+      const note = this.notes[i]
+      if (note.time > now + this.windowSec * 1.2) break
+      const x = this.timeToX(note.time, now)
+      const selected = note.id === this.selectedId
+      ctx.fillStyle = selected ? '#ffd54a' : '#5cc8ff'
+      const width = selected ? 5 : 3
+      ctx.fillRect(x - width / 2, 12, width, HEIGHT - 30)
+    }
+
+    // 現在位置
+    ctx.fillStyle = '#ff5e6c'
+    ctx.fillRect(w / 2 - 1, 4, 2, HEIGHT - 12)
+    ctx.beginPath()
+    ctx.moveTo(w / 2 - 6, 0)
+    ctx.lineTo(w / 2 + 6, 0)
+    ctx.lineTo(w / 2, 8)
+    ctx.closePath()
+    ctx.fill()
+  }
+}
