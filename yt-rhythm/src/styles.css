@@ -517,3 +517,28 @@ body {
   font-weight: 700;
   white-space: nowrap;
 }
+
+.slider-field {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.mini-slider {
+  width: 7rem;
+  accent-color: var(--accent);
+}
+
+.settings-note {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.2rem;
+  padding-left: 0.1rem;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.settings-note input {
+  accent-color: var(--accent);
+}

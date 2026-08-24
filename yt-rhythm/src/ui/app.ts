@@ -2,7 +2,7 @@ import { createEmptyChart, parseChart } from '../core/chart.ts'
 import { clearDraft, loadDraft } from '../core/draft.ts'
 import { DEFAULT_SETTINGS, loadSettings, saveSettings, type Settings } from '../core/settings.ts'
 import { sfx } from '../core/sfx.ts'
-import type { Chart } from '../core/types.ts'
+import { APPROACH_RANGE, DIM_RANGE, type Chart } from '../core/types.ts'
 import { EditScreen } from '../modes/edit.ts'
 import { PlayScreen } from '../modes/play.ts'
 import { extractVideoId } from '../yt/player.ts'
@@ -59,6 +59,7 @@ export class App {
             ])
           : null,
         this.buildSettingsPanel(),
+        this.buildAccountPanel(),
         h('p', { class: 'muted small', text: `build ${__BUILD_INFO__}` }),
       ]),
     ])
@@ -68,85 +69,141 @@ export class App {
   private buildSettingsPanel(): HTMLElement {
     const rows: HTMLElement[] = []
 
-    const addSlider = (
-      label: string,
-      value: number,
-      min: number,
-      max: number,
-      step: number,
-      format: (v: number) => string,
-      apply: (v: number) => void,
-      preview?: () => void,
-    ) => {
-      const readout = h('span', { class: 'slider-value', text: format(value) })
+    interface SliderSpec {
+      label: string
+      value: number
+      min: number
+      max: number
+      step: number
+      format: (v: number) => string
+      apply: (v: number) => void
+      /** スライダーから指を離したときに一度だけ走らせる（試聴など）。 */
+      preview?: () => void
+      /** 譜面の既定値を使うか、このスライダーで上書きするかを切り替える。 */
+      chartDefault?: { isOverridden: () => boolean; setOverridden: (on: boolean) => void }
+    }
+
+    const addSlider = (spec: SliderSpec) => {
+      const readout = h('span', { class: 'slider-value', text: spec.format(spec.value) })
       const input = h('input', {
         class: 'slider',
-        attrs: { type: 'range', min: String(min), max: String(max), step: String(step) },
+        attrs: {
+          type: 'range',
+          min: String(spec.min),
+          max: String(spec.max),
+          step: String(spec.step),
+        },
         on: {
           input: () => {
             const v = Number(input.value)
-            readout.textContent = format(v)
-            apply(v)
+            readout.textContent = spec.format(v)
+            spec.apply(v)
             saveSettings(this.settings)
           },
-          change: () => preview?.(),
+          change: () => spec.preview?.(),
         },
       })
-      input.value = String(value)
-      rows.push(h('div', { class: 'settings-row' }, [h('span', { text: label }), input, readout]))
+      input.value = String(spec.value)
+      rows.push(
+        h('div', { class: 'settings-row' }, [h('span', { text: spec.label }), input, readout]),
+      )
+
+      if (!spec.chartDefault) return
+      const { isOverridden, setOverridden } = spec.chartDefault
+      const check = h('input', { attrs: { type: 'checkbox' } })
+      check.checked = !isOverridden()
+      const sync = () => {
+        input.disabled = check.checked
+        readout.style.opacity = check.checked ? '0.45' : '1'
+      }
+      check.addEventListener('change', () => {
+        setOverridden(!check.checked)
+        saveSettings(this.settings)
+        sync()
+      })
+      sync()
+      rows.push(
+        h('label', { class: 'settings-note' }, [
+          check,
+          h('span', { class: 'small', text: '譜面の値を使う（外すと上の値で上書き）' }),
+        ]),
+      )
     }
 
-    addSlider(
-      '判定オフセット',
-      this.settings.offsetMs,
-      -300,
-      300,
-      5,
-      (v) => `${v > 0 ? '+' : ''}${v} ms`,
-      (v) => {
+    addSlider({
+      label: '判定オフセット',
+      value: this.settings.offsetMs,
+      min: -300,
+      max: 300,
+      step: 5,
+      format: (v) => `${v > 0 ? '+' : ''}${v} ms`,
+      apply: (v) => {
         this.settings.offsetMs = v
       },
-    )
-    addSlider(
-      'ノーツ速度',
-      this.settings.approachMs,
-      400,
-      2400,
-      50,
-      (v) => `${v} ms`,
-      (v) => {
+    })
+    addSlider({
+      label: 'ノーツ速度',
+      value: this.settings.approachMs,
+      min: APPROACH_RANGE.min,
+      max: APPROACH_RANGE.max,
+      step: 50,
+      format: (v) => `${v} ms`,
+      apply: (v) => {
         this.settings.approachMs = v
       },
-    )
-    addSlider(
-      'ノーツの大きさ',
-      this.settings.noteScale,
-      0.6,
-      1.8,
-      0.05,
-      (v) => `${v.toFixed(2)}x`,
-      (v) => {
+      chartDefault: {
+        isOverridden: () => this.settings.overrideApproach,
+        setOverridden: (on) => {
+          this.settings.overrideApproach = on
+        },
+      },
+    })
+    addSlider({
+      label: '画面の暗さ',
+      value: this.settings.dimOpacity,
+      min: DIM_RANGE.min,
+      max: DIM_RANGE.max,
+      step: 0.05,
+      format: (v) => (v <= 0 ? 'なし' : `${Math.round(v * 100)}%`),
+      apply: (v) => {
+        this.settings.dimOpacity = v
+      },
+      chartDefault: {
+        isOverridden: () => this.settings.overrideDim,
+        setOverridden: (on) => {
+          this.settings.overrideDim = on
+        },
+      },
+    })
+    addSlider({
+      label: 'ノーツの大きさ',
+      value: this.settings.noteScale,
+      min: 0.6,
+      max: 1.8,
+      step: 0.05,
+      format: (v) => `${v.toFixed(2)}x`,
+      apply: (v) => {
         this.settings.noteScale = v
       },
-    )
-    addSlider(
-      '効果音の音量',
-      this.settings.sfxVolume,
-      0,
-      1,
-      0.05,
-      (v) => (v <= 0 ? 'OFF' : `${Math.round(v * 100)}%`),
-      (v) => {
+    })
+    addSlider({
+      label: '効果音の音量',
+      value: this.settings.sfxVolume,
+      min: 0,
+      max: 1,
+      step: 0.05,
+      format: (v) => (v <= 0 ? 'OFF' : `${Math.round(v * 100)}%`),
+      apply: (v) => {
         this.settings.sfxVolume = v
         sfx.setVolume(v)
       },
-      () => {
+      preview: () => {
         // 動かしたその場で音を確かめられるようにする。
         sfx.ensure()
         sfx.setVolume(this.settings.sfxVolume)
         sfx.play('perfect')
       },
-    )
+    })
 
     return h('details', { class: 'settings' }, [
       h('summary', { text: '⚙ 設定' }),
@@ -154,6 +211,10 @@ export class App {
       h('p', {
         class: 'muted small',
         text: '「遅い」と判定されがちなら判定オフセットを + に、「早い」なら − にします。端末ごとに一度合わせれば以降は共通で使われます。',
+      }),
+      h('p', {
+        class: 'muted small',
+        text: 'ノーツ速度と画面の暗さは譜面が持つ値が既定です。合わないときだけチェックを外して上書きしてください。',
       }),
       button(
         '設定を初期値に戻す',
@@ -164,6 +225,34 @@ export class App {
         },
         'btn btn-small btn-ghost',
       ),
+    ])
+  }
+
+  /**
+   * 広告と YouTube アカウントの案内。
+   * 埋め込みプレイヤーにログイン機能はなく、ログイン状態を読むこともできないので、
+   * できるのは「YouTube を開いてログインしてもらう」ところまで。
+   */
+  private buildAccountPanel(): HTMLElement {
+    return h('details', { class: 'settings' }, [
+      h('summary', { text: '📺 広告と YouTube アカウント' }),
+      h('p', {
+        class: 'muted small',
+        text: 'このアプリは YouTube の埋め込みプレイヤーで再生します。同じブラウザで YouTube にログインしていれば、その状態は埋め込みにも引き継がれます。YouTube Premium なら広告なしで再生されます。',
+      }),
+      button(
+        'YouTube を開いてログイン',
+        () => window.open('https://www.youtube.com/', '_blank', 'noopener'),
+        'btn btn-small',
+      ),
+      h('p', {
+        class: 'muted small',
+        text: 'ログインしたらこのページに戻って開き直してください。アプリ側からログインさせたり、ログイン済みかを判定したりはできません。',
+      }),
+      h('p', {
+        class: 'muted small',
+        text: 'サードパーティ Cookie をブロックしている場合（iOS の Safari などは既定でブロック）は、ログイン状態が埋め込みに伝わらず広告が出ることがあります。その場合は設定で許可するか、広告が終わるのを待つ作りのままお使いください。',
+      }),
     ])
   }
 
