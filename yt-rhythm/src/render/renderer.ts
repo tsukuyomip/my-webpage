@@ -405,15 +405,16 @@ export function drawDragNote(
   ctx.lineJoin = 'round'
   ctx.lineCap = 'round'
   if (!started) {
-    drawDragTelegraph(ctx, rect, note, r, now, approachProgress(note, now, opts.approachSec))
+    drawDragTelegraph(ctx, rect, note, r, now, approachProgress(note, now, opts.approachSec), opts.approachSec)
   } else {
     // 接近中と同じ規則のまま、通り過ぎた側だけを痩せさせる。
     const consumed = Math.max(0, Math.min(1, elapsed / duration))
     fillDragRibbon(ctx, rect, note, r, {
-      grow: 1,
+      now,
+      approachSec: opts.approachSec,
       consumed,
-      from: withAlpha(accent, 0.16),
-      to: withAlpha(accent, 0.1),
+      from: withAlpha(accent, 0.34),
+      to: withAlpha(accent, 0.22),
     })
     // これから通る側を明るく重ねる。いま追うべき先が分かる。
     if (elapsed < duration) {
@@ -463,11 +464,14 @@ const RIBBON_STEPS = 26
 /**
  * なぞりの帯。**太さがそのまま時間の情報**になる。
  *
- * - 接近中: 全体が細い線から太い帯へ育つ（あと何秒で来るか）
- * - なぞり中: 通り過ぎた側だけ痩せる（どこまで進んだか）
+ * 全体を一律に太らせるのではなく、**経路の点ごとに「その点を通る番が
+ * どれだけ近いか」で太さを決める**。太い部分が経路上を進んでいくので、
+ * 「いつ・どこに指があるべきか」が形だけで読める。全体を一律にすると
+ * 「あと何秒でノーツが来るか」しか分からず、経路のどこにいるべきかは
+ * 結局読めない。
  *
- * 待機中だけ太さが動いて開始後に固まると、情報が途切れて読み方が変わって
- * しまうので、同じ規則のまま連続させる。
+ * 濃さはほとんど変えない。太さと一緒に濃さも動かすと「濃くなった」と
+ * しか見えず、肝心の太さの変化が埋もれる。
  *
  * 半透明の線を並べて重ねると継ぎ目が二重に乗って濃い節ができるため、
  * 1 枚の多角形として塗る。
@@ -478,8 +482,8 @@ function fillDragRibbon(
   note: DragNote,
   r: number,
   opts: {
-    /** 0..1。接近の進み具合。太さ全体の倍率になる。 */
-    grow: number
+    now: number
+    approachSec: number
     /** 0..1。すでに通り過ぎた割合。null なら未開始。 */
     consumed: number | null
     from: string
@@ -496,12 +500,13 @@ function fillDragRibbon(
   }
   const halfWidth = (i: number) => {
     const k = i / RIBBON_STEPS
-    // 頭を太く終点を細くして、進む向きも太さで見せる。
-    const taper = 1 - 0.5 * k
+    // その点を通るべき時刻。全体ではなく点ごとに「あと何秒か」を持たせる。
+    const lead = note.time + k * duration - opts.now
+    const imminence = Math.max(0, Math.min(1, 1 - lead / opts.approachSec))
     // 通り過ぎた側は痩せる。境目は少しぼかして段差を出さない。
     const passed =
       opts.consumed === null ? 0 : Math.max(0, Math.min(1, (opts.consumed - k) / 0.06))
-    return Math.max(0.6, r * 0.36 * opts.grow * taper * (1 - 0.72 * passed))
+    return Math.max(0.5, r * 0.46 * (0.07 + 0.93 * imminence) * (1 - 0.78 * passed))
   }
   const side = (i: number, sign: number) => {
     const prev = spine[Math.max(0, i - 1)]
@@ -546,16 +551,18 @@ function drawDragTelegraph(
   r: number,
   now: number,
   progress: number,
+  approachSec: number,
 ): void {
   const base = ctx.globalAlpha
   const duration = noteDuration(note)
   if (duration <= 0) return
 
   fillDragRibbon(ctx, rect, note, r, {
-    grow: 0.14 + 0.86 * progress,
+    now,
+    approachSec,
     consumed: null,
-    from: withAlpha(DRAG_RING, 0.12 + 0.34 * progress),
-    to: withAlpha(DRAG_RING, 0.05 + 0.12 * progress),
+    from: withAlpha(DRAG_RING, 0.4),
+    to: withAlpha(DRAG_RING, 0.28),
   })
 
   // 進む向きの矢印。経路を等間隔に拾って小さな三角を置く。

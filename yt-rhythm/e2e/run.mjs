@@ -718,21 +718,26 @@ const ribbonEdge = (page, k, offsetRatio) =>
   }, [k, offsetRatio])
 
 async function testDragRibbonWidth(browser) {
-  console.log('\n[14] プレイ: なぞり中も帯の太さが動く')
+  console.log('\n[14] プレイ: 帯の太い部分が経路上を移動する')
   const page = await newPage(browser, { draft: STRAIGHT_DRAG })
   const box = await startPlayFromDraft(page)
   const at = (x, y) => [box.x + x * box.width, box.y + y * box.height]
 
-  // 接近中: 出た直後は細く、判定直前は太い
-  await waitTime(page, 5.4)
-  const early = await ribbonEdge(page, 0.5, 0.25)
+  // 接近中は始点だけが太る。中点はまだ自分の番が遠いので細いままでなければ
+  // ならない（全体が一律に太ると、経路のどこにいるべきかが読めない）。
+  await waitTime(page, 5.45)
+  const headEarly = await ribbonEdge(page, 0.12, 0.25)
   await waitTime(page, 5.95)
-  const ready = await ribbonEdge(page, 0.5, 0.25)
-  check('接近中に帯が太くなる', ready > early * 1.5, `${early.toFixed(1)} → ${ready.toFixed(1)}`)
+  const headReady = await ribbonEdge(page, 0.12, 0.25)
+  const midReady = await ribbonEdge(page, 0.5, 0.25)
+  check('接近中に始点が太る', headReady > headEarly * 1.5, `${headEarly.toFixed(1)} → ${headReady.toFixed(1)}`)
+  check('そのとき中点はまだ細い', midReady < headReady * 0.4, `始点 ${headReady.toFixed(1)} / 中点 ${midReady.toFixed(1)}`)
 
-  // なぞり中: 通り過ぎた側が痩せる
-  let ahead
-  let behind
+  // なぞり中は太い部分が玉と一緒に進む。
+  let earlyNear
+  let lateNear
+  let earlyFar
+  let lateFar
   await page.mouse.move(...at(0.2, 0.5))
   await page.mouse.down()
   for (;;) {
@@ -740,14 +745,25 @@ async function testDragRibbonWidth(browser) {
     const k = (t - 6) / 2
     if (k >= 0.85) break
     if (k >= 0) await page.mouse.move(...at(0.2 + 0.6 * k, 0.5))
-    if (ahead === undefined && k > 0.1) ahead = await ribbonEdge(page, 0.3, 0.25)
-    if (behind === undefined && k > 0.65) behind = await ribbonEdge(page, 0.3, 0.25)
+    if (earlyNear === undefined && k > 0.22) {
+      earlyNear = await ribbonEdge(page, 0.3, 0.25)
+      earlyFar = await ribbonEdge(page, 0.7, 0.25)
+    }
+    if (lateNear === undefined && k > 0.65) {
+      lateNear = await ribbonEdge(page, 0.3, 0.25)
+      lateFar = await ribbonEdge(page, 0.7, 0.25)
+    }
   }
   await page.mouse.up()
   check(
-    'なぞり中、通り過ぎた側が痩せる',
-    ahead !== undefined && behind !== undefined && ahead > behind * 1.8,
-    `${ahead?.toFixed(1)} → ${behind?.toFixed(1)}`,
+    '通り過ぎた側は痩せる',
+    earlyNear > lateNear * 1.8,
+    `k=0.3: ${earlyNear?.toFixed(1)} → ${lateNear?.toFixed(1)}`,
+  )
+  check(
+    'これから通る側は太る',
+    lateFar > earlyFar * 1.8,
+    `k=0.7: ${earlyFar?.toFixed(1)} → ${lateFar?.toFixed(1)}`,
   )
   await page.context().close()
 }
