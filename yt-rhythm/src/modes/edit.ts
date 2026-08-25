@@ -52,11 +52,21 @@ interface Recording {
   time: number
   x: number
   y: number
-  startMs: number
+  /**
+   * 押し始めからの長さ（秒）。再生中は譜面時刻で、停止中は実時間で数える。
+   * 0.5 倍速で描いたなぞりが 2 倍の長さになってしまうのを防ぐため、
+   * 進んだぶんを毎フレーム足していく（巻き戻らない）。
+   */
+  elapsed: number
+  /** 経過を数えるための前フレームの基準。 */
+  lastChart: number
+  lastWallMs: number
   /** 間引いて記録した通過点。ドラッグになったときに経路として使う。 */
   points: DragPoint[]
-  /** 最後に点を記録した時刻。 */
+  /** 最後に点を記録した時刻（実時間 ms）。 */
   lastPointMs: number
+  /** いまの記録間隔（ms）。上限に達するたびに倍にして間引く。 */
+  gapMs: number
   /** 最後に見たポインタ位置（正規化座標）。 */
   lastX: number
   lastY: number
@@ -83,7 +93,13 @@ const DRAG_MOVE_RADII = 1
 /** なぞりの通過点を記録する間隔。細かすぎる点は間引く。 */
 const PATH_MIN_DIST = 0.018
 const PATH_MIN_MS = 40
+/**
+ * 通過点の上限。長くなぞって上限に達したら、記録を止めるのではなく
+ * 1 つおきに間引いて間隔を倍にする（いくら長く描いても止まらない）。
+ */
 const PATH_MAX_POINTS = 96
+/** 指を止めていても、この倍率だけ間隔が空いたら点を打つ（その場での「溜め」を残す）。 */
+const PATH_IDLE_FACTOR = 4
 
 const TOOL_HINT: Record<Tool, string> = {
   place: `画面を押して置く。短く押す＝タップ、${TAP_MAX_SEC} 秒以上＝ホールド、押したままなぞる＝ドラッグ。押している間、いまどれになるかがそのまま見える。`,
@@ -404,9 +420,12 @@ export class EditScreen {
       time: Math.max(0, this.snap(this.chartTime())),
       x: clamp01(x),
       y: clamp01(y),
-      startMs: now,
+      elapsed: 0,
+      lastChart: this.chartTime(),
+      lastWallMs: now,
       points: [],
       lastPointMs: now,
+      gapMs: PATH_MIN_MS,
       lastX: clamp01(x),
       lastY: clamp01(y),
       moved: 0,
@@ -427,18 +446,30 @@ export class EditScreen {
     rec.lastY = ny
 
     // 通過点は間引いて記録する。
-    if (rec.points.length >= PATH_MAX_POINTS) return
     const now = performance.now()
+    const gap = now - rec.lastPointMs
+    if (gap < rec.gapMs) return
     const last = rec.points[rec.points.length - 1]
     const fromX = last?.x ?? rec.x
     const fromY = last?.y ?? rec.y
-    if (Math.hypot(nx - fromX, ny - fromY) < PATH_MIN_DIST && now - rec.lastPointMs < PATH_MIN_MS) {
-      return
-    }
-    const dt = (now - rec.startMs) / 1000
+    const step = Math.hypot(nx - fromX, ny - fromY)
+    // 動いていなくても、間が空いたら打つ。その場で止まった時間も経路に残る。
+    if (step < PATH_MIN_DIST && gap < rec.gapMs * PATH_IDLE_FACTOR) return
+
+    const dt = rec.elapsed
     if (last && dt <= last.dt + 0.005) return
     rec.points.push({ dt, x: nx, y: ny })
     rec.lastPointMs = now
+    if (rec.points.length >= PATH_MAX_POINTS) this.thinPath(rec)
+  }
+
+  /**
+   * 上限に達した経路を 1 つおきに間引き、以後の記録間隔を倍にする。
+   * こうしておけば、何秒なぞっても点が増え続けずに記録を続けられる。
+   */
+  private thinPath(rec: Recording): void {
+    rec.points = rec.points.filter((_, i) => i % 2 === 1)
+    rec.gapMs *= 2
   }
 
   /**
@@ -448,7 +479,7 @@ export class EditScreen {
   private buildRecordingNote(release?: { x: number; y: number }): Note {
     const rec = this.recording
     if (!rec) throw new Error('打ち込み中ではありません。')
-    const elapsed = (performance.now() - rec.startMs) / 1000
+    const elapsed = rec.elapsed
     const base = { id: rec.id, time: rec.time, x: rec.x, y: rec.y }
     if (elapsed < TAP_MAX_SEC) return { ...base, type: 'tap' }
     const hold: Note = { ...base, type: 'hold', duration: Math.max(MIN_DURATION_SEC, elapsed) }
@@ -480,9 +511,25 @@ export class EditScreen {
     this.chart.notes[index] = this.buildRecordingNote(release)
   }
 
+  /**
+   * 押し始めからの経過を進める。再生中は譜面時刻で数えるので、
+   * 0.5 倍速で描いても曲に対する長さは見たとおりになる。
+   */
+  private updateRecordingElapsed(): void {
+    const rec = this.recording
+    if (!rec) return
+    const nowMs = performance.now()
+    const chart = this.chartTime()
+    const step = this.playing ? chart - rec.lastChart : (nowMs - rec.lastWallMs) / 1000
+    if (step > 0) rec.elapsed += step
+    rec.lastChart = chart
+    rec.lastWallMs = nowMs
+  }
+
   /** 押しっぱなしでも種別と長さが進むよう、毎フレーム呼ぶ。 */
   private advanceRecording(): void {
     if (!this.recording) return
+    this.updateRecordingElapsed()
     this.syncRecordingNote()
     // いま何になっているかをインスペクタにも出す（自動保存はまだしない）。
     this.markDirty(false)
@@ -490,6 +537,7 @@ export class EditScreen {
 
   private finishRecording(x: number, y: number): void {
     if (!this.recording) return
+    this.updateRecordingElapsed()
     this.syncRecordingNote({ x, y })
     this.recording = null
     this.markDirty()
@@ -1019,7 +1067,7 @@ export class EditScreen {
       !Number.isFinite(this.lastSfxTime) || t < this.lastSfxTime || t - this.lastSfxTime > 0.4
     if (!jumped && this.playing && this.sfxOn && index > this.sfxIndex) {
       // シークや低速再生でまとめて溜まったときに連打しない。
-      for (let i = 0; i < Math.min(3, index - this.sfxIndex); i += 1) sfx.play('perfect')
+      for (let i = 0; i < Math.min(3, index - this.sfxIndex); i += 1) sfx.play('tick')
     }
     this.sfxIndex = index
     this.lastSfxTime = t
