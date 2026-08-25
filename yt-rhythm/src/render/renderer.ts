@@ -159,28 +159,62 @@ function drawApproachRing(
   ctx.stroke()
 }
 
-/** ノーツ本体（塗り + 輪 + 中心点）。 */
+/**
+ * ノーツ本体。種別ごとに「何をしたくなるか」で作り分ける。
+ *
+ * - tap:  薄くて張ったガラス玉。細い輪とハイライトで、弾けそうに見せる
+ * - long: 厚くて深いクッション。太い輪と内側の落ち込みで、押し込めそうに見せる
+ *
+ * 色だけを変えても動詞は伝わらないので、シルエットから変える。
+ */
+type BodyStyle = 'tap' | 'long'
+
 function drawBody(
   ctx: CanvasRenderingContext2D,
   px: number,
   py: number,
   r: number,
   ring: string,
-  /** 0..1。判定時刻に向かって中心から満ちていく予告。省略すると出さない。 */
-  fill?: number,
+  opts: {
+    /** 0..1。判定時刻に向かって中心から満ちていく予告。省略すると出さない。 */
+    fill?: number
+    style?: BodyStyle
+  } = {},
 ): void {
+  const style = opts.style ?? 'tap'
+  const fill = opts.fill
+
   ctx.beginPath()
   ctx.arc(px, py, r, 0, Math.PI * 2)
   ctx.fillStyle = NOTE_FILL
   ctx.fill()
 
+  if (style === 'long') {
+    // 内側が落ち込んで見える陰影。押し込める窪みに見せたい。
+    const well = ctx.createRadialGradient(px, py, r * 0.1, px, py, r)
+    well.addColorStop(0, 'rgba(255,255,255,0.05)')
+    well.addColorStop(0.75, 'rgba(0,0,0,0.18)')
+    well.addColorStop(1, 'rgba(0,0,0,0.4)')
+    ctx.fillStyle = well
+    ctx.fill()
+  }
+
   // 縁の中が満ちきった瞬間が判定時刻。細い輪より面のほうが残りを読み取りやすい。
   if (fill !== undefined && fill > 0) {
     const inner = r * 0.92 * Math.min(1, fill)
     if (inner > 0.5) {
+      const a = FILL_ALPHA.from + (FILL_ALPHA.to - FILL_ALPHA.from) * fill
       ctx.beginPath()
       ctx.arc(px, py, inner, 0, Math.PI * 2)
-      ctx.fillStyle = withAlpha(ring, FILL_ALPHA.from + (FILL_ALPHA.to - FILL_ALPHA.from) * fill)
+      if (style === 'tap') {
+        // ふちが明るい膜。中身の詰まった円盤ではなく、張った膜に見せる。
+        const skin = ctx.createRadialGradient(px, py, inner * 0.2, px, py, inner)
+        skin.addColorStop(0, withAlpha(ring, a * 0.35))
+        skin.addColorStop(1, withAlpha(ring, a))
+        ctx.fillStyle = skin
+      } else {
+        ctx.fillStyle = withAlpha(ring, a)
+      }
       ctx.fill()
     }
   }
@@ -190,9 +224,22 @@ function drawBody(
   // stroke すると、輪が予告と一緒に大きくなってしまう）。
   ctx.beginPath()
   ctx.arc(px, py, r, 0, Math.PI * 2)
-  ctx.lineWidth = Math.max(2, r * 0.14)
+  ctx.lineWidth = Math.max(2, r * (style === 'tap' ? 0.09 : 0.2))
   ctx.strokeStyle = ring
   ctx.stroke()
+
+  if (style === 'tap') {
+    // ガラス玉のハイライト。硬くて割れそうな質感を作る。
+    ctx.save()
+    ctx.globalAlpha *= 0.75
+    ctx.beginPath()
+    ctx.arc(px, py, r * 0.82, Math.PI * 1.08, Math.PI * 1.62)
+    ctx.strokeStyle = 'rgba(255,255,255,0.9)'
+    ctx.lineWidth = Math.max(1, r * 0.07)
+    ctx.lineCap = 'round'
+    ctx.stroke()
+    ctx.restore()
+  }
 
   // 中心の点（狙う位置をはっきりさせる）
   ctx.beginPath()
@@ -232,14 +279,13 @@ export function drawTapNote(
   ctx.save()
   ctx.globalAlpha = alpha
   const late = now > note.time
-  drawBody(
-    ctx,
-    px,
-    py,
-    r,
-    late ? NOTE_RING_LATE : NOTE_RING,
-    late ? undefined : approachProgress(note, now, opts.approachSec),
-  )
+  const p = approachProgress(note, now, opts.approachSec)
+  // 判定直前だけ小さく張り詰める。いまにも弾けそうに見せる。
+  const tension = !late && p > 0.88 ? 1 + 0.05 * Math.sin((p - 0.88) / 0.12 * Math.PI * 3) : 1
+  drawBody(ctx, px, py, r * tension, late ? NOTE_RING_LATE : NOTE_RING, {
+    fill: late ? undefined : p,
+    style: 'tap',
+  })
   drawApproachRing(ctx, px, py, note, now, opts)
   if (opts.selected?.has(note.id)) drawSelection(ctx, px, py, r)
   ctx.restore()
@@ -274,8 +320,12 @@ export function drawHoldNote(
   // 溜め切る手前で金に寄せる。「もう少しで完成する」ことが色で分かる。
   const live = holding ? mixHex(ACTIVE_RING, CHARGE_FULL, Math.max(0, charge - 0.6) / 0.4) : null
   const accent = started ? (live ?? NOTE_RING_LATE) : HOLD_RING
-  // 押している間だけ脈打たせる。指の下で生きている感じを出す。
-  const pulse = holding ? 1 + 0.05 * Math.sin(now * 26) : 1
+  // 押している間は速く脈打つ。押される前はゆっくり息をして、押し込みたくさせる。
+  const pulse = holding
+    ? 1 + 0.05 * Math.sin(now * 26)
+    : started
+      ? 1
+      : 1 + 0.022 * Math.sin(now * 4.5)
 
   ctx.save()
   ctx.globalAlpha = alpha
@@ -323,14 +373,10 @@ export function drawHoldNote(
     ctx.restore()
   }
 
-  drawBody(
-    ctx,
-    px,
-    py,
-    r * pulse,
-    accent,
-    started ? undefined : approachProgress(note, now, opts.approachSec),
-  )
+  drawBody(ctx, px, py, r * pulse, accent, {
+    fill: started ? undefined : approachProgress(note, now, opts.approachSec),
+    style: 'long',
+  })
   drawApproachRing(ctx, px, py, note, now, opts)
   if (opts.selected?.has(note.id)) drawSelection(ctx, px, py, r)
   ctx.restore()
@@ -387,13 +433,17 @@ export function drawDragNote(
 
   const head = toPixels(note.x, note.y, rect)
   if (!started) {
-    drawBody(ctx, head.px, head.py, r, DRAG_RING, approachProgress(note, now, opts.approachSec))
+    const breathe = 1 + 0.022 * Math.sin(now * 4.5)
+    drawBody(ctx, head.px, head.py, r * breathe, DRAG_RING, {
+      fill: approachProgress(note, now, opts.approachSec),
+      style: 'long',
+    })
     drawApproachRing(ctx, head.px, head.py, note, now, opts)
   } else {
     // 追いかける玉。ここに指を置いておく。
     const at = dragPositionAt(note, Math.min(elapsed, duration))
     const ball = toPixels(at.x, at.y, rect)
-    drawBody(ctx, ball.px, ball.py, r * 0.82, accent)
+    drawBody(ctx, ball.px, ball.py, r * 0.82, accent, { style: 'long' })
   }
 
   if (opts.showHandles && opts.selected?.has(note.id)) drawDragHandles(ctx, rect, note, r)
@@ -416,17 +466,53 @@ function drawDragTelegraph(
   const base = ctx.globalAlpha
   const duration = noteDuration(note)
   if (duration <= 0) return
-  const head = toPixels(note.x, note.y, rect)
-  const tail = dragPositionAt(note, duration)
-  const tailPx = toPixels(tail.x, tail.y, rect)
 
-  // 始点を明るく終点を暗くして、進む向きを一目で分かるようにする。
-  const grad = ctx.createLinearGradient(head.px, head.py, tailPx.px, tailPx.py)
-  grad.addColorStop(0, withAlpha(DRAG_RING, 0.08 + 0.34 * progress))
-  grad.addColorStop(1, withAlpha(DRAG_RING, 0.03 + 0.09 * progress))
-  ctx.lineWidth = r * 0.62
-  ctx.strokeStyle = grad
-  strokePath(ctx, rect, note, 0, duration)
+  // 経路の太さで残り時間を伝える。出た直後は細い線、判定時刻には太い帯。
+  // 先端の輪だけだと視線がそこに張り付くが、太さなら形全体で読める。
+  // 半透明の線を重ねると継ぎ目が濃くなるので、帯は 1 枚の多角形として塗る。
+  const RIBBON_STEPS = 26
+  const grow = 0.14 + 0.86 * progress
+  const spine: { x: number; y: number }[] = []
+  for (let i = 0; i <= RIBBON_STEPS; i += 1) {
+    const at = dragPositionAt(note, (i / RIBBON_STEPS) * duration)
+    const pt = toPixels(at.x, at.y, rect)
+    spine.push({ x: pt.px, y: pt.py })
+  }
+  const halfWidth = (i: number) => {
+    // 頭を太く終点を細くして、進む向きも太さで見せる。
+    const k = i / RIBBON_STEPS
+    return Math.max(0.6, r * 0.36 * grow * (1 - 0.5 * k))
+  }
+  const sideOffset = (i: number, sign: number) => {
+    const prev = spine[Math.max(0, i - 1)]
+    const next = spine[Math.min(RIBBON_STEPS, i + 1)]
+    const dx = next.x - prev.x
+    const dy = next.y - prev.y
+    const len = Math.hypot(dx, dy) || 1
+    const w = halfWidth(i) * sign
+    return { x: spine[i].x + (-dy / len) * w, y: spine[i].y + (dx / len) * w }
+  }
+  ctx.beginPath()
+  for (let i = 0; i <= RIBBON_STEPS; i += 1) {
+    const o = sideOffset(i, 1)
+    if (i === 0) ctx.moveTo(o.x, o.y)
+    else ctx.lineTo(o.x, o.y)
+  }
+  for (let i = RIBBON_STEPS; i >= 0; i -= 1) {
+    const o = sideOffset(i, -1)
+    ctx.lineTo(o.x, o.y)
+  }
+  ctx.closePath()
+  const ribbon = ctx.createLinearGradient(
+    spine[0].x,
+    spine[0].y,
+    spine[RIBBON_STEPS].x,
+    spine[RIBBON_STEPS].y,
+  )
+  ribbon.addColorStop(0, withAlpha(DRAG_RING, 0.12 + 0.34 * progress))
+  ribbon.addColorStop(1, withAlpha(DRAG_RING, 0.05 + 0.12 * progress))
+  ctx.fillStyle = ribbon
+  ctx.fill()
 
   // 進む向きの矢印。経路を等間隔に拾って小さな三角を置く。
   const marks = 5
@@ -439,7 +525,7 @@ function drawDragTelegraph(
     const dy = (ahead.y - at.y) * rect.height
     if (dx === 0 && dy === 0) continue
     const p = toPixels(at.x, at.y, rect)
-    const size = r * 0.2
+    const size = r * (0.1 + 0.14 * progress)
     ctx.save()
     ctx.translate(p.px, p.py)
     ctx.rotate(Math.atan2(dy, dx))
