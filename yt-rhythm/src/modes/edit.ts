@@ -6,7 +6,9 @@ import { newId } from '../core/id.ts'
 import {
   MIN_DURATION_SEC,
   maxNoteDuration,
+  isLongNote,
   moveNoteTo,
+  normalizeDirection,
   noteDuration,
   noteEndTime,
   setNoteDuration,
@@ -20,6 +22,7 @@ import {
   type Chart,
   type DragNote,
   type DragPoint,
+  type FlickNote,
   type Note,
 } from '../core/types.ts'
 import {
@@ -74,6 +77,13 @@ interface Recording {
   moved: number
 }
 
+/** はじく向きを 8 方位の記号にする。数値より一目で分かる。 */
+function flickLabel(note: FlickNote): string {
+  const names = ['→', '↘', '↓', '↙', '←', '↖', '↑', '↗']
+  const index = Math.round((Math.atan2(note.dy, note.dx) / (Math.PI / 4) + 8) % 8)
+  return names[index % 8]
+}
+
 function formatDim(v: number): string {
   return v <= 0 ? 'なし' : `${Math.round(v * 100)}%`
 }
@@ -102,7 +112,7 @@ const PATH_MAX_POINTS = 96
 const PATH_IDLE_FACTOR = 4
 
 const TOOL_HINT: Record<Tool, string> = {
-  place: `画面を押して置く。短く押す＝タップ、${TAP_MAX_SEC} 秒以上＝ホールド、押したままなぞる＝ドラッグ。押している間、いまどれになるかがそのまま見える。`,
+  place: `画面を押して置く。短く押す＝タップ、短く払う＝フリック、${TAP_MAX_SEC} 秒以上＝ホールド、押したままなぞる＝ドラッグ。押している間、いまどれになるかがそのまま見える。`,
   select: 'ノーツを掴んで移動。なぞりは選ぶと通過点を動かせる。時刻はタイムラインで調整する。',
 }
 
@@ -179,7 +189,7 @@ export class EditScreen {
         this.markDirty(false)
       },
       onResizeNote: (note, endTime) => {
-        if (note.type === 'tap') return
+        if (!isLongNote(note)) return
         setNoteDuration(note, this.snap(endTime) - note.time)
         this.dragChanged = true
         this.markDirty(false)
@@ -482,9 +492,21 @@ export class EditScreen {
     if (!rec) throw new Error('打ち込み中ではありません。')
     const elapsed = rec.elapsed
     const base = { id: rec.id, time: rec.time, x: rec.x, y: rec.y }
-    if (elapsed < TAP_MAX_SEC) return { ...base, type: 'tap' }
+    const moved = rec.moved >= this.dragThreshold()
+
+    // 押していた時間と動かした距離の 2 つで 4 種類に分かれる。
+    //            動かさない        動かした
+    //   短く      タップ            フリック
+    //   長く      ホールド          ドラッグ
+    if (elapsed < TAP_MAX_SEC) {
+      if (!moved) return { ...base, type: 'tap' }
+      const dir = normalizeDirection(rec.lastX - rec.x, rec.lastY - rec.y)
+      // 元の位置へ戻ってきた払いは向きが決まらないのでタップ扱い。
+      return dir ? { ...base, type: 'flick', dx: dir.dx, dy: dir.dy } : { ...base, type: 'tap' }
+    }
+
     const hold: Note = { ...base, type: 'hold', duration: Math.max(MIN_DURATION_SEC, elapsed) }
-    if (rec.moved < this.dragThreshold()) return hold
+    if (!moved) return hold
 
     const path = [...rec.points]
     if (release) {
@@ -671,7 +693,7 @@ export class EditScreen {
 
   private applyDurationInput(): void {
     const note = this.selectedId ? this.findNote(this.selectedId) : undefined
-    if (!note || note.type === 'tap') return
+    if (!note || !isLongNote(note)) return
     const ms = Number(this.noteDurationInput.value)
     if (!Number.isFinite(ms)) return
     this.pushUndo()
@@ -681,7 +703,7 @@ export class EditScreen {
 
   private nudgeDuration(ms: number): void {
     const note = this.selectedId ? this.findNote(this.selectedId) : undefined
-    if (!note || note.type === 'tap') return
+    if (!note || !isLongNote(note)) return
     this.pushUndo()
     setNoteDuration(note, noteDuration(note) + ms / 1000)
     this.markDirty()
@@ -715,8 +737,10 @@ export class EditScreen {
     this.noteKindLabel.textContent =
       note.type === 'drag'
         ? `${NOTE_TYPE_LABEL.drag}（${note.path.length + 1} 点）`
-        : NOTE_TYPE_LABEL[note.type]
-    const long = note.type !== 'tap'
+        : note.type === 'flick'
+          ? `${NOTE_TYPE_LABEL.flick}（${flickLabel(note)}）`
+          : NOTE_TYPE_LABEL[note.type]
+    const long = isLongNote(note)
     this.durationGroup.classList.toggle('hidden', !long)
     if (long && document.activeElement !== this.noteDurationInput) {
       this.noteDurationInput.value = String(Math.round(noteDuration(note) * 1000))

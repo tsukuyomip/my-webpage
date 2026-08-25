@@ -1,5 +1,5 @@
 import { clamp01 } from './geometry.ts'
-import type { DragNote, HoldNote, Note } from './types.ts'
+import type { DragNote, FlickNote, HoldNote, Note } from './types.ts'
 
 /** 長押し・なぞりの最短の長さ（秒）。これより短いと押しっぱなしを判定できない。 */
 export const MIN_DURATION_SEC = 0.1
@@ -20,7 +20,24 @@ export function noteEndTime(note: Note): number {
  * 「押した瞬間」と「最後まで追えたか」の 2 回に分けて数える。
  */
 export function noteJudgeUnits(note: Note): number {
-  return note.type === 'tap' ? 1 : 2
+  return note.type === 'hold' || note.type === 'drag' ? 2 : 1
+}
+
+/** 長さを持つノーツ（押さえ続けるもの）か。 */
+export function isLongNote(note: Note): note is HoldNote | DragNote {
+  return note.type === 'hold' || note.type === 'drag'
+}
+
+/** はじきの向きを単位ベクトルに整える。長さが無ければ null。 */
+export function normalizeDirection(dx: number, dy: number): { dx: number; dy: number } | null {
+  const len = Math.hypot(dx, dy)
+  if (!Number.isFinite(len) || len < 1e-6) return null
+  return { dx: dx / len, dy: dy / len }
+}
+
+/** はじきの向き（ラジアン）。描画と演出で共通に使う。 */
+export function flickAngle(note: FlickNote): number {
+  return Math.atan2(note.dy, note.dx)
 }
 
 export function totalJudgeUnits(notes: Note[]): number {

@@ -339,6 +339,81 @@ registerEffect('release', ({ px, py, radius, judgement, intensity = 0 }) => {
   }
 })
 
+/**
+ * はじきの弾け。360 度へ散らすと「払った」感じが出ないので、
+ * **粒も光条もすべて払った向きへ飛ばす**。
+ */
+registerEffect('flick', ({ px, py, radius, judgement, intensity = 0, vx = 1, vy = 0 }) => {
+  const life = 0.42
+  const color = JUDGEMENT_COLOR[judgement]
+  const dir = Math.atan2(vy, vx)
+  const count = 12 + Math.round(intensity * 8)
+  const parts = Array.from({ length: count }, () => ({
+    // 払った向きを中心に、扇のかたちに散らす。
+    angle: dir + (Math.random() - 0.5) * 0.9,
+    reach: 1.4 + Math.random() * 2.2,
+    width: 0.07 + Math.random() * 0.06,
+    delay: Math.random() * 0.12,
+  }))
+  let age = 0
+  return {
+    update(dt) {
+      age += dt
+      return age < life
+    },
+    draw(ctx) {
+      const t = Math.min(1, age / life)
+      const alpha = 1 - t
+
+      ctx.save()
+      ctx.globalCompositeOperation = 'lighter'
+      ctx.strokeStyle = color
+      ctx.lineCap = 'round'
+      for (const p of parts) {
+        const k = Math.max(0, Math.min(1, (t - p.delay) / (1 - p.delay)))
+        if (k <= 0) continue
+        ctx.globalAlpha = Math.pow(1 - k, 1.5)
+        const from = radius * (0.3 + p.reach * easeOutQuart(k) * 0.55)
+        const to = radius * (0.3 + p.reach * easeOutQuart(k))
+        ctx.lineWidth = Math.max(1, radius * p.width * (1 - k))
+        ctx.beginPath()
+        ctx.moveTo(px + Math.cos(p.angle) * from, py + Math.sin(p.angle) * from)
+        ctx.lineTo(px + Math.cos(p.angle) * to, py + Math.sin(p.angle) * to)
+        ctx.stroke()
+      }
+      ctx.restore()
+
+      // 払った向きへ伸びる閃光。
+      ctx.save()
+      ctx.globalCompositeOperation = 'lighter'
+      ctx.globalAlpha = Math.pow(alpha, 2.2) * 0.7
+      const reach = radius * (1 + easeOutQuart(t) * 2)
+      const cx = px + Math.cos(dir) * reach * 0.4
+      const cy = py + Math.sin(dir) * reach * 0.4
+      const flash = ctx.createRadialGradient(cx, cy, 0, cx, cy, reach)
+      flash.addColorStop(0, '#ffffff')
+      flash.addColorStop(0.35, color)
+      flash.addColorStop(1, 'rgba(0,0,0,0)')
+      ctx.fillStyle = flash
+      ctx.beginPath()
+      ctx.arc(cx, cy, reach, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.restore()
+
+      ctx.save()
+      ctx.globalAlpha = Math.min(1, alpha * 1.4)
+      ctx.fillStyle = color
+      ctx.font = `800 ${Math.round(radius * 0.62)}px system-ui, sans-serif`
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.shadowColor = 'rgba(0,0,0,0.85)'
+      ctx.shadowBlur = 8
+      ctx.fillText(JUDGEMENT_LABEL[judgement], px, py - radius - easeOut(t) * radius)
+      ctx.restore()
+    },
+  }
+})
+
 /** コンボの節目。画面全体を一度光らせてから輪が抜けていく。 */
 registerEffect('milestone', ({ px, py, radius, text }) => {
   const life = 1

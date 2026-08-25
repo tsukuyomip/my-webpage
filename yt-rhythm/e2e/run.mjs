@@ -347,7 +347,7 @@ async function testEditor(browser) {
   check('インスペクタに長さが出る', await page.locator('.inline-group').isVisible())
   await advance()
 
-  // 4s: 速く払う（250ms 未満）→ 動かしてもタップ
+  // 4s: 速く払う（250ms 未満 + 十分な移動）→ フリック
   await page.mouse.move(...at(0.75, 0.25))
   await page.mouse.down()
   for (let i = 1; i <= 3; i += 1) {
@@ -356,6 +356,7 @@ async function testEditor(browser) {
   }
   await page.mouse.up()
 
+  check('フリックとして扱われる', (await page.locator('.inspector').textContent()).includes('フリック'))
   check('ノーツ数が 5 になる', (await page.locator('.edit-panel .muted.small').first().textContent()).includes('5 ノーツ'))
 
   const [download] = await Promise.all([
@@ -368,7 +369,9 @@ async function testEditor(browser) {
   const chart = JSON.parse(text)
   const types = chart.notes.map((n) => n.type)
 
-  check('押し方どおりの種別になる', types.join(',') === 'tap,tap,hold,drag,tap', types.join(','))
+  check('押し方どおりの種別になる', types.join(',') === 'tap,tap,hold,drag,flick', types.join(','))
+  const flick = chart.notes[4]
+  check('フリックは払った向きを持つ', flick.dx > 0.8 && Math.abs(flick.dy) < 0.4, JSON.stringify({ dx: flick.dx, dy: flick.dy }))
   const hold = chart.notes[2]
   const drag = chart.notes[3]
   check('ホールドの長さは押していた時間', hold.duration > 0.4 && hold.duration < 0.9, String(hold.duration))
@@ -795,6 +798,67 @@ async function testFullscreen(browser) {
   await off.context().close()
 }
 
+const FLICK_CHART = JSON.stringify({
+  formatVersion: 1,
+  meta: { title: 'はじき', videoId: 'testvideo01' },
+  timing: { offsetMs: 0 },
+  notes: [
+    { id: 'f1', type: 'flick', time: 6, x: 0.4, y: 0.5, dx: 1, dy: 0 },
+    { id: 'f2', type: 'flick', time: 7.5, x: 0.4, y: 0.7, dx: 0, dy: -1 },
+  ],
+})
+
+async function testFlick(browser) {
+  console.log('\n[16] プレイ: はじきは払って初めて成立する')
+  const page = await newPage(browser, { draft: FLICK_CHART })
+  const box = await startPlayFromDraft(page)
+  const at = (x, y) => [box.x + x * box.width, box.y + y * box.height]
+
+  // 1 つめ: 右へ払う → 取れる
+  await waitTime(page, 5.98)
+  await page.mouse.move(...at(0.4, 0.5))
+  await page.mouse.down()
+  for (let i = 1; i <= 4; i += 1) await page.mouse.move(...at(0.4 + 0.02 * i, 0.5))
+  await page.mouse.up()
+
+  // 2 つめ: 押すだけで払わない → 見逃し
+  await waitTime(page, 7.48)
+  await page.mouse.move(...at(0.4, 0.7))
+  await page.mouse.down()
+  await page.waitForTimeout(120)
+  await page.mouse.up()
+
+  const counts = await readResult(page)
+  check('払えば取れる / 押すだけでは取れない', counts.miss === 1, JSON.stringify(counts))
+  check('判定はノーツ 1 つにつき 1 回', Object.values(counts).reduce((a, b) => a + b, 0) === 2, JSON.stringify(counts))
+  await page.context().close()
+}
+
+async function testFlickWrongWay(browser) {
+  console.log('\n[17] プレイ: 違う向きに払っても取れない')
+  const page = await newPage(browser, { draft: FLICK_CHART })
+  const box = await startPlayFromDraft(page)
+  const at = (x, y) => [box.x + x * box.width, box.y + y * box.height]
+
+  // 右向きのはじきを左へ払う
+  await waitTime(page, 5.98)
+  await page.mouse.move(...at(0.4, 0.5))
+  await page.mouse.down()
+  for (let i = 1; i <= 4; i += 1) await page.mouse.move(...at(0.4 - 0.02 * i, 0.5))
+  await page.mouse.up()
+
+  // 上向きのはじきを上へ払う（こちらは取れる）
+  await waitTime(page, 7.48)
+  await page.mouse.move(...at(0.4, 0.7))
+  await page.mouse.down()
+  for (let i = 1; i <= 4; i += 1) await page.mouse.move(...at(0.4, 0.7 - 0.02 * i))
+  await page.mouse.up()
+
+  const counts = await readResult(page)
+  check('逆向きは見逃し、正しい向きは取れる', counts.miss === 1, JSON.stringify(counts))
+  await page.context().close()
+}
+
 // ---------------------------------------------------------------- 実行
 
 async function waitForServer(url, timeoutMs = 30000) {
@@ -847,6 +911,8 @@ try {
   await testHoldCharge(browser)
   await testDragRibbonWidth(browser)
   await testFullscreen(browser)
+  await testFlick(browser)
+  await testFlickWrongWay(browser)
 } finally {
   await browser.close()
   // pkill は自分のシェルごと落とすので、起動した子だけを止める。

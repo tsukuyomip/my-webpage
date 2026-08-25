@@ -1,5 +1,5 @@
 import { newId } from './id.ts'
-import { MIN_DURATION_SEC } from './note.ts'
+import { MIN_DURATION_SEC, normalizeDirection } from './note.ts'
 import { SFX_KITS, type SfxKit } from './sfx.ts'
 import {
   APPROACH_RANGE,
@@ -40,6 +40,7 @@ function roundPos(v: number): number {
 /** 書き出し時の丸め。種別ごとの追加フィールドもここで整える。 */
 function roundNote(note: Note): Note {
   const base = { ...note, time: roundTime(note.time), x: roundPos(note.x), y: roundPos(note.y) }
+  if (base.type === 'flick') return { ...base, dx: roundPos(base.dx), dy: roundPos(base.dy) }
   if (base.type === 'hold') return { ...base, duration: roundTime(base.duration) }
   if (base.type === 'drag') {
     return {
@@ -148,7 +149,7 @@ function parseNote(raw: unknown, index: number, warnings: string[]): Note | null
     return null
   }
   const type = str(r.type, 'tap')
-  if (type !== 'tap' && type !== 'hold' && type !== 'drag') {
+  if (type !== 'tap' && type !== 'flick' && type !== 'hold' && type !== 'drag') {
     // 将来の種別で作られた譜面でも、読める分だけ読む。
     warnings.push(`notes[${index}] の種別 "${type}" は未対応なので読み飛ばしました。`)
     return null
@@ -164,7 +165,14 @@ function parseNote(raw: unknown, index: number, warnings: string[]): Note | null
   const fx = str(r.fx) || undefined
 
   let note: Note
-  if (type === 'hold') {
+  if (type === 'flick') {
+    const dir = normalizeDirection(num(r.dx, NaN), num(r.dy, NaN))
+    if (!dir) {
+      warnings.push(`notes[${index}] のはじく向きが不正なので読み飛ばしました。`)
+      return null
+    }
+    note = { id, type: 'flick', time, x, y, dx: dir.dx, dy: dir.dy }
+  } else if (type === 'hold') {
     const duration = num(r.duration, NaN)
     if (!Number.isFinite(duration) || duration < MIN_DURATION_SEC) {
       warnings.push(`notes[${index}] の長押しの長さが不正なので読み飛ばしました。`)

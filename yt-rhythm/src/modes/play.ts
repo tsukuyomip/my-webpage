@@ -12,6 +12,7 @@ import {
   type ScoreSnapshot,
 } from '../core/judge.ts'
 import {
+  isLongNote,
   maxNoteDuration,
   noteDuration,
   noteEndPosition,
@@ -19,7 +20,7 @@ import {
   notePositionAt,
   totalJudgeUnits,
 } from '../core/note.ts'
-import type { Chart, DragNote, HoldNote, Note } from '../core/types.ts'
+import type { Chart, DragNote, FlickNote, HoldNote, Note } from '../core/types.ts'
 import { resolveDisplay, type ResolvedDisplay, type Settings } from '../core/settings.ts'
 import { sfx } from '../core/sfx.ts'
 import { EffectLayer } from '../render/effects.ts'
@@ -45,6 +46,28 @@ const COMBO_MILESTONE = 25
 const HOLD_SLACK = 1.7
 /** なぞりで玉から離れてよい範囲（当たり判定半径の倍率）。 */
 const DRAG_SLACK = 1.3
+/**
+ * はじきの成立距離（ノーツ半径の倍率）。クリエイト側の「これ以上動かしたら
+ * ドラッグ」より甘くする。作るときは意図して払うが、遊ぶときは忙しい。
+ */
+const FLICK_DISTANCE_RADII = 0.55
+/** 向きのずれをどこまで許すか（ラジアン）。 */
+const FLICK_ANGLE_SLACK = Math.PI * 0.42
+/** 押してからこの時間内に払えなければ見逃し。 */
+const FLICK_WINDOW_SEC = 0.3
+
+/** 押したあと、払われるのを待っているはじき。 */
+interface FlickPending {
+  note: FlickNote
+  pointerId: number
+  /** 押した位置（ステージ内ピクセル）。 */
+  px: number
+  py: number
+  /** 押した瞬間のズレ。成立したらこの値で判定する。 */
+  delta: number
+  /** 押した判定時刻。 */
+  pressedAt: number
+}
 /** 判定ごとの画面の揺れ。ステージ幅に対する比率で持ち、端末によらず同じに見せる。 */
 const SHAKE_RATIO: Record<Judgement, number> = {
   perfect: 0.009,
@@ -83,6 +106,8 @@ export class PlayScreen {
   private readonly resolved = new Set<string>()
   /** 追いかけ中の hold / drag。指ごとに 1 本。 */
   private readonly traces = new Map<number, Trace>()
+  /** 押されて、払われるのを待っている flick。 */
+  private readonly flicks = new Map<number, FlickPending>()
   private readonly maxDuration: number
   private readonly lastEndTime: number
   private score: ScoreKeeper
@@ -278,6 +303,7 @@ export class PlayScreen {
     this.headJudged.clear()
     this.resolved.clear()
     this.traces.clear()
+    this.flicks.clear()
     this.score = new ScoreKeeper(totalJudgeUnits(this.notes))
     this.missCursor = 0
     this.recentDeltas = []
@@ -322,6 +348,7 @@ export class PlayScreen {
     if (this.running) {
       this.contentStarted = true
       this.updateTraces()
+      this.expireFlicks()
       this.checkMisses()
     }
     this.effects.update(dt)
@@ -367,7 +394,7 @@ export class PlayScreen {
       if (!this.headJudged.has(note.id)) {
         this.headJudged.add(note.id)
         this.applyJudgement(note, 'miss', 0, { x: note.x, y: note.y })
-        if (note.type !== 'tap') this.applyJudgement(note, 'miss', 0, noteEndPosition(note))
+        if (isLongNote(note)) this.applyJudgement(note, 'miss', 0, noteEndPosition(note))
         this.resolved.add(note.id)
       }
       this.missCursor += 1
@@ -405,8 +432,20 @@ export class PlayScreen {
     if (!judgement) return
 
     this.headJudged.add(best.id)
+    if (best.type === 'flick') {
+      // はじきは押しただけでは成立しない。払われるまで判定を保留する。
+      this.flicks.set(p.pointerId, {
+        note: best,
+        pointerId: p.pointerId,
+        px: p.px,
+        py: p.py,
+        delta: signed,
+        pressedAt: t,
+      })
+      return
+    }
     this.applyJudgement(best, judgement, signed, { x: best.x, y: best.y })
-    if (best.type === 'tap') {
+    if (!isLongNote(best)) {
       this.resolved.add(best.id)
       return
     }
@@ -426,19 +465,71 @@ export class PlayScreen {
 
   /** 再生が途切れたら、追いかけ中のノーツをその時点で確定させる。 */
   private flushTraces(): void {
+    for (const pending of [...this.flicks.values()]) {
+      this.flicks.delete(pending.pointerId)
+      this.resolveFlick(pending, 'miss')
+    }
     if (this.traces.size === 0) return
     const t = this.judgeTime()
     for (const trace of [...this.traces.values()]) this.finishTrace(trace, t)
   }
 
   private handlePointerMove(p: StagePointer): void {
+    this.checkFlick(p)
     const trace = this.traces.get(p.pointerId)
     if (!trace) return
     trace.px = p.px
     trace.py = p.py
   }
 
+  /** 押した位置から、狙った向きへ十分に払えたら成立させる。 */
+  private checkFlick(p: StagePointer): void {
+    const pending = this.flicks.get(p.pointerId)
+    if (!pending) return
+    const dx = p.px - pending.px
+    const dy = p.py - pending.py
+    const dist = Math.hypot(dx, dy)
+    const need = noteRadius(this.stage.rect, this.opts.settings) * FLICK_DISTANCE_RADII
+    if (dist < need) return
+    const want = Math.atan2(pending.note.dy, pending.note.dx)
+    const got = Math.atan2(dy, dx)
+    // 角度の差を -π..π に畳んでから比べる。
+    let diff = got - want
+    while (diff > Math.PI) diff -= Math.PI * 2
+    while (diff < -Math.PI) diff += Math.PI * 2
+    if (Math.abs(diff) > FLICK_ANGLE_SLACK) return
+    this.flicks.delete(p.pointerId)
+    this.resolveFlick(pending, judgeFor(pending.delta) ?? 'good')
+  }
+
+  private resolveFlick(pending: FlickPending, judgement: Judgement): void {
+    const note = pending.note
+    this.applyJudgement(note, judgement, pending.delta, { x: note.x, y: note.y }, 'hit', {
+      vx: note.dx,
+      vy: note.dy,
+    })
+    this.resolved.add(note.id)
+  }
+
+  /** 払われないまま時間切れになったはじきを落とす。 */
+  private expireFlicks(): void {
+    if (this.flicks.size === 0) return
+    const t = this.judgeTime()
+    for (const pending of [...this.flicks.values()]) {
+      if (t - pending.pressedAt < FLICK_WINDOW_SEC) continue
+      this.flicks.delete(pending.pointerId)
+      this.resolveFlick(pending, 'miss')
+    }
+  }
+
   private handlePointerUp(p: StagePointer): void {
+    // 離す直前の位置でもう一度見る。素早い払いは move が粗いことがある。
+    this.checkFlick(p)
+    const pending = this.flicks.get(p.pointerId)
+    if (pending) {
+      this.flicks.delete(p.pointerId)
+      this.resolveFlick(pending, 'miss')
+    }
     const trace = this.traces.get(p.pointerId)
     if (!trace) return
     this.finishTrace(trace, this.judgeTime())
@@ -528,6 +619,8 @@ export class PlayScreen {
     at: { x: number; y: number },
     /** 演出と音の差し替え。押さえ切った解放は当たり音と分ける。 */
     kind: 'hit' | 'release' = 'hit',
+    /** はじきの向き。粒をその向きだけに飛ばす。 */
+    dir?: { vx: number; vy: number },
   ): void {
     this.score.add(judgement)
     if (judgement !== 'miss' && delta !== 0) {
@@ -538,12 +631,15 @@ export class PlayScreen {
     // コンボが伸びるほど派手にする（積み上がっている感じを出す）。
     const intensity = Math.min(1, this.score.combo / 60)
     const released = kind === 'release' && judgement !== 'miss'
-    this.effects.spawn(released ? 'release' : note.fx, {
+    const name = released ? 'release' : dir && judgement !== 'miss' ? 'flick' : note.fx
+    this.effects.spawn(name, {
       px: at.x * this.stage.rect.width,
       py: at.y * this.stage.rect.height,
       radius,
       judgement,
       intensity,
+      vx: dir?.vx,
+      vy: dir?.vy,
     })
     // 押さえ切ったときは一撃より大きい出来事として揺らす。
     const shakeRatio = SHAKE_RATIO[judgement] * (released ? 1.6 : 1)

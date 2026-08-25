@@ -2,8 +2,8 @@ import { lowerBound } from '../core/chart.ts'
 import type { StageRect } from '../core/geometry.ts'
 import { toPixels } from '../core/geometry.ts'
 import { MISS_WINDOW } from '../core/judge.ts'
-import { dragPositionAt, noteDuration, noteEndTime } from '../core/note.ts'
-import type { DragNote, HoldNote, Note } from '../core/types.ts'
+import { dragPositionAt, flickAngle, noteDuration, noteEndTime } from '../core/note.ts'
+import type { DragNote, FlickNote, HoldNote, Note } from '../core/types.ts'
 
 const NOTE_FILL = 'rgba(10, 14, 24, 0.62)'
 const NOTE_RING = '#5cc8ff'
@@ -11,6 +11,7 @@ const NOTE_RING_LATE = '#ff9f43'
 const APPROACH_RING = 'rgba(255, 255, 255, 0.85)'
 const SELECTED_RING = '#ffd54a'
 /** 種別が一目で分かるよう、輪の色を分ける。 */
+const FLICK_RING = '#ff6fd8'
 const HOLD_RING = '#b07cff'
 const DRAG_RING = '#4ee9a4'
 /** 追えているあいだの色。 */
@@ -120,6 +121,7 @@ export function drawNote(
 ): void {
   if (note.type === 'hold') drawHoldNote(ctx, rect, note, now, opts)
   else if (note.type === 'drag') drawDragNote(ctx, rect, note, now, opts)
+  else if (note.type === 'flick') drawFlickNote(ctx, rect, note, now, opts)
   else drawTapNote(ctx, rect, note, now, opts)
 }
 
@@ -130,6 +132,44 @@ function noteAlpha(note: Note, now: number, opts: NoteRenderOptions): number {
   const over = now - noteEndTime(note)
   const fadeOut = over > 0 ? 1 - Math.min(1, over / MISS_WINDOW) * 0.8 : 1
   return Math.max(0, fadeIn * fadeOut)
+}
+
+/**
+ * 長押し・なぞりの接近予兆。細い輪だとタップと見分けがつかないので、
+ * **線の太さが押さえる時間になっている極太の輪**として描く。
+ * 内外にぼかしを入れるので、輪というよりハレーションのように見える。
+ */
+function drawLongApproachHalo(
+  ctx: CanvasRenderingContext2D,
+  px: number,
+  py: number,
+  note: Note,
+  now: number,
+  opts: NoteRenderOptions,
+  color: string,
+): void {
+  const remaining = note.time - now
+  if (remaining <= 0) return
+  const r = opts.radius
+  const ringR = r * (1 + 1.8 * Math.min(1, remaining / opts.approachSec))
+  // 押さえる時間がそのまま輪の太さになる。長いノーツほど分厚く見える。
+  const thickness = r * Math.max(0.3, Math.min(1.5, 0.3 + noteDuration(note) * 0.5))
+  const inner = Math.max(0.1, ringR - thickness)
+  const outer = ringR + thickness
+  const p = approachProgress(note, now, opts.approachSec)
+  const peak = (APPROACH_ALPHA.from + (APPROACH_ALPHA.to - APPROACH_ALPHA.from) * p) * 0.75
+
+  const halo = ctx.createRadialGradient(px, py, inner, px, py, outer)
+  halo.addColorStop(0, withAlpha(color, 0))
+  halo.addColorStop(0.5, withAlpha(color, peak))
+  halo.addColorStop(1, withAlpha(color, 0))
+  ctx.save()
+  ctx.globalCompositeOperation = 'lighter'
+  ctx.fillStyle = halo
+  ctx.beginPath()
+  ctx.arc(px, py, outer, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.restore()
 }
 
 /** 判定時刻に向かって縮んでくる外周リング。どの種別でも同じ。 */
@@ -294,6 +334,56 @@ export function drawTapNote(
  * 押しているあいだ減っていくようにする。
  */
 /**
+ * はじき。タップと同じ「弾けさせる」質感のまま、**払う向きを矢印で示す**。
+ * 向きが分からないと当てようがないので、矢印は本体より外まで伸ばす。
+ */
+export function drawFlickNote(
+  ctx: CanvasRenderingContext2D,
+  rect: StageRect,
+  note: FlickNote,
+  now: number,
+  opts: NoteRenderOptions,
+): void {
+  const { px, py } = toPixels(note.x, note.y, rect)
+  const r = opts.radius
+  const alpha = noteAlpha(note, now, opts)
+  if (alpha <= 0.01) return
+  const late = now > note.time
+  const p = approachProgress(note, now, opts.approachSec)
+  const ring = late ? NOTE_RING_LATE : FLICK_RING
+
+  ctx.save()
+  ctx.globalAlpha = alpha
+  drawBody(ctx, px, py, r, ring, { fill: late ? undefined : p, style: 'tap' })
+
+  // 払う向きの矢印。判定が近いほど前へせり出して、動かす向きを急かす。
+  ctx.save()
+  ctx.translate(px, py)
+  ctx.rotate(flickAngle(note))
+  const reach = r * (0.5 + 0.75 * p)
+  ctx.strokeStyle = ring
+  ctx.lineCap = 'round'
+  ctx.lineJoin = 'round'
+  ctx.lineWidth = Math.max(2, r * 0.16)
+  ctx.beginPath()
+  ctx.moveTo(-r * 0.45, 0)
+  ctx.lineTo(reach, 0)
+  ctx.stroke()
+  ctx.beginPath()
+  ctx.moveTo(reach + r * 0.42, 0)
+  ctx.lineTo(reach - r * 0.16, r * 0.4)
+  ctx.lineTo(reach - r * 0.16, -r * 0.4)
+  ctx.closePath()
+  ctx.fillStyle = ring
+  ctx.fill()
+  ctx.restore()
+
+  drawApproachRing(ctx, px, py, note, now, opts)
+  if (opts.selected?.has(note.id)) drawSelection(ctx, px, py, r)
+  ctx.restore()
+}
+
+/**
  * 長押し。「減っていく残り時間」ではなく「溜まっていくゲージ」として描く。
  * 減る表現は時間切れの不安になるだけで、押さえ続けたくならない。
  * 押している間はふくらんで芯が光り、溜め切る手前で色が金に寄る。
@@ -371,11 +461,12 @@ export function drawHoldNote(
     ctx.restore()
   }
 
+  // ハローは本体より先に敷く。あとから加算すると本体の色が白く飛ぶ。
+  drawLongApproachHalo(ctx, px, py, note, now, opts, HOLD_RING)
   drawBody(ctx, px, py, r * pulse, accent, {
     fill: started ? undefined : approachProgress(note, now, opts.approachSec),
     style: 'long',
   })
-  drawApproachRing(ctx, px, py, note, now, opts)
   if (opts.selected?.has(note.id)) drawSelection(ctx, px, py, r)
   ctx.restore()
 }
@@ -386,6 +477,12 @@ const RIBBON_STEPS = 26
 const BAND_MAX_RADII = 0.95
 /** 予告帯の濃さ。薄すぎると帯として機能しない。 */
 const BAND_ALPHA = 0.34
+/**
+ * 予告帯が太くなるタイミングの先行（秒）。
+ * ちょうど通る時刻に最大だと「広がったのを見てから動く」と間に合わない。
+ * 少し早く広げて、見てから指を動かす余裕を作る。
+ */
+const BAND_LEAD_SEC = 0.1
 /** 経路そのものを示す実線の太さ。時間の情報は帯が持つので、こちらは固定。 */
 const ROUTE_WIDTH_RATIO = 0.11
 
@@ -423,7 +520,10 @@ function fillDragBand(
     leads.push(note.time + dt - opts.now)
   }
   const halfWidth = (i: number) => {
-    const imminence = Math.max(0, Math.min(1, 1 - leads[i] / opts.approachSec))
+    const imminence = Math.max(
+      0,
+      Math.min(1, 1 - (leads[i] - BAND_LEAD_SEC) / opts.approachSec),
+    )
     return Math.max(0.5, r * BAND_MAX_RADII * (0.05 + 0.95 * imminence))
   }
   const side = (i: number, sign: number) => {
@@ -499,11 +599,11 @@ export function drawDragNote(
   const head = toPixels(note.x, note.y, rect)
   if (!started) {
     // 頭は押す場所なので、いつ押すかの手がかりは残す。
+    drawLongApproachHalo(ctx, head.px, head.py, note, now, opts, DRAG_RING)
     drawBody(ctx, head.px, head.py, r, DRAG_RING, {
       fill: approachProgress(note, now, opts.approachSec),
       style: 'long',
     })
-    drawApproachRing(ctx, head.px, head.py, note, now, opts)
   } else if (cursor < duration) {
     // 追いかける玉。外れていることだけは色で知らせる。
     const at = dragPositionAt(note, cursor)

@@ -28,6 +28,7 @@ const HEIGHT = 68
 /** ステージ側のリング色と合わせる。 */
 const NOTE_COLOR: Record<Note['type'], string> = {
   tap: '#5cc8ff',
+  flick: '#ff6fd8',
   hold: '#b07cff',
   drag: '#4ee9a4',
 }

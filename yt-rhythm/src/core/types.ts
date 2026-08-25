@@ -35,6 +35,14 @@ export interface DragPoint {
   y: number
 }
 
+/** はじき。time にタップして、dx / dy の向きへ素早く払う。 */
+export interface FlickNote extends NoteBase {
+  type: 'flick'
+  /** はじく向き（単位ベクトル）。画面の右が +x、下が +y。 */
+  dx: number
+  dy: number
+}
+
 /** なぞり。始点 (x, y) から path の点を順になぞる。 */
 export interface DragNote extends NoteBase {
   type: 'drag'
@@ -42,11 +50,12 @@ export interface DragNote extends NoteBase {
   path: DragPoint[]
 }
 
-export type Note = TapNote | HoldNote | DragNote
+export type Note = TapNote | FlickNote | HoldNote | DragNote
 export type NoteType = Note['type']
 
 export const NOTE_TYPE_LABEL: Record<NoteType, string> = {
   tap: 'タップ',
+  flick: 'フリック',
   hold: 'ホールド',
   drag: 'ドラッグ',
 }
