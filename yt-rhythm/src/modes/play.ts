@@ -568,6 +568,9 @@ export class PlayScreen {
     const shake = this.effects.shakeOffset()
     ctx.save()
     ctx.translate(shake.x, shake.y)
+    // エフェクトはノーツの下に敷く。当たり終えたノーツの演出が、
+    // これから来るノーツを覆い隠す理由はない。
+    this.effects.draw(ctx, rect)
     drawNotes(ctx, rect, this.notes, t, {
       approachSec: this.approachSec,
       radius: noteRadius(rect, this.opts.settings),
@@ -575,7 +578,6 @@ export class PlayScreen {
       holding,
       maxDurationSec: this.maxDuration,
     })
-    this.effects.draw(ctx, rect)
     ctx.restore()
 
     const span = (this.notes.length > 0 ? this.lastEndTime : 1) - this.startTime

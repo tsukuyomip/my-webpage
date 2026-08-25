@@ -591,6 +591,46 @@ async function testTapWhileHolding(browser) {
   await tapWhileHolding(browser, '捕捉が失敗する端末', true)
 }
 
+/**
+ * ノーツの半径 60% の位置の青みを測る。中心から満ちる予告は、
+ * 出た直後はここまで届かず、判定が近づくと届く。
+ */
+const noteBlue = (page, nx, ny) =>
+  page.evaluate(([x, y]) => {
+    const c = document.querySelector('.stage-canvas')
+    const ctx = c.getContext('2d')
+    const radius = 0.062 * c.width // geometry.ts の NOTE_RADIUS_RATIO
+    const cx = Math.round(x * c.width + radius * 0.6)
+    const cy = Math.round(y * c.height)
+    const span = Math.max(2, Math.round(radius * 0.12))
+    const d = ctx.getImageData(cx - span, cy - span, span * 2, span * 2).data
+    let blue = 0
+    for (let i = 0; i < d.length; i += 4) blue += d[i + 2]
+    return blue / (d.length / 4)
+  }, [nx, ny])
+
+async function testApproachTelegraph(browser) {
+  console.log('\n[12] プレイ: 判定時刻に向かって中心から満ちる')
+  const draft = JSON.stringify({
+    formatVersion: 1,
+    meta: { title: '予告', videoId: 'testvideo01' },
+    timing: { offsetMs: 0 },
+    display: { dimOpacity: 0.5, approachMs: 1600 },
+    notes: [{ id: 'a', type: 'tap', time: 8, x: 0.5, y: 0.5 }],
+  })
+  const page = await newPage(browser, { draft })
+  await startPlayFromDraft(page)
+
+  await waitTime(page, 6.8) // 出てから約 25%
+  const early = await noteBlue(page, 0.5, 0.5)
+  await waitTime(page, 7.85) // 判定直前
+  const late = await noteBlue(page, 0.5, 0.5)
+
+  check('近づくほど中心が満ちる', late > early * 2, `${early.toFixed(1)} → ${late.toFixed(1)}`)
+  check('出た直後は半径 60% まで届いていない', early < 60, early.toFixed(1))
+  await page.context().close()
+}
+
 // ---------------------------------------------------------------- 実行
 
 async function waitForServer(url, timeoutMs = 30000) {
@@ -639,6 +679,7 @@ try {
   await testLongDrag(browser)
   await testDragAtHalfSpeed(browser)
   await testTapWhileHolding(browser)
+  await testApproachTelegraph(browser)
 } finally {
   await browser.close()
   // pkill は自分のシェルごと落とすので、起動した子だけを止める。

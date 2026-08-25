@@ -114,10 +114,10 @@ registerEffect(DEFAULT_EFFECT, ({ px, py, radius, judgement, intensity = 0 }) =>
       const eased = easeOut(t)
 
       if (judgement !== 'miss') {
-        // 当たった瞬間の閃光。芯を白く飛ばす。
+        // 当たった瞬間の閃光。近くのノーツを白く飛ばさない程度に抑える。
         ctx.save()
         ctx.globalCompositeOperation = 'lighter'
-        ctx.globalAlpha = Math.pow(alpha, 2.4)
+        ctx.globalAlpha = Math.pow(alpha, 2.4) * 0.7
         const flashR = radius * (1 + eased * 1.1)
         const flash = ctx.createRadialGradient(px, py, 0, px, py, flashR)
         flash.addColorStop(0, '#ffffff')
@@ -280,7 +280,7 @@ registerEffect('milestone', ({ px, py, radius, text }) => {
         const f = 1 - t / 0.25
         ctx.save()
         ctx.globalCompositeOperation = 'lighter'
-        ctx.globalAlpha = f * 0.22
+        ctx.globalAlpha = f * 0.16
         const glow = ctx.createRadialGradient(px, py, 0, px, py, Math.max(rect.width, rect.height) * 0.7)
         glow.addColorStop(0, '#ffd54a')
         glow.addColorStop(1, 'rgba(0,0,0,0)')

@@ -15,7 +15,25 @@ const HOLD_RING = '#b07cff'
 const DRAG_RING = '#4ee9a4'
 /** 追えているあいだの色。 */
 const ACTIVE_RING = '#8dffb3'
+/** なぞりの予行演習が一往復する周期（秒）。 */
+const GHOST_PERIOD_SEC = 1.1
 const HOLD_TRACK = 'rgba(255, 255, 255, 0.16)'
+
+/** 接近リングの透過度。出た瞬間は薄く、判定時刻に向かってはっきりさせる。 */
+const APPROACH_ALPHA = { from: 0.4, to: 0.9 }
+/** 中心から満ちていく予告の透過度。 */
+const FILL_ALPHA = { from: 0.4, to: 0.8 }
+
+/** '#rrggbb' に透過度を足す。予告は色を保ったまま薄く出したい。 */
+function withAlpha(hex: string, alpha: number): string {
+  const n = Number.parseInt(hex.slice(1), 16)
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`
+}
+
+/** 出現から判定時刻までの進み具合（0 → 1）。 */
+function approachProgress(note: Note, now: number, approachSec: number): number {
+  return Math.max(0, Math.min(1, 1 - (note.time - now) / approachSec))
+}
 
 export interface NoteRenderOptions {
   /** ノーツが出現してから判定時刻までの秒数。 */
@@ -111,10 +129,15 @@ function drawApproachRing(
   const remaining = note.time - now
   if (remaining <= 0) return
   const r = opts.radius
+  const p = approachProgress(note, now, opts.approachSec)
   const approachR = r * (1 + 1.8 * Math.min(1, remaining / opts.approachSec))
   ctx.beginPath()
   ctx.arc(px, py, approachR, 0, Math.PI * 2)
-  ctx.strokeStyle = APPROACH_RING
+  // 濃さを一定にすると、遠いノーツも近いノーツも同じ強さで目に入って読みにくい。
+  ctx.strokeStyle = APPROACH_RING.replace(
+    /[\d.]+\)$/,
+    `${(APPROACH_ALPHA.from + (APPROACH_ALPHA.to - APPROACH_ALPHA.from) * p).toFixed(3)})`,
+  )
   ctx.lineWidth = Math.max(1.5, r * 0.1)
   ctx.stroke()
 }
@@ -126,11 +149,25 @@ function drawBody(
   py: number,
   r: number,
   ring: string,
+  /** 0..1。判定時刻に向かって中心から満ちていく予告。省略すると出さない。 */
+  fill?: number,
 ): void {
   ctx.beginPath()
   ctx.arc(px, py, r, 0, Math.PI * 2)
   ctx.fillStyle = NOTE_FILL
   ctx.fill()
+
+  // 縁の中が満ちきった瞬間が判定時刻。細い輪より面のほうが残りを読み取りやすい。
+  if (fill !== undefined && fill > 0) {
+    const inner = r * 0.92 * Math.min(1, fill)
+    if (inner > 0.5) {
+      ctx.beginPath()
+      ctx.arc(px, py, inner, 0, Math.PI * 2)
+      ctx.fillStyle = withAlpha(ring, FILL_ALPHA.from + (FILL_ALPHA.to - FILL_ALPHA.from) * fill)
+      ctx.fill()
+    }
+  }
+
   ctx.lineWidth = Math.max(2, r * 0.14)
   ctx.strokeStyle = ring
   ctx.stroke()
@@ -172,7 +209,15 @@ export function drawTapNote(
 
   ctx.save()
   ctx.globalAlpha = alpha
-  drawBody(ctx, px, py, r, now > note.time ? NOTE_RING_LATE : NOTE_RING)
+  const late = now > note.time
+  drawBody(
+    ctx,
+    px,
+    py,
+    r,
+    late ? NOTE_RING_LATE : NOTE_RING,
+    late ? undefined : approachProgress(note, now, opts.approachSec),
+  )
   drawApproachRing(ctx, px, py, note, now, opts)
   if (opts.selected?.has(note.id)) drawSelection(ctx, px, py, r)
   ctx.restore()
@@ -219,7 +264,7 @@ export function drawHoldNote(
     ctx.stroke()
   }
 
-  drawBody(ctx, px, py, r, accent)
+  drawBody(ctx, px, py, r, accent, started ? undefined : approachProgress(note, now, opts.approachSec))
   drawApproachRing(ctx, px, py, note, now, opts)
   if (opts.selected?.has(note.id)) drawSelection(ctx, px, py, r)
   ctx.restore()
@@ -245,18 +290,22 @@ export function drawDragNote(
   ctx.save()
   ctx.globalAlpha = alpha
 
-  // 経路。まだ通っていない側を明るくして、進む向きを分かるようにする。
   ctx.lineJoin = 'round'
   ctx.lineCap = 'round'
-  ctx.lineWidth = r * 0.62
-  ctx.strokeStyle = 'rgba(255,255,255,0.14)'
-  strokePath(ctx, rect, note, 0, duration)
-  if (started && elapsed < duration) {
-    ctx.lineWidth = r * 0.34
-    ctx.strokeStyle = accent
-    ctx.globalAlpha = alpha * 0.7
-    strokePath(ctx, rect, note, Math.max(0, elapsed), duration)
-    ctx.globalAlpha = alpha
+  if (!started) {
+    drawDragTelegraph(ctx, rect, note, r, now, approachProgress(note, now, opts.approachSec))
+  } else {
+    // 通ってきた側を暗く、これから通る側を明るくする。
+    ctx.lineWidth = r * 0.62
+    ctx.strokeStyle = 'rgba(255,255,255,0.14)'
+    strokePath(ctx, rect, note, 0, duration)
+    if (elapsed < duration) {
+      ctx.lineWidth = r * 0.34
+      ctx.strokeStyle = accent
+      ctx.globalAlpha = alpha * 0.7
+      strokePath(ctx, rect, note, Math.max(0, elapsed), duration)
+      ctx.globalAlpha = alpha
+    }
   }
 
   // 終点の目印
@@ -272,7 +321,7 @@ export function drawDragNote(
 
   const head = toPixels(note.x, note.y, rect)
   if (!started) {
-    drawBody(ctx, head.px, head.py, r, DRAG_RING)
+    drawBody(ctx, head.px, head.py, r, DRAG_RING, approachProgress(note, now, opts.approachSec))
     drawApproachRing(ctx, head.px, head.py, note, now, opts)
   } else {
     // 追いかける玉。ここに指を置いておく。
@@ -284,6 +333,73 @@ export function drawDragNote(
   if (opts.showHandles && opts.selected?.has(note.id)) drawDragHandles(ctx, rect, note, r)
   if (opts.selected?.has(note.id)) drawSelection(ctx, head.px, head.py, r)
   ctx.restore()
+}
+
+/**
+ * なぞりが来る前に「どこへ・どの向きに・どう動くか」を見せる。
+ * 経路をただ薄く描くだけでは、始点と終点のどちらへ進むのか読めない。
+ */
+function drawDragTelegraph(
+  ctx: CanvasRenderingContext2D,
+  rect: StageRect,
+  note: DragNote,
+  r: number,
+  now: number,
+  progress: number,
+): void {
+  const base = ctx.globalAlpha
+  const duration = noteDuration(note)
+  if (duration <= 0) return
+  const head = toPixels(note.x, note.y, rect)
+  const tail = dragPositionAt(note, duration)
+  const tailPx = toPixels(tail.x, tail.y, rect)
+
+  // 始点を明るく終点を暗くして、進む向きを一目で分かるようにする。
+  const grad = ctx.createLinearGradient(head.px, head.py, tailPx.px, tailPx.py)
+  grad.addColorStop(0, withAlpha(DRAG_RING, 0.08 + 0.34 * progress))
+  grad.addColorStop(1, withAlpha(DRAG_RING, 0.03 + 0.09 * progress))
+  ctx.lineWidth = r * 0.62
+  ctx.strokeStyle = grad
+  strokePath(ctx, rect, note, 0, duration)
+
+  // 進む向きの矢印。経路を等間隔に拾って小さな三角を置く。
+  const marks = 5
+  ctx.fillStyle = withAlpha(DRAG_RING, 0.2 + 0.5 * progress)
+  for (let i = 1; i <= marks; i += 1) {
+    const k = (i / (marks + 1)) * duration
+    const at = dragPositionAt(note, k)
+    const ahead = dragPositionAt(note, Math.min(duration, k + duration * 0.05))
+    const dx = (ahead.x - at.x) * rect.width
+    const dy = (ahead.y - at.y) * rect.height
+    if (dx === 0 && dy === 0) continue
+    const p = toPixels(at.x, at.y, rect)
+    const size = r * 0.2
+    ctx.save()
+    ctx.translate(p.px, p.py)
+    ctx.rotate(Math.atan2(dy, dx))
+    ctx.beginPath()
+    ctx.moveTo(size, 0)
+    ctx.lineTo(-size * 0.7, size * 0.62)
+    ctx.lineTo(-size * 0.7, -size * 0.62)
+    ctx.closePath()
+    ctx.fill()
+    ctx.restore()
+  }
+
+  // 予行演習の玉。本番と同じ道を先に走らせて、動きそのものを見せる。
+  const sweep = (now % GHOST_PERIOD_SEC) / GHOST_PERIOD_SEC
+  const ghost = dragPositionAt(note, sweep * duration)
+  const gp = toPixels(ghost.x, ghost.y, rect)
+  ctx.save()
+  ctx.globalCompositeOperation = 'lighter'
+  // 端に着いた瞬間に消して、戻る動きを見せない（逆走に見えてしまう）。
+  ctx.globalAlpha = base * progress * 0.6 * Math.sin(Math.PI * sweep)
+  ctx.fillStyle = DRAG_RING
+  ctx.beginPath()
+  ctx.arc(gp.px, gp.py, r * 0.3, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.restore()
+  ctx.globalAlpha = base
 }
 
 function strokePath(
