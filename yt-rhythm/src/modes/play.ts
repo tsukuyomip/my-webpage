@@ -44,6 +44,13 @@ const COMBO_MILESTONE = 25
 const HOLD_SLACK = 1.7
 /** なぞりで玉から離れてよい範囲（当たり判定半径の倍率）。 */
 const DRAG_SLACK = 1.3
+/** 判定ごとの画面の揺れ。ステージ幅に対する比率で持ち、端末によらず同じに見せる。 */
+const SHAKE_RATIO: Record<Judgement, number> = {
+  perfect: 0.009,
+  great: 0.006,
+  good: 0.004,
+  miss: 0.005,
+}
 
 /** 押しっぱなしで追いかけている最中の hold / drag。 */
 interface Trace {
@@ -58,6 +65,9 @@ interface Trace {
   py: number
   /** いま追えているか（描画の色に使う）。 */
   onTarget: boolean
+  /** 直前に玉がいた位置（尾の向きを出すのに使う）。 */
+  lastAtX: number
+  lastAtY: number
 }
 
 export class PlayScreen {
@@ -204,7 +214,8 @@ export class PlayScreen {
     // 音は必ずユーザー操作の中で用意する。
     sfx.ensure()
     sfx.setVolume(this.opts.settings.sfxVolume)
-    sfx.setKit(this.opts.settings.sfxKit)
+    sfx.setKit(this.display.sfxKit)
+    this.effects.setShakeScale(this.opts.settings.screenShake)
     this.hideOverlay()
     this.stage.player.seek(this.startTime)
     this.stage.player.play()
@@ -406,6 +417,8 @@ export class PlayScreen {
       px: p.px,
       py: p.py,
       onTarget: true,
+      lastAtX: best.x,
+      lastAtY: best.y,
     })
   }
 
@@ -455,8 +468,38 @@ export class PlayScreen {
       const step = upTo - trace.lastT
       if (step > 0 && trace.onTarget) trace.heldSec += step
       if (step > 0) trace.lastT = upTo
+      if (trace.onTarget) this.spawnTrail(trace, upTo)
       if (t >= end) this.finishTrace(trace, end)
     }
+  }
+
+  /** 追えているあいだ、玉の後ろに粒を撒く。押さえている手応えを出す。 */
+  private spawnTrail(trace: Trace, t: number): void {
+    const note = trace.note
+    const at = notePositionAt(note, Math.max(0, t - note.time))
+    const { width, height } = this.stage.rect
+    const radius = noteRadius(this.stage.rect, this.opts.settings)
+    if (note.type === 'drag') {
+      this.effects.spawn('trail', {
+        px: at.x * width,
+        py: at.y * height,
+        radius,
+        judgement: 'perfect',
+        vx: (at.x - trace.lastAtX) * width,
+        vy: (at.y - trace.lastAtY) * height,
+      })
+    } else {
+      // 長押しは輪のふちから外へ散らす。
+      const angle = Math.random() * Math.PI * 2
+      this.effects.spawn('trail', {
+        px: at.x * width + Math.cos(angle) * radius,
+        py: at.y * height + Math.sin(angle) * radius,
+        radius: radius * 0.8,
+        judgement: 'perfect',
+      })
+    }
+    trace.lastAtX = at.x
+    trace.lastAtY = at.y
   }
 
   /** 指を離した / 終端に達したときに、追えていた割合から続きの判定を出す。 */
@@ -485,20 +528,25 @@ export class PlayScreen {
       if (this.recentDeltas.length > 24) this.recentDeltas.shift()
     }
     const radius = noteRadius(this.stage.rect, this.opts.settings)
+    // コンボが伸びるほど派手にする（積み上がっている感じを出す）。
+    const intensity = Math.min(1, this.score.combo / 60)
     this.effects.spawn(note.fx, {
       px: at.x * this.stage.rect.width,
       py: at.y * this.stage.rect.height,
       radius,
       judgement,
+      intensity,
     })
+    this.effects.shake(this.stage.rect.width * SHAKE_RATIO[judgement] * (1 + intensity * 0.5))
     sfx.play(judgement)
 
     // コンボの節目にごほうびを出す。
     const combo = this.score.combo
     if (judgement !== 'miss' && combo > 0 && combo % COMBO_MILESTONE === 0) {
       this.effects.spawn('milestone', {
+        // 中央だと HUD のコンボ数と判定文字に重なるので、少し下に出す。
         px: this.stage.rect.width / 2,
-        py: this.stage.rect.height * 0.46,
+        py: this.stage.rect.height * 0.68,
         radius,
         judgement,
         text: `${combo} COMBO!`,
@@ -516,6 +564,10 @@ export class PlayScreen {
     for (const trace of this.traces.values()) {
       if (trace.onTarget) holding.add(trace.note.id)
     }
+    // 揺れは暗幕と HUD には掛けない（端に隙間が出るし、数字が読めなくなる）。
+    const shake = this.effects.shakeOffset()
+    ctx.save()
+    ctx.translate(shake.x, shake.y)
     drawNotes(ctx, rect, this.notes, t, {
       approachSec: this.approachSec,
       radius: noteRadius(rect, this.opts.settings),
@@ -524,6 +576,7 @@ export class PlayScreen {
       maxDurationSec: this.maxDuration,
     })
     this.effects.draw(ctx, rect)
+    ctx.restore()
 
     const span = (this.notes.length > 0 ? this.lastEndTime : 1) - this.startTime
     drawHud(ctx, rect, this.score.snapshot(), span > 0 ? (t - this.startTime) / span : 0)

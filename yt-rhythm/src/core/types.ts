@@ -1,5 +1,7 @@
 // 譜面フォーマット。将来ノーツ種別やエフェクトを増やせるよう、
 // 読み込み側は「知らない type / 知らないフィールド」を落として読み飛ばす。
+import { DEFAULT_SFX_KIT, type SfxKit } from './sfx.ts'
+
 export const FORMAT_VERSION = 1
 
 /** どの種別も共通で持つもの。 */
@@ -73,6 +75,8 @@ export interface ChartDisplay {
   dimOpacity: number
   /** ノーツが出現してから判定時刻までの長さ（ms）。小さいほど高速。 */
   approachMs: number
+  /** 判定音のセット。曲の雰囲気に合わせて譜面ごとに選べる。 */
+  sfxKit: SfxKit
 }
 
 export interface Chart {
@@ -88,6 +92,7 @@ export interface Chart {
 export const DEFAULT_DISPLAY: ChartDisplay = {
   dimOpacity: 0.5,
   approachMs: 800,
+  sfxKit: DEFAULT_SFX_KIT,
 }
 
 /** 設定・譜面ともにこの範囲に収める。 */

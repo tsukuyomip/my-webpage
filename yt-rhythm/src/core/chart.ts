@@ -1,5 +1,6 @@
 import { newId } from './id.ts'
 import { MIN_DURATION_SEC } from './note.ts'
+import { SFX_KITS, type SfxKit } from './sfx.ts'
 import {
   APPROACH_RANGE,
   DEFAULT_DISPLAY,
@@ -111,6 +112,9 @@ function parseDisplay(raw: unknown): ChartDisplay {
   return {
     dimOpacity: clampRange(num(r.dimOpacity, DEFAULT_DISPLAY.dimOpacity), DIM_RANGE),
     approachMs: clampRange(num(r.approachMs, DEFAULT_DISPLAY.approachMs), APPROACH_RANGE),
+    sfxKit: SFX_KITS.some((k) => k.id === r.sfxKit)
+      ? (r.sfxKit as SfxKit)
+      : DEFAULT_DISPLAY.sfxKit,
   }
 }
 

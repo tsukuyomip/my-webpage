@@ -187,6 +187,18 @@ export class App {
       },
     })
     addSlider({
+      label: '画面の揺れ',
+      value: this.settings.screenShake,
+      min: 0,
+      max: 1,
+      step: 0.1,
+      format: (v) => (v <= 0 ? 'なし' : `${Math.round(v * 100)}%`),
+      apply: (v) => {
+        this.settings.screenShake = v
+      },
+    })
+
+    addSlider({
       label: '効果音の音量',
       value: this.settings.sfxVolume,
       min: 0,
@@ -205,7 +217,7 @@ export class App {
       },
     })
 
-    // 効果音のセット。選んだその場で試聴できるようにする。
+    // 判定音のセット。既定は譜面が持つ値を使い、外したときだけ上書きする。
     const kitSelect = h('select', {
       class: 'select',
       on: {
@@ -224,7 +236,26 @@ export class App {
       if (kit.id === this.settings.sfxKit) option.selected = true
       kitSelect.appendChild(option)
     }
-    rows.push(h('div', { class: 'settings-row' }, [h('span', { text: '効果音' }), kitSelect]))
+    rows.push(h('div', { class: 'settings-row' }, [h('span', { text: '判定音' }), kitSelect]))
+
+    const kitCheck = h('input', { attrs: { type: 'checkbox' } })
+    kitCheck.checked = !this.settings.overrideSfxKit
+    const syncKit = () => {
+      kitSelect.disabled = kitCheck.checked
+      kitSelect.style.opacity = kitCheck.checked ? '0.45' : '1'
+    }
+    kitCheck.addEventListener('change', () => {
+      this.settings.overrideSfxKit = !kitCheck.checked
+      saveSettings(this.settings)
+      syncKit()
+    })
+    syncKit()
+    rows.push(
+      h('label', { class: 'settings-note' }, [
+        kitCheck,
+        h('span', { class: 'small', text: '譜面の値を使う（外すと上の値で上書き）' }),
+      ]),
+    )
 
     return h('details', { class: 'settings' }, [
       h('summary', { text: '⚙ 設定' }),

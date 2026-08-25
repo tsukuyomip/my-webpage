@@ -16,9 +16,13 @@ export interface Settings {
   dimOpacity: number
   /** ノーツの大きさ倍率。 */
   noteScale: number
+  /** 当たったときに画面を揺らす強さ（0 で揺れなし）。 */
+  screenShake: number
   /** 効果音の音量（0 で無音）。 */
   sfxVolume: number
-  /** 効果音のセット。好みが分かれるので選べるようにしている。 */
+  /** 判定音を譜面の値ではなく下の sfxKit で上書きするか。 */
+  overrideSfxKit: boolean
+  /** 上書き時に使う判定音のセット。 */
   sfxKit: SfxKit
 }
 
@@ -29,7 +33,9 @@ export const DEFAULT_SETTINGS: Settings = {
   overrideDim: false,
   dimOpacity: DEFAULT_DISPLAY.dimOpacity,
   noteScale: 1,
+  screenShake: 1,
   sfxVolume: 0.7,
+  overrideSfxKit: false,
   sfxKit: DEFAULT_SFX_KIT,
 }
 
@@ -41,12 +47,14 @@ export interface ResolvedDisplay {
   dimOpacity: number
   approachMs: number
   approachSec: number
+  sfxKit: SfxKit
 }
 
 export function resolveDisplay(chart: Chart, settings: Settings): ResolvedDisplay {
   const approachMs = settings.overrideApproach ? settings.approachMs : chart.display.approachMs
   const dimOpacity = settings.overrideDim ? settings.dimOpacity : chart.display.dimOpacity
-  return { approachMs, approachSec: approachMs / 1000, dimOpacity }
+  const sfxKit = settings.overrideSfxKit ? settings.sfxKit : chart.display.sfxKit
+  return { approachMs, approachSec: approachMs / 1000, dimOpacity, sfxKit }
 }
 
 export function loadSettings(): Settings {
@@ -71,7 +79,9 @@ export function loadSettings(): Settings {
         DEFAULT_SETTINGS.dimOpacity,
       ),
       noteScale: clampNum(parsed.noteScale, 0.5, 2, DEFAULT_SETTINGS.noteScale),
+      screenShake: clampNum(parsed.screenShake, 0, 1, DEFAULT_SETTINGS.screenShake),
       sfxVolume: clampNum(parsed.sfxVolume, 0, 1, DEFAULT_SETTINGS.sfxVolume),
+      overrideSfxKit: parsed.overrideSfxKit === true,
       sfxKit: SFX_KITS.some((k) => k.id === parsed.sfxKit)
         ? (parsed.sfxKit as SfxKit)
         : DEFAULT_SETTINGS.sfxKit,

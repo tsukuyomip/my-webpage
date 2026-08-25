@@ -12,7 +12,7 @@ import {
   setNoteDuration,
 } from '../core/note.ts'
 import type { Settings } from '../core/settings.ts'
-import { sfx } from '../core/sfx.ts'
+import { SFX_KITS, sfx, type SfxKit } from '../core/sfx.ts'
 import {
   APPROACH_RANGE,
   DIM_RANGE,
@@ -319,7 +319,7 @@ export class EditScreen {
     // 音はユーザー操作の中で用意する。
     sfx.ensure()
     sfx.setVolume(this.opts.settings.sfxVolume)
-    sfx.setKit(this.opts.settings.sfxKit)
+    sfx.setKit(this.chart.display.sfxKit)
     if (this.playing) this.stage.player.pause()
     else {
       this.flushSeek(true)
@@ -785,6 +785,7 @@ export class EditScreen {
     dimOut: HTMLElement
     approach: HTMLInputElement
     approachOut: HTMLElement
+    sfxKit: HTMLSelectElement
   } = {} as never
 
   /**
@@ -875,6 +876,8 @@ export class EditScreen {
     this.displayInputs.dimOut.textContent = formatDim(this.chart.display.dimOpacity)
     this.displayInputs.approach.value = String(this.chart.display.approachMs)
     this.displayInputs.approachOut.textContent = `${this.chart.display.approachMs} ms`
+    this.displayInputs.sfxKit.value = this.chart.display.sfxKit
+    sfx.setKit(this.chart.display.sfxKit)
   }
 
   private buildPanel(): HTMLElement {
@@ -999,11 +1002,36 @@ export class EditScreen {
         this.chart.display.approachMs = v
       },
     )
+    // 判定音のセット。選んだその場で鳴らして確かめられるようにする。
+    const sfxSelect = h('select', {
+      class: 'select',
+      on: {
+        change: () => {
+          this.chart.display.sfxKit = sfxSelect.value as SfxKit
+          this.markDirty()
+          sfx.ensure()
+          sfx.setKit(this.chart.display.sfxKit)
+          sfx.setVolume(this.opts.settings.sfxVolume)
+          sfx.play('perfect')
+        },
+      },
+    })
+    for (const kit of SFX_KITS) {
+      const option = h('option', { text: kit.label, attrs: { value: kit.id } })
+      if (kit.id === this.chart.display.sfxKit) option.selected = true
+      sfxSelect.appendChild(option)
+    }
+    const sfxField = h('div', { class: 'slider-field' }, [
+      h('span', { class: 'small', text: '判定音' }),
+      sfxSelect,
+    ])
+
     this.displayInputs = {
       dim: dim.input,
       dimOut: dim.readout,
       approach: approach.input,
       approachOut: approach.readout,
+      sfxKit: sfxSelect,
     }
 
     const details = h('details', { class: 'meta-details' }, [
@@ -1031,10 +1059,10 @@ export class EditScreen {
         class: 'muted small',
         text: 'BPM と拍オフセットを入れるとタイムラインに拍線が出て、スナップが効くようになります。',
       }),
-      h('div', { class: 'panel-row' }, [dim.field, approach.field]),
+      h('div', { class: 'panel-row' }, [dim.field, approach.field, sfxField]),
       h('p', {
         class: 'muted small',
-        text: '暗さとノーツ速度は譜面に保存され、プレイ時の初期値になります（プレイ側の設定で上書きも可）。',
+        text: '暗さ・ノーツ速度・判定音は譜面に保存され、プレイ時の初期値になります（プレイ側の設定で上書きも可）。',
       }),
     ])
 
