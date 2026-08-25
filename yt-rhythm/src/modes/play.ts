@@ -204,6 +204,7 @@ export class PlayScreen {
     // 音は必ずユーザー操作の中で用意する。
     sfx.ensure()
     sfx.setVolume(this.opts.settings.sfxVolume)
+    sfx.setKit(this.opts.settings.sfxKit)
     this.hideOverlay()
     this.stage.player.seek(this.startTime)
     this.stage.player.play()

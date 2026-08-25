@@ -319,6 +319,7 @@ export class EditScreen {
     // 音はユーザー操作の中で用意する。
     sfx.ensure()
     sfx.setVolume(this.opts.settings.sfxVolume)
+    sfx.setKit(this.opts.settings.sfxKit)
     if (this.playing) this.stage.player.pause()
     else {
       this.flushSeek(true)

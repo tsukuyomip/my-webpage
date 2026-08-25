@@ -2,10 +2,22 @@
  * 効果音。音声ファイルは持たず、起動時に波形を合成して AudioBuffer にする。
  * 再生は buffer を鳴らすだけなので遅延が小さい（音ゲーではここが効く）。
  *
- * 音作りの方針: 判定音は「バシッ」という立ち上がりと「シャーン」という
- * 金属質の余韻を重ねる。単純な正弦波のピンポンだと軽くて手応えが出ない。
+ * 音作りの方針: 高い音を「持続する正弦波の重ね合わせ」で作ると、
+ * どんなに倍音比をずらしても鉦や鈴のように鳴って間が抜ける。
+ * 明るさは必ず「ノイズをバンドパスに通したもの」で出し、
+ * 正弦波は減衰の速い芯（パンチ）にだけ使う。
  */
 export type SfxName = 'perfect' | 'great' | 'good' | 'miss' | 'milestone' | 'tick'
+
+/** 効果音のセット。好みが分かれるので設定で選べるようにしている。 */
+export type SfxKit = 'impact' | 'tambourine'
+
+export const SFX_KITS: { id: SfxKit; label: string }[] = [
+  { id: 'impact', label: 'ヒット（ビシッ）' },
+  { id: 'tambourine', label: 'タンバリン（シャン）' },
+]
+
+export const DEFAULT_SFX_KIT: SfxKit = 'impact'
 
 const TAU = Math.PI * 2
 
@@ -39,12 +51,12 @@ function renderBuffer(
   const scale = (peak > 0 ? 1 / peak : 1) * gain
   for (let i = 0; i < len; i += 1) data[i] *= scale
   // 末尾を軽くフェードして「プチッ」を防ぐ。
-  const fade = Math.min(len, Math.round(sr * 0.006))
+  const fade = Math.min(len, Math.round(sr * 0.005))
   for (let i = 0; i < fade; i += 1) data[len - 1 - i] *= i / fade
   return buffer
 }
 
-/** 一次ハイパス。ノイズから低い成分を抜いて、空気感だけ残す。 */
+/** 一次ハイパス。 */
 function highPass(sr: number, cutoff: number): (x: number) => number {
   const rc = 1 / (TAU * cutoff)
   const a = rc / (rc + 1 / sr)
@@ -58,7 +70,7 @@ function highPass(sr: number, cutoff: number): (x: number) => number {
   }
 }
 
-/** 一次ローパス。耳に刺さる帯域を丸める。 */
+/** 一次ローパス。 */
 function lowPass(sr: number, cutoff: number): (x: number) => number {
   const rc = 1 / (TAU * cutoff)
   const a = (1 / sr) / (rc + 1 / sr)
@@ -70,90 +82,178 @@ function lowPass(sr: number, cutoff: number): (x: number) => number {
 }
 
 /**
- * 非整数倍の倍音を重ねた金属音。整数倍だと楽器の音になってしまうので、
- * わざと割り切れない比を使う（シンバルや鈴の作り方）。
+ * 二次バンドパス（RBJ）。ノイズに通すと、音程を持たないまま
+ * その帯域だけが際立つ。金属質の明るさはこれで作る。
  */
-const METAL_RATIOS = [1, 1.447, 1.617, 1.927, 2.503, 2.664, 3.417]
-
-function metalCluster(f0: number, decay: number): (t: number) => number {
-  const parts = METAL_RATIOS.map((ratio, i) => ({
-    // わずかにずらすと、重なったときに濁らずに広がる。
-    freq: f0 * ratio * (1 + (Math.random() - 0.5) * 0.03),
-    decay: decay / (1 + i * 0.3),
-    amp: 1 / (1 + i * 0.5),
-  }))
-  return (t) => {
-    let sum = 0
-    for (const p of parts) sum += Math.sin(TAU * p.freq * t) * Math.exp(-t / p.decay) * p.amp
-    return sum
+function bandPass(sr: number, freq: number, q: number): (x: number) => number {
+  const w0 = (TAU * Math.min(freq, sr * 0.45)) / sr
+  const alpha = Math.sin(w0) / (2 * q)
+  const cos = Math.cos(w0)
+  const a0 = 1 + alpha
+  const b0 = alpha / a0
+  const b2 = -alpha / a0
+  const a1 = (-2 * cos) / a0
+  const a2 = (1 - alpha) / a0
+  let x1 = 0
+  let x2 = 0
+  let y1 = 0
+  let y2 = 0
+  return (x) => {
+    const y = b0 * x + b2 * x2 - a1 * y1 - a2 * y2
+    x2 = x1
+    x1 = x
+    y2 = y1
+    y1 = y
+    return y
   }
 }
 
-function buildBuffers(ctx: BaseAudioContext): Record<SfxName, AudioBuffer> {
+/** 位相を積み上げる正弦波。周波数を動かしても波形が崩れない。 */
+function sweep(sr: number, freqAt: (t: number) => number): (t: number) => number {
+  let phase = 0
+  return (t) => {
+    phase += (TAU * freqAt(t)) / sr
+    return Math.sin(phase)
+  }
+}
+
+const exp = (t: number, d: number) => Math.exp(-t / d)
+
+// ---------------------------------------------------------------- ヒット
+
+/**
+ * 格ゲーの当たり音のような「ビシッ」。
+ * 極端に速い立ち上がり + 短い肉 + すぐ消える芯。余韻は作らない。
+ */
+function impactHit(
+  sr: number,
+  opts: { edge: number; edgeDecay: number; crunch: number; punch: number; low: number },
+): (t: number) => number {
+  const edge = bandPass(sr, 6800, 2.4)
+  const crunch = bandPass(sr, 1500, 1.1)
+  const body = sweep(sr, (t) => opts.low + 240 * exp(t, 0.011))
+  return (t) => {
+    const n = noise()
+    // 芯の当たり。ここが遅いと「ビシッ」にならない。
+    const crack = n * exp(t, 0.0045) * 1.3
+    const shine = edge(n) * exp(t, opts.edgeDecay) * opts.edge
+    const meat = crunch(n) * exp(t, 0.04) * opts.crunch
+    const punch = body(t) * exp(t, 0.05) * opts.punch
+    return crack + shine + meat + punch
+  }
+}
+
+function buildImpactKit(ctx: BaseAudioContext): Record<SfxName, AudioBuffer> {
   return {
-    // いちばん気持ちよく。鋭い立ち上がり + 明るい金属の余韻 + 芯。
-    perfect: renderBuffer(ctx, 0.42, 1, (sr) => {
-      const air = highPass(sr, 4200)
-      const ring = metalCluster(1420, 0.3)
-      return (t) => {
-        const snap = air(noise()) * Math.exp(-t / 0.013) * 1.4
-        // シャンシャンした揺れ。一定に減衰するだけだと鈴にならない。
-        const shimmer = air(noise()) * Math.exp(-t / 0.2) * (0.6 + 0.4 * Math.sin(TAU * 47 * t)) * 0.5
-        const body = Math.sin(TAU * 520 * t) * Math.exp(-t / 0.028) * 0.8
-        return snap + shimmer + ring(t) * 0.5 + body
-      }
+    perfect: renderBuffer(ctx, 0.22, 1, (sr) =>
+      impactHit(sr, { edge: 0.95, edgeDecay: 0.028, crunch: 0.6, punch: 0.85, low: 95 }),
+    ),
+    great: renderBuffer(ctx, 0.19, 0.95, (sr) =>
+      impactHit(sr, { edge: 0.55, edgeDecay: 0.018, crunch: 0.7, punch: 0.85, low: 82 }),
+    ),
+    good: renderBuffer(ctx, 0.16, 0.86, (sr) =>
+      impactHit(sr, { edge: 0.18, edgeDecay: 0.012, crunch: 0.75, punch: 0.9, low: 70 }),
+    ),
+    miss: renderBuffer(ctx, 0.26, 0.8, (sr) => {
+      const thud = lowPass(sr, 380)
+      const dirt = lowPass(sr, 1100)
+      const body = sweep(sr, () => 124)
+      return (t) => thud(noise()) * exp(t, 0.045) * 1.6 +
+        dirt(noise()) * exp(t, 0.01) * 0.45 +
+        body(t) * exp(t, 0.09) * 0.9
     }),
-    // PERFECT を少し落ち着かせたもの。余韻を短く、芯を低く。
-    great: renderBuffer(ctx, 0.3, 0.94, (sr) => {
-      const air = highPass(sr, 3200)
-      const ring = metalCluster(1080, 0.17)
-      return (t) => {
-        const snap = air(noise()) * Math.exp(-t / 0.011) * 1.2
-        const shimmer = air(noise()) * Math.exp(-t / 0.1) * 0.3
-        const body = Math.sin(TAU * 430 * t) * Math.exp(-t / 0.03) * 0.85
-        return snap + shimmer + ring(t) * 0.4 + body
-      }
+    // 節目は重い一撃 + 抜けていく高域。
+    milestone: renderBuffer(ctx, 0.7, 1, (sr) => {
+      const slam = impactHit(sr, { edge: 1, edgeDecay: 0.05, crunch: 0.9, punch: 1.1, low: 70 })
+      const rise = bandPass(sr, 5200, 1.6)
+      const sub = sweep(sr, (t) => 60 + 40 * exp(t, 0.2))
+      return (t) => slam(t) + rise(noise()) * exp(t, 0.22) * 0.5 + sub(t) * exp(t, 0.25) * 0.5
     }),
-    // 拾えたことは分かるが、うれしくはない音。金属の余韻はほぼ無し。
-    good: renderBuffer(ctx, 0.2, 0.85, (sr) => {
-      const air = highPass(sr, 1800)
-      const soft = lowPass(sr, 2600)
-      const ring = metalCluster(760, 0.07)
-      return (t) => {
-        const snap = soft(air(noise())) * Math.exp(-t / 0.014) * 1.1
-        const body = Math.sin(TAU * 330 * t) * Math.exp(-t / 0.035) * 0.9
-        return snap + ring(t) * 0.22 + body
-      }
-    }),
-    // 外したときは低く詰まった音。下降スイープは間が抜けるので使わない。
-    miss: renderBuffer(ctx, 0.32, 0.8, (sr) => {
-      const thud = lowPass(sr, 420)
-      const dirt = lowPass(sr, 1400)
-      return (t) => {
-        const hit = thud(noise()) * Math.exp(-t / 0.05) * 1.6
-        const tsk = dirt(noise()) * Math.exp(-t / 0.012) * 0.5
-        const body = Math.sin(TAU * 132 * t) * Math.exp(-t / 0.11) * 0.9
-        return hit + tsk + body
-      }
-    }),
-    // コンボの節目。金属を 2 段重ねて派手に伸ばす。
-    milestone: renderBuffer(ctx, 0.9, 1, (sr) => {
-      const air = highPass(sr, 5000)
-      const low = metalCluster(880, 0.55)
-      const high = metalCluster(1760, 0.4)
-      return (t) => {
-        const crash = air(noise()) * Math.exp(-t / 0.32) * (0.55 + 0.45 * Math.sin(TAU * 33 * t)) * 0.9
-        const second = t > 0.08 ? high(t - 0.08) * 0.45 : 0
-        return crash + low(t) * 0.5 + second
-      }
-    }),
-    // エディタの打ち込み確認用。余韻があるとノーツが詰まったとき濁るので、
-    // 判定音とは別に短いクリックを用意する。
-    tick: renderBuffer(ctx, 0.05, 0.55, (sr) => {
+    tick: renderBuffer(ctx, 0.04, 0.5, (sr) => {
       const air = highPass(sr, 2600)
-      return (t) => air(noise()) * Math.exp(-t / 0.006) + Math.sin(TAU * 1900 * t) * Math.exp(-t / 0.007)
+      return (t) => air(noise()) * exp(t, 0.005)
     }),
   }
+}
+
+// ---------------------------------------------------------------- タンバリン
+
+/**
+ * タンバリンの「シャン！」。細かい鈴が一斉に鳴って乾いて消える音なので、
+ * 音程のある成分は入れず、帯域を絞ったノイズだけで作る。
+ * 鈴が同時に当たらないことが乾いた粒立ちを生むので、数 ms ずらした
+ * 粒を重ねる。
+ */
+const JINGLE_OFFSETS = [
+  { at: 0, amp: 1 },
+  { at: 0.0015, amp: 0.8 },
+  { at: 0.0034, amp: 0.62 },
+  { at: 0.006, amp: 0.48 },
+  { at: 0.0095, amp: 0.36 },
+]
+
+function tambourineHit(
+  sr: number,
+  opts: { decay: number; bright: number; skin: number },
+): (t: number) => number {
+  // 広めのバンドパスを重ねて色をつける。Q を上げすぎると鈴＝音程になる。
+  const bands = [
+    { f: bandPass(sr, 5200, 2.2), a: 1 },
+    { f: bandPass(sr, 7400, 2.6), a: 0.9 * opts.bright },
+    { f: bandPass(sr, 9800, 3), a: 0.7 * opts.bright },
+  ]
+  const skin = lowPass(sr, 700)
+  return (t) => {
+    // ずらして当たる鈴。粒が立って「シャッ」と乾く。
+    // 最初の 1 粒をいちばん強くしないと、頭がぼやけて拍から遅れて聞こえる。
+    let grains = 0
+    for (const g of JINGLE_OFFSETS) {
+      if (t < g.at) continue
+      grains += noise() * exp(t - g.at, opts.decay) * g.amp
+    }
+    let out = 0
+    for (const b of bands) out += b.f(grains) * b.a
+    // 枠を叩く音と、当たった瞬間を立てる短いノイズ。
+    return out * 0.9 + skin(noise()) * exp(t, 0.009) * opts.skin + noise() * exp(t, 0.0035) * 0.9
+  }
+}
+
+function buildTambourineKit(ctx: BaseAudioContext): Record<SfxName, AudioBuffer> {
+  return {
+    perfect: renderBuffer(ctx, 0.26, 1, (sr) =>
+      tambourineHit(sr, { decay: 0.075, bright: 1, skin: 0.7 }),
+    ),
+    great: renderBuffer(ctx, 0.2, 0.95, (sr) =>
+      tambourineHit(sr, { decay: 0.05, bright: 0.75, skin: 0.75 }),
+    ),
+    good: renderBuffer(ctx, 0.15, 0.86, (sr) =>
+      tambourineHit(sr, { decay: 0.03, bright: 0.45, skin: 0.85 }),
+    ),
+    miss: renderBuffer(ctx, 0.24, 0.78, (sr) => {
+      const thud = lowPass(sr, 420)
+      const body = sweep(sr, () => 140)
+      return (t) => thud(noise()) * exp(t, 0.04) * 1.7 + body(t) * exp(t, 0.075) * 0.85
+    }),
+    // 節目は短く振ったロール。
+    milestone: renderBuffer(ctx, 0.75, 1, (sr) => {
+      const shake = tambourineHit(sr, { decay: 0.4, bright: 1, skin: 0.4 })
+      const accent = bandPass(sr, 8200, 2)
+      return (t) => {
+        // 振っている感じを出すため、粒の密度を揺らす。
+        const flutter = 0.6 + 0.4 * Math.sin(TAU * 19 * t)
+        return shake(t) * flutter + accent(noise()) * exp(t, 0.3) * 0.6
+      }
+    }),
+    tick: renderBuffer(ctx, 0.04, 0.5, (sr) => {
+      const air = highPass(sr, 3000)
+      return (t) => air(noise()) * exp(t, 0.004)
+    }),
+  }
+}
+
+const KIT_BUILDERS: Record<SfxKit, (ctx: BaseAudioContext) => Record<SfxName, AudioBuffer>> = {
+  impact: buildImpactKit,
+  tambourine: buildTambourineKit,
 }
 
 /**
@@ -174,7 +274,8 @@ function softClipCurve(): Float32Array {
 class SfxEngine {
   private ctx: AudioContext | null = null
   private master: GainNode | null = null
-  private buffers: Record<SfxName, AudioBuffer> | null = null
+  private kits: Partial<Record<SfxKit, Record<SfxName, AudioBuffer>>> = {}
+  private kit: SfxKit = DEFAULT_SFX_KIT
   private volume = 0.7
 
   /** ユーザー操作の中から呼ぶこと（iOS などは操作なしに音を出せない）。 */
@@ -195,12 +296,19 @@ class SfxEngine {
       shaper.connect(ctx.destination)
       this.ctx = ctx
       this.master = master
-      this.buffers = buildBuffers(ctx)
+      // どちらもすぐ切り替えられるよう、まとめて作っておく（合成は一瞬）。
+      for (const id of Object.keys(KIT_BUILDERS) as SfxKit[]) {
+        this.kits[id] = KIT_BUILDERS[id](ctx)
+      }
       if (ctx.state === 'suspended') void ctx.resume()
     } catch {
       // 音が出せなくてもゲーム自体は動かす。
       this.ctx = null
     }
+  }
+
+  setKit(kit: SfxKit): void {
+    if (KIT_BUILDERS[kit]) this.kit = kit
   }
 
   setVolume(v: number): void {
@@ -209,10 +317,11 @@ class SfxEngine {
   }
 
   play(name: SfxName): void {
-    if (!this.ctx || !this.master || !this.buffers || this.volume <= 0) return
+    const buffers = this.kits[this.kit]
+    if (!this.ctx || !this.master || !buffers || this.volume <= 0) return
     try {
       const source = this.ctx.createBufferSource()
-      source.buffer = this.buffers[name]
+      source.buffer = buffers[name]
       source.connect(this.master)
       source.start()
     } catch {

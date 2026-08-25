@@ -1,3 +1,4 @@
+import { DEFAULT_SFX_KIT, SFX_KITS, type SfxKit } from './sfx.ts'
 import { APPROACH_RANGE, DEFAULT_DISPLAY, DIM_RANGE, type Chart } from './types.ts'
 
 const KEY = 'yt-rhythm:settings:v1'
@@ -17,6 +18,8 @@ export interface Settings {
   noteScale: number
   /** 効果音の音量（0 で無音）。 */
   sfxVolume: number
+  /** 効果音のセット。好みが分かれるので選べるようにしている。 */
+  sfxKit: SfxKit
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -27,6 +30,7 @@ export const DEFAULT_SETTINGS: Settings = {
   dimOpacity: DEFAULT_DISPLAY.dimOpacity,
   noteScale: 1,
   sfxVolume: 0.7,
+  sfxKit: DEFAULT_SFX_KIT,
 }
 
 /**
@@ -68,6 +72,9 @@ export function loadSettings(): Settings {
       ),
       noteScale: clampNum(parsed.noteScale, 0.5, 2, DEFAULT_SETTINGS.noteScale),
       sfxVolume: clampNum(parsed.sfxVolume, 0, 1, DEFAULT_SETTINGS.sfxVolume),
+      sfxKit: SFX_KITS.some((k) => k.id === parsed.sfxKit)
+        ? (parsed.sfxKit as SfxKit)
+        : DEFAULT_SETTINGS.sfxKit,
     }
   } catch {
     return { ...DEFAULT_SETTINGS }

@@ -1,7 +1,7 @@
 import { createEmptyChart, parseChart } from '../core/chart.ts'
 import { clearDraft, loadDraft } from '../core/draft.ts'
 import { DEFAULT_SETTINGS, loadSettings, saveSettings, type Settings } from '../core/settings.ts'
-import { sfx } from '../core/sfx.ts'
+import { SFX_KITS, sfx } from '../core/sfx.ts'
 import { APPROACH_RANGE, DIM_RANGE, type Chart } from '../core/types.ts'
 import { EditScreen } from '../modes/edit.ts'
 import { PlayScreen } from '../modes/play.ts'
@@ -204,6 +204,27 @@ export class App {
         sfx.play('perfect')
       },
     })
+
+    // 効果音のセット。選んだその場で試聴できるようにする。
+    const kitSelect = h('select', {
+      class: 'select',
+      on: {
+        change: () => {
+          this.settings.sfxKit = kitSelect.value as Settings['sfxKit']
+          saveSettings(this.settings)
+          sfx.ensure()
+          sfx.setKit(this.settings.sfxKit)
+          sfx.setVolume(this.settings.sfxVolume)
+          sfx.play('perfect')
+        },
+      },
+    })
+    for (const kit of SFX_KITS) {
+      const option = h('option', { text: kit.label, attrs: { value: kit.id } })
+      if (kit.id === this.settings.sfxKit) option.selected = true
+      kitSelect.appendChild(option)
+    }
+    rows.push(h('div', { class: 'settings-row' }, [h('span', { text: '効果音' }), kitSelect]))
 
     return h('details', { class: 'settings' }, [
       h('summary', { text: '⚙ 設定' }),
