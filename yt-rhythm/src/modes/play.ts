@@ -53,8 +53,12 @@ const DRAG_SLACK = 1.3
 const FLICK_DISTANCE_RADII = 0.55
 /** 向きのずれをどこまで許すか（ラジアン）。 */
 const FLICK_ANGLE_SLACK = Math.PI * 0.42
-/** 押してからこの時間内に払えなければ見逃し。 */
-const FLICK_WINDOW_SEC = 0.3
+/**
+ * 押してからこの時間内に払えなければ見逃し。**実時間**で測る。
+ * 払うのに使える時間は指の動く速さで決まるので、再生速度で伸び縮みしては
+ * ならない（0.5 倍速で練習して等速に戻すと急に間に合わなくなる）。
+ */
+const FLICK_WINDOW_MS = 300
 
 /** 押したあと、払われるのを待っているはじき。 */
 interface FlickPending {
@@ -65,8 +69,8 @@ interface FlickPending {
   py: number
   /** 押した瞬間のズレ。成立したらこの値で判定する。 */
   delta: number
-  /** 押した判定時刻。 */
-  pressedAt: number
+  /** 押した実時刻（performance.now）。譜面時刻ではないので再生速度に影響されない。 */
+  pressedWallMs: number
 }
 /** 判定ごとの画面の揺れ。ステージ幅に対する比率で持ち、端末によらず同じに見せる。 */
 const SHAKE_RATIO: Record<Judgement, number> = {
@@ -440,7 +444,7 @@ export class PlayScreen {
         px: p.px,
         py: p.py,
         delta: signed,
-        pressedAt: t,
+        pressedWallMs: performance.now(),
       })
       return
     }
@@ -514,9 +518,9 @@ export class PlayScreen {
   /** 払われないまま時間切れになったはじきを落とす。 */
   private expireFlicks(): void {
     if (this.flicks.size === 0) return
-    const t = this.judgeTime()
+    const now = performance.now()
     for (const pending of [...this.flicks.values()]) {
-      if (t - pending.pressedAt < FLICK_WINDOW_SEC) continue
+      if (now - pending.pressedWallMs < FLICK_WINDOW_MS) continue
       this.flicks.delete(pending.pointerId)
       this.resolveFlick(pending, 'miss')
     }

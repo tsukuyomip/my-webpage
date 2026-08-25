@@ -869,6 +869,39 @@ async function testFlickWrongWay(browser) {
   await page.context().close()
 }
 
+async function testFlickWindowIsRealTime(browser) {
+  console.log('\n[18] プレイ: 払う猶予は再生速度で伸び縮みしない')
+  const page = await newPage(browser, { draft: FLICK_CHART })
+  const box = await startPlayFromDraft(page)
+  const at = (x, y) => [box.x + x * box.width, box.y + y * box.height]
+  const setRate = (r) => page.evaluate((v) => window.__fake.player.setPlaybackRate(v), r)
+
+  // 0.25 倍速。譜面時刻で猶予を測っていると、実時間では 4 倍持つことになる。
+  await waitTime(page, 5.9)
+  await setRate(0.25)
+
+  // 1 つめ: 押してから 500ms（実時間）待って払う → 猶予切れ
+  await waitTime(page, 5.98)
+  await page.mouse.move(...at(0.4, 0.5))
+  await page.mouse.down()
+  await page.waitForTimeout(500)
+  for (let i = 1; i <= 4; i += 1) await page.mouse.move(...at(0.4 + 0.02 * i, 0.5))
+  await page.mouse.up()
+
+  // 2 つめ: 低速でもすぐ払えば取れる（猶予そのものが壊れていないことの裏取り）
+  await waitTime(page, 7.48)
+  await page.mouse.move(...at(0.4, 0.7))
+  await page.mouse.down()
+  for (let i = 1; i <= 4; i += 1) await page.mouse.move(...at(0.4, 0.7 - 0.02 * i))
+  await page.mouse.up()
+  await setRate(1)
+
+  const counts = await readResult(page)
+  check('遅く払えば低速でも見逃す', counts.miss === 1, JSON.stringify(counts))
+  check('すぐ払えば低速でも取れる', (counts.perfect ?? 0) + (counts.great ?? 0) === 1, JSON.stringify(counts))
+  await page.context().close()
+}
+
 // ---------------------------------------------------------------- 実行
 
 async function waitForServer(url, timeoutMs = 30000) {
@@ -923,6 +956,7 @@ try {
   await testFullscreen(browser)
   await testFlick(browser)
   await testFlickWrongWay(browser)
+  await testFlickWindowIsRealTime(browser)
 } finally {
   await browser.close()
   // pkill は自分のシェルごと落とすので、起動した子だけを止める。
