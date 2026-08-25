@@ -98,7 +98,14 @@ export class Timeline {
       'pointerdown',
       (e) => {
         e.preventDefault()
-        this.canvas.setPointerCapture(e.pointerId)
+        // ステージと同じ理由で、捕捉の失敗が操作を落とさないようにする。
+        if (e.pointerType !== 'touch') {
+          try {
+            this.canvas.setPointerCapture(e.pointerId)
+          } catch {
+            // 捕捉できなくても入力自体は届く。
+          }
+        }
         const x = e.clientX - this.canvas.getBoundingClientRect().left
         const now = this.callbacks.getTime()
         const hit = this.hitTest(x, now)

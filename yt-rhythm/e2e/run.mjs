@@ -97,9 +97,23 @@ const waitTime = (page, t) =>
 
 const videoTime = (page) => page.evaluate(() => window.__fake.player.getCurrentTime())
 
-async function newPage(browser, { draft, touch } = {}) {
+async function newPage(browser, { draft, touch, brokenCapture } = {}) {
   const ctx = await browser.newContext({ viewport: { width: 900, height: 780 }, hasTouch: !!touch })
   await ctx.addInitScript(INIT)
+  if (brokenCapture) {
+    // 2 本目以降の setPointerCapture が例外を投げる端末を模す。
+    // ここで例外が入力処理を止めると「押さえながらタップ」が丸ごと消える。
+    await ctx.addInitScript(() => {
+      const orig = Element.prototype.setPointerCapture
+      const held = new Set()
+      Element.prototype.setPointerCapture = function (id) {
+        if (held.size > 0 && !held.has(id)) throw new DOMException('capture failed', 'NotFoundError')
+        held.add(id)
+        return orig.call(this, id)
+      }
+      document.addEventListener('pointerup', (e) => held.delete(e.pointerId), true)
+    })
+  }
   if (draft) {
     await ctx.addInitScript(
       ([key, value]) => localStorage.setItem(key, value),
@@ -532,6 +546,51 @@ async function testDragAtHalfSpeed(browser) {
   await page.context().close()
 }
 
+const TAP_WHILE_HOLD_CHART = JSON.stringify({
+  formatVersion: 1,
+  meta: { title: '押さえながらタップ', videoId: 'testvideo01' },
+  timing: { offsetMs: 0 },
+  notes: [
+    { id: 'h1', type: 'hold', time: 6, x: 0.3, y: 0.5, duration: 2 },
+    { id: 't1', type: 'tap', time: 7, x: 0.7, y: 0.5 },
+    { id: 't2', type: 'tap', time: 7.5, x: 0.7, y: 0.3 },
+  ],
+})
+
+/** 片手でホールドを押さえたまま、別の指で 2 回タップする。 */
+async function tapWhileHolding(browser, label, brokenCapture) {
+  const page = await newPage(browser, { draft: TAP_WHILE_HOLD_CHART, touch: true, brokenCapture })
+  const box = await startPlayFromDraft(page)
+  const at = (x, y, id) => ({ x: box.x + x * box.width, y: box.y + y * box.height, id })
+  const cdp = await page.context().newCDPSession(page)
+  const hold = at(0.3, 0.5, 1)
+  const tapA = at(0.7, 0.5, 2)
+  const tapB = at(0.7, 0.3, 3)
+
+  await waitTime(page, 5.98)
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [hold] })
+  await waitTime(page, 6.98)
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [hold, tapA] })
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [tapA] })
+  await waitTime(page, 7.48)
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [hold, tapB] })
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [tapB] })
+  await waitTime(page, 8.05)
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [hold] })
+
+  const counts = await readResult(page)
+  check(`${label}: 押さえたまま 2 回タップできる`, counts.miss === 0, JSON.stringify(counts))
+  check(`${label}: 判定は hold 2 + tap 2 = 4`, Object.values(counts).reduce((a, b) => a + b, 0) === 4, JSON.stringify(counts))
+  await page.context().close()
+}
+
+async function testTapWhileHolding(browser) {
+  console.log('\n[11] プレイ: ホールド中に別の指でタップする')
+  await tapWhileHolding(browser, '通常', false)
+  // 2 本目の捕捉に失敗する端末でも、入力を落とさないこと。
+  await tapWhileHolding(browser, '捕捉が失敗する端末', true)
+}
+
 // ---------------------------------------------------------------- 実行
 
 async function waitForServer(url, timeoutMs = 30000) {
@@ -579,6 +638,7 @@ try {
   await testAdDuringHold(browser)
   await testLongDrag(browser)
   await testDragAtHalfSpeed(browser)
+  await testTapWhileHolding(browser)
 } finally {
   await browser.close()
   // pkill は自分のシェルごと落とすので、起動した子だけを止める。

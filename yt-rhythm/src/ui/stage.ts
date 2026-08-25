@@ -92,12 +92,27 @@ export class Stage {
     return { x, y, px, py, pointerId: e.pointerId }
   }
 
+  /**
+   * マウスとペンは、キャンバスの外へ出ても追えるように捕捉する。
+   * タッチは最初に触れた要素へ自動で届く（暗黙の捕捉）ので捕まえない。
+   * 端末によっては 2 本目以降の setPointerCapture が例外を投げ、それが
+   * 「押さえながらタップ」を丸ごと落としていた。捕捉は失敗しても構わない。
+   */
+  private capturePointer(e: PointerEvent): void {
+    if (e.pointerType === 'touch') return
+    try {
+      this.canvas.setPointerCapture(e.pointerId)
+    } catch {
+      // 捕捉できなくても入力自体は届くので、そのまま続ける。
+    }
+  }
+
   private bindPointer(): void {
     this.canvas.addEventListener(
       'pointerdown',
       (e) => {
         e.preventDefault()
-        this.canvas.setPointerCapture(e.pointerId)
+        this.capturePointer(e)
         this.callbacks.onPointerDown?.(this.toPointer(e))
       },
       { passive: false },
