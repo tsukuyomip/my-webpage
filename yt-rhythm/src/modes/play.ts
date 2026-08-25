@@ -512,7 +512,7 @@ export class PlayScreen {
     const remaining = Math.max(0, end - at)
     const credited = remaining <= MISS_WINDOW ? trace.heldSec + remaining : trace.heldSec
     const ratio = duration > 0 ? credited / duration : 1
-    this.applyJudgement(note, judgeForCoverage(ratio), 0, noteEndPosition(note))
+    this.applyJudgement(note, judgeForCoverage(ratio), 0, noteEndPosition(note), 'release')
     this.resolved.add(note.id)
   }
 
@@ -521,6 +521,8 @@ export class PlayScreen {
     judgement: Judgement,
     delta: number,
     at: { x: number; y: number },
+    /** 演出と音の差し替え。押さえ切った解放は当たり音と分ける。 */
+    kind: 'hit' | 'release' = 'hit',
   ): void {
     this.score.add(judgement)
     if (judgement !== 'miss' && delta !== 0) {
@@ -530,15 +532,18 @@ export class PlayScreen {
     const radius = noteRadius(this.stage.rect, this.opts.settings)
     // コンボが伸びるほど派手にする（積み上がっている感じを出す）。
     const intensity = Math.min(1, this.score.combo / 60)
-    this.effects.spawn(note.fx, {
+    const released = kind === 'release' && judgement !== 'miss'
+    this.effects.spawn(released ? 'release' : note.fx, {
       px: at.x * this.stage.rect.width,
       py: at.y * this.stage.rect.height,
       radius,
       judgement,
       intensity,
     })
-    this.effects.shake(this.stage.rect.width * SHAKE_RATIO[judgement] * (1 + intensity * 0.5))
-    sfx.play(judgement)
+    // 押さえ切ったときは一撃より大きい出来事として揺らす。
+    const shakeRatio = SHAKE_RATIO[judgement] * (released ? 1.6 : 1)
+    this.effects.shake(this.stage.rect.width * shakeRatio * (1 + intensity * 0.5))
+    sfx.play(released ? 'release' : judgement)
 
     // コンボの節目にごほうびを出す。
     const combo = this.score.combo

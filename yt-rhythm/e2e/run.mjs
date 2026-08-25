@@ -635,6 +635,52 @@ async function testApproachTelegraph(browser) {
   await page.context().close()
 }
 
+/** 溜めゲージ上の一点の明るさ。charge が進むとここが塗られる。 */
+const gaugePixel = (page, nx, ny, charge) =>
+  page.evaluate(([x, y, c]) => {
+    const el = document.querySelector('.stage-canvas')
+    const ctx = el.getContext('2d')
+    const gauge = 0.062 * 1.34 * el.width // NOTE_RADIUS_RATIO × GAUGE_RATIO
+    const angle = -Math.PI / 2 + Math.PI * 2 * c
+    const px = Math.round(x * el.width + Math.cos(angle) * gauge)
+    const py = Math.round(y * el.height + Math.sin(angle) * gauge)
+    const d = ctx.getImageData(px - 3, py - 3, 6, 6).data
+    let sum = 0
+    for (let i = 0; i < d.length; i += 4) sum += d[i] + d[i + 1] + d[i + 2]
+    return sum / (d.length / 4)
+  }, [nx, ny, charge])
+
+async function testHoldCharge(browser) {
+  console.log('\n[13] プレイ: 長押しは減らずに溜まる')
+  const draft = JSON.stringify({
+    formatVersion: 1,
+    meta: { title: '溜め', videoId: 'testvideo01' },
+    timing: { offsetMs: 0 },
+    notes: [{ id: 'h1', type: 'hold', time: 6, x: 0.5, y: 0.5, duration: 3 }],
+  })
+  const page = await newPage(browser, { draft })
+  const box = await startPlayFromDraft(page)
+
+  await waitTime(page, 5.98)
+  await page.mouse.move(box.x + 0.5 * box.width, box.y + 0.5 * box.height)
+  await page.mouse.down()
+
+  // ゲージの 62% 地点（左下）を、溜まる前と溜まったあとで比べる
+  await waitTime(page, 6.6) // charge 0.2
+  const early = await gaugePixel(page, 0.5, 0.5, 0.62)
+  await waitTime(page, 8.7) // charge 0.9
+  const late = await gaugePixel(page, 0.5, 0.5, 0.62)
+  await page.mouse.up()
+
+  check('溜まった側が明るくなる（減る向きではない）', late > early * 2, `${early.toFixed(0)} → ${late.toFixed(0)}`)
+  // 空の溝と芯の光でいくらか明るいので、溜まった側との比で見る。
+  check('押し始めはまだ塗られていない', early < late * 0.6, `${early.toFixed(0)} vs ${late.toFixed(0)}`)
+
+  const counts = await readResult(page)
+  check('最後まで押さえ切れる', counts.miss === 0, JSON.stringify(counts))
+  await page.context().close()
+}
+
 // ---------------------------------------------------------------- 実行
 
 async function waitForServer(url, timeoutMs = 30000) {
@@ -684,6 +730,7 @@ try {
   await testDragAtHalfSpeed(browser)
   await testTapWhileHolding(browser)
   await testApproachTelegraph(browser)
+  await testHoldCharge(browser)
 } finally {
   await browser.close()
   // pkill は自分のシェルごと落とすので、起動した子だけを止める。

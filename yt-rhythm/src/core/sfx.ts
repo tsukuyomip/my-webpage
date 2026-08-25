@@ -7,7 +7,7 @@
  * 明るさは必ず「ノイズをバンドパスに通したもの」で出し、
  * 正弦波は減衰の速い芯（パンチ）にだけ使う。
  */
-export type SfxName = 'perfect' | 'great' | 'good' | 'miss' | 'milestone' | 'tick'
+export type SfxName = 'perfect' | 'great' | 'good' | 'miss' | 'milestone' | 'tick' | 'release'
 
 /** 効果音のセット。好みが分かれるので設定で選べるようにしている。 */
 export type SfxKit = 'impact' | 'tambourine'
@@ -207,6 +207,23 @@ function buildImpactKit(ctx: BaseAudioContext): Record<SfxName, AudioBuffer> {
       const sub = sweep(sr, (t) => 60 + 40 * exp(t, 0.2))
       return (t) => slam(t) + rise(noise()) * exp(t, 0.22) * 0.5 + sub(t) * exp(t, 0.25) * 0.5
     }),
+    // 押さえ切った解放。上へ抜ける成分を足して、当たり音と区別する。
+    release: renderBuffer(ctx, 0.6, 1, (sr) => {
+      const edge = bandPass(sr, 5600, 1.8)
+      const open = bandPass(sr, 2600, 1)
+      const rise = sweep(sr, (t) => 180 + 520 * (1 - exp(t, 0.12)))
+      const body = sweep(sr, (t) => 92 + 200 * exp(t, 0.02))
+      return (t) => {
+        const n = noise()
+        const crack = n * exp(t, 0.006) * 1.1
+        const shine = edge(n) * decay2(t, 0.03, 0.24, 0.4) * 0.85
+        const airy = open(n) * decay2(t, 0.05, 0.3, 0.45) * 0.55
+        // 上がっていく芯。溜めたものが抜けた感じを作る。
+        const lift = rise(t) * decay2(t, 0.08, 0.26, 0.5) * 0.6
+        const punch = body(t) * decay2(t, 0.04, 0.18, 0.3) * 0.9
+        return crack + shine + airy + lift + punch
+      }
+    }),
     tick: renderBuffer(ctx, 0.04, 0.5, (sr) => {
       const air = highPass(sr, 2600)
       return (t) => air(noise()) * exp(t, 0.005)
@@ -283,6 +300,12 @@ function buildTambourineKit(ctx: BaseAudioContext): Record<SfxName, AudioBuffer>
         const flutter = 0.6 + 0.4 * Math.sin(TAU * 19 * t)
         return shake(t) * flutter + accent(noise()) * exp(t, 0.3) * 0.6
       }
+    }),
+    // 押さえ切った解放。振り切るような一撃にする。
+    release: renderBuffer(ctx, 0.6, 1, (sr) => {
+      const shake = tambourineHit(sr, { decay: 0.1, bright: 1, skin: 0.5, tail: 0.34 })
+      const lift = bandPass(sr, 7000, 1.6)
+      return (t) => shake(t) + lift(noise()) * decay2(t, 0.06, 0.3, 0.45) * 0.6
     }),
     tick: renderBuffer(ctx, 0.04, 0.5, (sr) => {
       const air = highPass(sr, 3000)

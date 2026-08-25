@@ -17,6 +17,23 @@ const DRAG_RING = '#4ee9a4'
 const ACTIVE_RING = '#8dffb3'
 /** なぞりの予行演習が一往復する周期（秒）。 */
 const GHOST_PERIOD_SEC = 1.1
+/** 溜め切る直前の色。ここへ寄せて「もう少し」を伝える。 */
+const CHARGE_FULL = '#ffd54a'
+/** 溜めゲージの半径（ノーツ半径に対する倍率）。 */
+const GAUGE_RATIO = 1.34
+
+/** 2 色を混ぜる。溜まり具合で色を寄せるのに使う。 */
+function mixHex(a: string, b: string, t: number): string {
+  const na = Number.parseInt(a.slice(1), 16)
+  const nb = Number.parseInt(b.slice(1), 16)
+  const k = Math.max(0, Math.min(1, t))
+  const ch = (shift: number) => {
+    const va = (na >> shift) & 255
+    const vb = (nb >> shift) & 255
+    return Math.round(va + (vb - va) * k)
+  }
+  return `rgb(${ch(16)}, ${ch(8)}, ${ch(0)})`
+}
 const HOLD_TRACK = 'rgba(255, 255, 255, 0.16)'
 
 /** 接近リングの透過度。出た瞬間は薄く、判定時刻に向かってはっきりさせる。 */
@@ -232,6 +249,11 @@ export function drawTapNote(
  * 長押し。始点の輪のまわりに「残りの長さ」のアークを出し、
  * 押しているあいだ減っていくようにする。
  */
+/**
+ * 長押し。「減っていく残り時間」ではなく「溜まっていくゲージ」として描く。
+ * 減る表現は時間切れの不安になるだけで、押さえ続けたくならない。
+ * 押している間はふくらんで芯が光り、溜め切る手前で色が金に寄る。
+ */
 export function drawHoldNote(
   ctx: CanvasRenderingContext2D,
   rect: StageRect,
@@ -245,31 +267,70 @@ export function drawHoldNote(
   if (alpha <= 0.01) return
   const duration = noteDuration(note)
   const elapsed = Math.max(0, Math.min(duration, now - note.time))
-  const remain = duration > 0 ? 1 - elapsed / duration : 0
+  const charge = duration > 0 ? elapsed / duration : 0
   const holding = opts.holding?.has(note.id) === true
   const started = now >= note.time && !opts.editing
-  const accent = started ? (holding ? ACTIVE_RING : NOTE_RING_LATE) : HOLD_RING
+
+  // 溜め切る手前で金に寄せる。「もう少しで完成する」ことが色で分かる。
+  const live = holding ? mixHex(ACTIVE_RING, CHARGE_FULL, Math.max(0, charge - 0.6) / 0.4) : null
+  const accent = started ? (live ?? NOTE_RING_LATE) : HOLD_RING
+  // 押している間だけ脈打たせる。指の下で生きている感じを出す。
+  const pulse = holding ? 1 + 0.05 * Math.sin(now * 26) : 1
 
   ctx.save()
   ctx.globalAlpha = alpha
 
-  // 長さを表す輪。背景を敷いてから残りぶんを重ねる。
-  const trackR = r * 1.24
-  const lineWidth = Math.max(3, r * 0.2)
-  ctx.lineWidth = lineWidth
+  // 溜めゲージ。空の溝を敷いてから、溜まったぶんを上から時計回りに重ねる。
+  const gaugeR = r * GAUGE_RATIO * pulse
+  ctx.lineWidth = Math.max(4, r * 0.26)
   ctx.lineCap = 'butt'
   ctx.beginPath()
-  ctx.arc(px, py, trackR, 0, Math.PI * 2)
+  ctx.arc(px, py, gaugeR, 0, Math.PI * 2)
   ctx.strokeStyle = HOLD_TRACK
   ctx.stroke()
-  if (remain > 0) {
+  if (charge > 0) {
     ctx.beginPath()
-    ctx.arc(px, py, trackR, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * remain)
+    ctx.arc(px, py, gaugeR, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * charge)
     ctx.strokeStyle = accent
     ctx.stroke()
+    // 溜まっている先端を光らせて、進んでいることを分かりやすくする。
+    if (holding) {
+      const tip = -Math.PI / 2 + Math.PI * 2 * charge
+      ctx.save()
+      ctx.globalCompositeOperation = 'lighter'
+      ctx.globalAlpha = alpha * 0.9
+      ctx.beginPath()
+      ctx.arc(px + Math.cos(tip) * gaugeR, py + Math.sin(tip) * gaugeR, r * 0.16, 0, Math.PI * 2)
+      ctx.fillStyle = accent
+      ctx.fill()
+      ctx.restore()
+    }
   }
 
-  drawBody(ctx, px, py, r, accent, started ? undefined : approachProgress(note, now, opts.approachSec))
+  // 押している間は芯が光る。溜まるほど強くする。
+  if (holding) {
+    ctx.save()
+    ctx.globalCompositeOperation = 'lighter'
+    ctx.globalAlpha = alpha * (0.25 + 0.45 * charge)
+    const glowR = r * (1.1 + 0.5 * charge)
+    const glow = ctx.createRadialGradient(px, py, 0, px, py, glowR)
+    glow.addColorStop(0, accent)
+    glow.addColorStop(1, 'rgba(0,0,0,0)')
+    ctx.fillStyle = glow
+    ctx.beginPath()
+    ctx.arc(px, py, glowR, 0, Math.PI * 2)
+    ctx.fill()
+    ctx.restore()
+  }
+
+  drawBody(
+    ctx,
+    px,
+    py,
+    r * pulse,
+    accent,
+    started ? undefined : approachProgress(note, now, opts.approachSec),
+  )
   drawApproachRing(ctx, px, py, note, now, opts)
   if (opts.selected?.has(note.id)) drawSelection(ctx, px, py, r)
   ctx.restore()

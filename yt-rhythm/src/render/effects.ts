@@ -44,6 +44,9 @@ export function effectNames(): string[] {
 
 export const DEFAULT_EFFECT = 'ripple'
 
+/** 溜め切ったときの色。renderer 側のゲージと揃える。 */
+const CHARGE_COLOR = '#ffd54a'
+
 /** 同時に生かす数の上限。詰まった譜面でも描画が重くならないようにする。 */
 const MAX_EFFECTS = 220
 
@@ -256,6 +259,74 @@ registerEffect('trail', ({ px, py, radius, judgement, vx = 0, vy = 0 }) => {
       ctx.beginPath()
       ctx.arc(px - Math.cos(angle) * dist, py - Math.sin(angle) * dist, size * (1 - t * 0.6), 0, Math.PI * 2)
       ctx.fill()
+      ctx.restore()
+    },
+  }
+})
+
+/**
+ * 長押し・なぞりを最後まで保ったときの解放。押さえ続けた見返りなので、
+ * タップと同じ演出では割に合わない。溜めたものが弾ける形にする。
+ */
+registerEffect('release', ({ px, py, radius, judgement, intensity = 0 }) => {
+  const life = 0.6
+  const color = JUDGEMENT_COLOR[judgement]
+  const streaks = makeStreaks(14 + Math.round(intensity * 8), 2.4 + intensity)
+  let age = 0
+  return {
+    update(dt) {
+      age += dt
+      return age < life
+    },
+    draw(ctx) {
+      const t = Math.min(1, age / life)
+      const alpha = 1 - t
+
+      // 溜まっていた芯が抜ける。
+      ctx.save()
+      ctx.globalCompositeOperation = 'lighter'
+      ctx.globalAlpha = Math.pow(alpha, 2) * 0.8
+      const coreR = radius * (1 + easeOutQuart(t) * 2.2)
+      const core = ctx.createRadialGradient(px, py, 0, px, py, coreR)
+      core.addColorStop(0, '#ffffff')
+      core.addColorStop(0.3, CHARGE_COLOR)
+      core.addColorStop(1, 'rgba(0,0,0,0)')
+      ctx.fillStyle = core
+      ctx.beginPath()
+      ctx.arc(px, py, coreR, 0, Math.PI * 2)
+      ctx.fill()
+      ctx.restore()
+
+      // 二重の輪。タップの一重より「大きい出来事」に見せる。
+      ctx.save()
+      ctx.globalCompositeOperation = 'lighter'
+      for (const [scale, width, delay] of [
+        [3.4, 0.14, 0],
+        [2.2, 0.1, 0.12],
+      ] as const) {
+        const k = Math.max(0, Math.min(1, (t - delay) / (1 - delay)))
+        if (k <= 0) continue
+        ctx.globalAlpha = Math.pow(1 - k, 1.6) * 0.9
+        ctx.strokeStyle = CHARGE_COLOR
+        ctx.lineWidth = Math.max(1.5, radius * width * (1 - k))
+        ctx.beginPath()
+        ctx.arc(px, py, radius * (1 + easeOutQuart(k) * scale), 0, Math.PI * 2)
+        ctx.stroke()
+      }
+      ctx.restore()
+
+      drawStreaks(ctx, px, py, streaks, radius, t, CHARGE_COLOR)
+
+      const pop = t < 0.16 ? easeOut(t / 0.16) * 1.25 : 1.25 - 0.25 * easeOut((t - 0.16) / 0.84)
+      ctx.save()
+      ctx.globalAlpha = Math.min(1, alpha * 1.5)
+      ctx.fillStyle = color
+      ctx.font = `800 ${Math.round(radius * 0.62 * pop)}px system-ui, sans-serif`
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.shadowColor = 'rgba(0,0,0,0.85)'
+      ctx.shadowBlur = 8
+      ctx.fillText(JUDGEMENT_LABEL[judgement], px, py - radius - easeOut(t) * radius * 1.1)
       ctx.restore()
     },
   }
