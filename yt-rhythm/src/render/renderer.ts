@@ -407,14 +407,20 @@ export function drawDragNote(
   if (!started) {
     drawDragTelegraph(ctx, rect, note, r, now, approachProgress(note, now, opts.approachSec))
   } else {
-    // 通ってきた側を暗く、これから通る側を明るくする。
-    ctx.lineWidth = r * 0.62
-    ctx.strokeStyle = 'rgba(255,255,255,0.14)'
-    strokePath(ctx, rect, note, 0, duration)
+    // 接近中と同じ規則のまま、通り過ぎた側だけを痩せさせる。
+    const consumed = Math.max(0, Math.min(1, elapsed / duration))
+    fillDragRibbon(ctx, rect, note, r, {
+      grow: 1,
+      consumed,
+      from: withAlpha(accent, 0.16),
+      to: withAlpha(accent, 0.1),
+    })
+    // これから通る側を明るく重ねる。いま追うべき先が分かる。
     if (elapsed < duration) {
-      ctx.lineWidth = r * 0.34
+      ctx.globalAlpha = alpha * 0.85
+      ctx.lineWidth = r * 0.3
+      ctx.lineCap = 'round'
       ctx.strokeStyle = accent
-      ctx.globalAlpha = alpha * 0.7
       strokePath(ctx, rect, note, Math.max(0, elapsed), duration)
       ctx.globalAlpha = alpha
     }
@@ -451,6 +457,84 @@ export function drawDragNote(
   ctx.restore()
 }
 
+/** 帯を作るときの分割数。 */
+const RIBBON_STEPS = 26
+
+/**
+ * なぞりの帯。**太さがそのまま時間の情報**になる。
+ *
+ * - 接近中: 全体が細い線から太い帯へ育つ（あと何秒で来るか）
+ * - なぞり中: 通り過ぎた側だけ痩せる（どこまで進んだか）
+ *
+ * 待機中だけ太さが動いて開始後に固まると、情報が途切れて読み方が変わって
+ * しまうので、同じ規則のまま連続させる。
+ *
+ * 半透明の線を並べて重ねると継ぎ目が二重に乗って濃い節ができるため、
+ * 1 枚の多角形として塗る。
+ */
+function fillDragRibbon(
+  ctx: CanvasRenderingContext2D,
+  rect: StageRect,
+  note: DragNote,
+  r: number,
+  opts: {
+    /** 0..1。接近の進み具合。太さ全体の倍率になる。 */
+    grow: number
+    /** 0..1。すでに通り過ぎた割合。null なら未開始。 */
+    consumed: number | null
+    from: string
+    to: string
+  },
+): void {
+  const duration = noteDuration(note)
+  if (duration <= 0) return
+  const spine: { x: number; y: number }[] = []
+  for (let i = 0; i <= RIBBON_STEPS; i += 1) {
+    const at = dragPositionAt(note, (i / RIBBON_STEPS) * duration)
+    const pt = toPixels(at.x, at.y, rect)
+    spine.push({ x: pt.px, y: pt.py })
+  }
+  const halfWidth = (i: number) => {
+    const k = i / RIBBON_STEPS
+    // 頭を太く終点を細くして、進む向きも太さで見せる。
+    const taper = 1 - 0.5 * k
+    // 通り過ぎた側は痩せる。境目は少しぼかして段差を出さない。
+    const passed =
+      opts.consumed === null ? 0 : Math.max(0, Math.min(1, (opts.consumed - k) / 0.06))
+    return Math.max(0.6, r * 0.36 * opts.grow * taper * (1 - 0.72 * passed))
+  }
+  const side = (i: number, sign: number) => {
+    const prev = spine[Math.max(0, i - 1)]
+    const next = spine[Math.min(RIBBON_STEPS, i + 1)]
+    const dx = next.x - prev.x
+    const dy = next.y - prev.y
+    const len = Math.hypot(dx, dy) || 1
+    const w = halfWidth(i) * sign
+    return { x: spine[i].x + (-dy / len) * w, y: spine[i].y + (dx / len) * w }
+  }
+  ctx.beginPath()
+  for (let i = 0; i <= RIBBON_STEPS; i += 1) {
+    const o = side(i, 1)
+    if (i === 0) ctx.moveTo(o.x, o.y)
+    else ctx.lineTo(o.x, o.y)
+  }
+  for (let i = RIBBON_STEPS; i >= 0; i -= 1) {
+    const o = side(i, -1)
+    ctx.lineTo(o.x, o.y)
+  }
+  ctx.closePath()
+  const grad = ctx.createLinearGradient(
+    spine[0].x,
+    spine[0].y,
+    spine[RIBBON_STEPS].x,
+    spine[RIBBON_STEPS].y,
+  )
+  grad.addColorStop(0, opts.from)
+  grad.addColorStop(1, opts.to)
+  ctx.fillStyle = grad
+  ctx.fill()
+}
+
 /**
  * なぞりが来る前に「どこへ・どの向きに・どう動くか」を見せる。
  * 経路をただ薄く描くだけでは、始点と終点のどちらへ進むのか読めない。
@@ -467,52 +551,12 @@ function drawDragTelegraph(
   const duration = noteDuration(note)
   if (duration <= 0) return
 
-  // 経路の太さで残り時間を伝える。出た直後は細い線、判定時刻には太い帯。
-  // 先端の輪だけだと視線がそこに張り付くが、太さなら形全体で読める。
-  // 半透明の線を重ねると継ぎ目が濃くなるので、帯は 1 枚の多角形として塗る。
-  const RIBBON_STEPS = 26
-  const grow = 0.14 + 0.86 * progress
-  const spine: { x: number; y: number }[] = []
-  for (let i = 0; i <= RIBBON_STEPS; i += 1) {
-    const at = dragPositionAt(note, (i / RIBBON_STEPS) * duration)
-    const pt = toPixels(at.x, at.y, rect)
-    spine.push({ x: pt.px, y: pt.py })
-  }
-  const halfWidth = (i: number) => {
-    // 頭を太く終点を細くして、進む向きも太さで見せる。
-    const k = i / RIBBON_STEPS
-    return Math.max(0.6, r * 0.36 * grow * (1 - 0.5 * k))
-  }
-  const sideOffset = (i: number, sign: number) => {
-    const prev = spine[Math.max(0, i - 1)]
-    const next = spine[Math.min(RIBBON_STEPS, i + 1)]
-    const dx = next.x - prev.x
-    const dy = next.y - prev.y
-    const len = Math.hypot(dx, dy) || 1
-    const w = halfWidth(i) * sign
-    return { x: spine[i].x + (-dy / len) * w, y: spine[i].y + (dx / len) * w }
-  }
-  ctx.beginPath()
-  for (let i = 0; i <= RIBBON_STEPS; i += 1) {
-    const o = sideOffset(i, 1)
-    if (i === 0) ctx.moveTo(o.x, o.y)
-    else ctx.lineTo(o.x, o.y)
-  }
-  for (let i = RIBBON_STEPS; i >= 0; i -= 1) {
-    const o = sideOffset(i, -1)
-    ctx.lineTo(o.x, o.y)
-  }
-  ctx.closePath()
-  const ribbon = ctx.createLinearGradient(
-    spine[0].x,
-    spine[0].y,
-    spine[RIBBON_STEPS].x,
-    spine[RIBBON_STEPS].y,
-  )
-  ribbon.addColorStop(0, withAlpha(DRAG_RING, 0.12 + 0.34 * progress))
-  ribbon.addColorStop(1, withAlpha(DRAG_RING, 0.05 + 0.12 * progress))
-  ctx.fillStyle = ribbon
-  ctx.fill()
+  fillDragRibbon(ctx, rect, note, r, {
+    grow: 0.14 + 0.86 * progress,
+    consumed: null,
+    from: withAlpha(DRAG_RING, 0.12 + 0.34 * progress),
+    to: withAlpha(DRAG_RING, 0.05 + 0.12 * progress),
+  })
 
   // 進む向きの矢印。経路を等間隔に拾って小さな三角を置く。
   const marks = 5

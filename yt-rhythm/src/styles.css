@@ -20,6 +20,9 @@ body {
   margin: 0;
   height: 100%;
   overflow: hidden;
+  /* 長押しで選択・コピー吹き出し・青いハイライトが出ないようにする。 */
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
   background: var(--bg);
   color: var(--text);
   font-family: system-ui, -apple-system, 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', sans-serif;
@@ -291,6 +294,25 @@ body {
   touch-action: none;
   -webkit-user-select: none;
   user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ゲーム画面は文字を掴めないようにする。長押しがドラッグ判定を奪う。 */
+.screen-play,
+.screen-edit .stage-area,
+.screen-edit .timeline {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* 全画面にした要素は背景が透けるので、自分で敷く。 */
+.screen-play:fullscreen,
+.screen-play:-webkit-full-screen {
+  background: var(--bg);
+  width: 100%;
+  height: 100%;
 }
 
 /* ---------- プレイ画面 ---------- */

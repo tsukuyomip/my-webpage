@@ -125,9 +125,10 @@ export class Stage {
     }
     this.canvas.addEventListener('pointerup', up)
     this.canvas.addEventListener('pointercancel', up)
-    // ダブルタップ拡大やコンテキストメニューを抑止する。
+    // ダブルタップ拡大・長押しの選択・コンテキストメニューを抑止する。
     this.canvas.addEventListener('contextmenu', (e) => e.preventDefault())
     this.canvas.addEventListener('dblclick', (e) => e.preventDefault())
+    this.canvas.addEventListener('selectstart', (e) => e.preventDefault())
   }
 
   destroy(): void {

@@ -97,7 +97,7 @@ const waitTime = (page, t) =>
 
 const videoTime = (page) => page.evaluate(() => window.__fake.player.getCurrentTime())
 
-async function newPage(browser, { draft, touch, brokenCapture } = {}) {
+async function newPage(browser, { draft, touch, brokenCapture, settings, recordFullscreen } = {}) {
   const ctx = await browser.newContext({ viewport: { width: 900, height: 780 }, hasTouch: !!touch })
   await ctx.addInitScript(INIT)
   if (brokenCapture) {
@@ -112,6 +112,22 @@ async function newPage(browser, { draft, touch, brokenCapture } = {}) {
         return orig.call(this, id)
       }
       document.addEventListener('pointerup', (e) => held.delete(e.pointerId), true)
+    })
+  }
+  if (settings) {
+    await ctx.addInitScript(
+      ([key, value]) => localStorage.setItem(key, value),
+      ['yt-rhythm:settings:v1', JSON.stringify(settings)],
+    )
+  }
+  if (recordFullscreen) {
+    // 全画面はヘッドレスでは実際に入れないので、要求が飛んだかだけを見る。
+    await ctx.addInitScript(() => {
+      window.__fsCalls = 0
+      Element.prototype.requestFullscreen = function () {
+        window.__fsCalls += 1
+        return Promise.resolve()
+      }
     })
   }
   if (draft) {
@@ -681,6 +697,78 @@ async function testHoldCharge(browser) {
   await page.context().close()
 }
 
+const STRAIGHT_DRAG = JSON.stringify({
+  formatVersion: 1,
+  meta: { title: 'まっすぐなぞり', videoId: 'testvideo01' },
+  timing: { offsetMs: 0 },
+  notes: [{ id: 'g', type: 'drag', time: 6, x: 0.2, y: 0.5, path: [{ dt: 2, x: 0.8, y: 0.5 }] }],
+})
+
+/** まっすぐな経路の k 地点で、芯から縦に離れた画素の緑みを測る。 */
+const ribbonEdge = (page, k, offsetRatio) =>
+  page.evaluate(([kk, off]) => {
+    const c = document.querySelector('.stage-canvas')
+    const radius = 0.062 * c.width // NOTE_RADIUS_RATIO
+    const x = Math.round((0.2 + 0.6 * kk) * c.width)
+    const y = Math.round(0.5 * c.height + radius * off)
+    const d = c.getContext('2d').getImageData(x - 2, y - 2, 4, 4).data
+    let g = 0
+    for (let i = 0; i < d.length; i += 4) g += d[i + 1]
+    return g / (d.length / 4)
+  }, [k, offsetRatio])
+
+async function testDragRibbonWidth(browser) {
+  console.log('\n[14] プレイ: なぞり中も帯の太さが動く')
+  const page = await newPage(browser, { draft: STRAIGHT_DRAG })
+  const box = await startPlayFromDraft(page)
+  const at = (x, y) => [box.x + x * box.width, box.y + y * box.height]
+
+  // 接近中: 出た直後は細く、判定直前は太い
+  await waitTime(page, 5.4)
+  const early = await ribbonEdge(page, 0.5, 0.25)
+  await waitTime(page, 5.95)
+  const ready = await ribbonEdge(page, 0.5, 0.25)
+  check('接近中に帯が太くなる', ready > early * 1.5, `${early.toFixed(1)} → ${ready.toFixed(1)}`)
+
+  // なぞり中: 通り過ぎた側が痩せる
+  let ahead
+  let behind
+  await page.mouse.move(...at(0.2, 0.5))
+  await page.mouse.down()
+  for (;;) {
+    const t = await videoTime(page)
+    const k = (t - 6) / 2
+    if (k >= 0.85) break
+    if (k >= 0) await page.mouse.move(...at(0.2 + 0.6 * k, 0.5))
+    if (ahead === undefined && k > 0.1) ahead = await ribbonEdge(page, 0.3, 0.25)
+    if (behind === undefined && k > 0.65) behind = await ribbonEdge(page, 0.3, 0.25)
+  }
+  await page.mouse.up()
+  check(
+    'なぞり中、通り過ぎた側が痩せる',
+    ahead !== undefined && behind !== undefined && ahead > behind * 1.8,
+    `${ahead?.toFixed(1)} → ${behind?.toFixed(1)}`,
+  )
+  await page.context().close()
+}
+
+async function testFullscreen(browser) {
+  console.log('\n[15] プレイ: 設定に従って全画面を要求する')
+  const on = await newPage(browser, { draft: PLAY_CHART, recordFullscreen: true })
+  await startPlayFromDraft(on)
+  check('既定では全画面を要求する', (await on.evaluate(() => window.__fsCalls)) > 0)
+  await on.context().close()
+
+  const off = await newPage(browser, {
+    draft: PLAY_CHART,
+    recordFullscreen: true,
+    settings: { fullscreen: false },
+  })
+  await startPlayFromDraft(off)
+  check('切っていれば要求しない', (await off.evaluate(() => window.__fsCalls)) === 0)
+  await off.context().close()
+}
+
 // ---------------------------------------------------------------- 実行
 
 async function waitForServer(url, timeoutMs = 30000) {
@@ -731,6 +819,8 @@ try {
   await testTapWhileHolding(browser)
   await testApproachTelegraph(browser)
   await testHoldCharge(browser)
+  await testDragRibbonWidth(browser)
+  await testFullscreen(browser)
 } finally {
   await browser.close()
   // pkill は自分のシェルごと落とすので、起動した子だけを止める。

@@ -18,6 +18,8 @@ export interface Settings {
   noteScale: number
   /** 当たったときに画面を揺らす強さ（0 で揺れなし）。 */
   screenShake: number
+  /** プレイ中に全画面（可能なら横向き固定）にするか。 */
+  fullscreen: boolean
   /** 効果音の音量（0 で無音）。 */
   sfxVolume: number
   /** 判定音を譜面の値ではなく下の sfxKit で上書きするか。 */
@@ -34,6 +36,7 @@ export const DEFAULT_SETTINGS: Settings = {
   dimOpacity: DEFAULT_DISPLAY.dimOpacity,
   noteScale: 1,
   screenShake: 1,
+  fullscreen: true,
   sfxVolume: 0.7,
   overrideSfxKit: false,
   sfxKit: DEFAULT_SFX_KIT,
@@ -80,6 +83,7 @@ export function loadSettings(): Settings {
       ),
       noteScale: clampNum(parsed.noteScale, 0.5, 2, DEFAULT_SETTINGS.noteScale),
       screenShake: clampNum(parsed.screenShake, 0, 1, DEFAULT_SETTINGS.screenShake),
+      fullscreen: parsed.fullscreen !== false,
       sfxVolume: clampNum(parsed.sfxVolume, 0, 1, DEFAULT_SETTINGS.sfxVolume),
       overrideSfxKit: parsed.overrideSfxKit === true,
       sfxKit: SFX_KITS.some((k) => k.id === parsed.sfxKit)

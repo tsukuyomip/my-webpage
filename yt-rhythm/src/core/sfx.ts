@@ -340,11 +340,38 @@ class SfxEngine {
   private kits: Partial<Record<SfxKit, Record<SfxName, AudioBuffer>>> = {}
   private kit: SfxKit = DEFAULT_SFX_KIT
   private volume = 0.7
+  private watchingVisibility = false
+  private lastResumeMs = 0
+
+  /**
+   * ブラウザは裏に回ると AudioContext を止める。戻ってきても自動では
+   * 再開しないので、そのままだと音が鳴らなくなる。
+   * 画面が戻ったときと、鳴らす直前の両方で起こし直す。
+   */
+  private wake(): void {
+    const ctx = this.ctx
+    if (!ctx || ctx.state === 'running') return
+    const now = performance.now()
+    // 止まっている間に毎回呼ばれるので、間隔を空ける。
+    if (now - this.lastResumeMs < 400) return
+    this.lastResumeMs = now
+    void ctx.resume().catch(() => {})
+  }
+
+  private watchVisibility(): void {
+    if (this.watchingVisibility) return
+    this.watchingVisibility = true
+    document.addEventListener('visibilitychange', () => {
+      if (!document.hidden) this.wake()
+    })
+    window.addEventListener('pageshow', () => this.wake())
+    window.addEventListener('focus', () => this.wake())
+  }
 
   /** ユーザー操作の中から呼ぶこと（iOS などは操作なしに音を出せない）。 */
   ensure(): void {
     if (this.ctx) {
-      if (this.ctx.state === 'suspended') void this.ctx.resume()
+      this.wake()
       return
     }
     const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
@@ -364,6 +391,7 @@ class SfxEngine {
         this.kits[id] = KIT_BUILDERS[id](ctx)
       }
       if (ctx.state === 'suspended') void ctx.resume()
+      this.watchVisibility()
     } catch {
       // 音が出せなくてもゲーム自体は動かす。
       this.ctx = null
@@ -382,6 +410,8 @@ class SfxEngine {
   play(name: SfxName): void {
     const buffers = this.kits[this.kit]
     if (!this.ctx || !this.master || !buffers || this.volume <= 0) return
+    // 裏から戻った直後は止まったままのことがある。
+    if (this.ctx.state !== 'running') this.wake()
     try {
       const source = this.ctx.createBufferSource()
       source.buffer = buffers[name]

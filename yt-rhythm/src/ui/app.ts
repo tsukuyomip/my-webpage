@@ -218,6 +218,20 @@ export class App {
       },
     })
 
+    // プレイ中の全画面。端末によっては横向き固定まで効く。
+    const fsCheck = h('input', { attrs: { type: 'checkbox' } })
+    fsCheck.checked = this.settings.fullscreen
+    fsCheck.addEventListener('change', () => {
+      this.settings.fullscreen = fsCheck.checked
+      saveSettings(this.settings)
+    })
+    rows.push(
+      h('label', { class: 'settings-note' }, [
+        fsCheck,
+        h('span', { class: 'small', text: 'プレイ中は全画面にする（対応端末では横向きに固定）' }),
+      ]),
+    )
+
     // 判定音のセット。既定は譜面が持つ値を使い、外したときだけ上書きする。
     const kitSelect = h('select', {
       class: 'select',

@@ -26,6 +26,7 @@ import { EffectLayer } from '../render/effects.ts'
 import { drawHud, drawTimingBar } from '../render/hud.ts'
 import { clearCanvas, drawDim, drawNotes } from '../render/renderer.ts'
 import { button, h, toast } from '../ui/dom.ts'
+import { enterFullscreenLandscape, exitFullscreenLandscape } from '../ui/fullscreen.ts'
 import { Stage, type StagePointer } from '../ui/stage.ts'
 
 export interface PlayScreenOptions {
@@ -211,7 +212,8 @@ export class PlayScreen {
   }
 
   private begin(): void {
-    // 音は必ずユーザー操作の中で用意する。
+    // 全画面も音も、ユーザー操作の中でしか始められない。
+    if (this.opts.settings.fullscreen) void enterFullscreenLandscape(this.root)
     sfx.ensure()
     sfx.setVolume(this.opts.settings.sfxVolume)
     sfx.setKit(this.display.sfxKit)
@@ -633,11 +635,13 @@ export class PlayScreen {
   }
 
   private exit(): void {
+    exitFullscreenLandscape()
     this.opts.onExit()
   }
 
   destroy(): void {
     this.stopLoop()
+    exitFullscreenLandscape()
     this.stage.destroy()
     this.root.remove()
   }
