@@ -15,8 +15,6 @@ const HOLD_RING = '#b07cff'
 const DRAG_RING = '#4ee9a4'
 /** 追えているあいだの色。 */
 const ACTIVE_RING = '#8dffb3'
-/** なぞりの予行演習が一往復する周期（秒）。 */
-const GHOST_PERIOD_SEC = 1.1
 /** 溜め切る直前の色。ここへ寄せて「もう少し」を伝える。 */
 const CHARGE_FULL = '#ffd54a'
 /** 溜めゲージの半径（ノーツ半径に対する倍率）。 */
@@ -382,131 +380,51 @@ export function drawHoldNote(
   ctx.restore()
 }
 
-/** なぞり。経路を線で描き、なぞるべき位置に玉を出す。 */
-export function drawDragNote(
-  ctx: CanvasRenderingContext2D,
-  rect: StageRect,
-  note: DragNote,
-  now: number,
-  opts: NoteRenderOptions,
-): void {
-  const r = opts.radius
-  const alpha = noteAlpha(note, now, opts)
-  if (alpha <= 0.01) return
-  const duration = noteDuration(note)
-  const elapsed = now - note.time
-  const holding = opts.holding?.has(note.id) === true
-  const started = elapsed >= 0
-  const accent = started && !opts.editing ? (holding ? ACTIVE_RING : NOTE_RING_LATE) : DRAG_RING
-
-  ctx.save()
-  ctx.globalAlpha = alpha
-
-  ctx.lineJoin = 'round'
-  ctx.lineCap = 'round'
-  if (!started) {
-    drawDragTelegraph(ctx, rect, note, r, now, approachProgress(note, now, opts.approachSec), opts.approachSec)
-  } else {
-    // 接近中と同じ規則のまま、通り過ぎた側だけを痩せさせる。
-    const consumed = Math.max(0, Math.min(1, elapsed / duration))
-    fillDragRibbon(ctx, rect, note, r, {
-      now,
-      approachSec: opts.approachSec,
-      consumed,
-      from: withAlpha(accent, 0.34),
-      to: withAlpha(accent, 0.22),
-    })
-    // これから通る側を明るく重ねる。いま追うべき先が分かる。
-    if (elapsed < duration) {
-      ctx.globalAlpha = alpha * 0.85
-      ctx.lineWidth = r * 0.3
-      ctx.lineCap = 'round'
-      ctx.strokeStyle = accent
-      strokePath(ctx, rect, note, Math.max(0, elapsed), duration)
-      ctx.globalAlpha = alpha
-    }
-  }
-
-  // 終点の目印
-  const end = dragPositionAt(note, duration)
-  const endPx = toPixels(end.x, end.y, rect)
-  ctx.beginPath()
-  ctx.arc(endPx.px, endPx.py, r * 0.4, 0, Math.PI * 2)
-  ctx.fillStyle = 'rgba(10, 14, 24, 0.7)'
-  ctx.fill()
-  ctx.lineWidth = Math.max(2, r * 0.1)
-  ctx.strokeStyle = accent
-  ctx.stroke()
-
-  const head = toPixels(note.x, note.y, rect)
-  if (!started) {
-    const breathe = 1 + 0.022 * Math.sin(now * 4.5)
-    drawBody(ctx, head.px, head.py, r * breathe, DRAG_RING, {
-      fill: approachProgress(note, now, opts.approachSec),
-      style: 'long',
-    })
-    drawApproachRing(ctx, head.px, head.py, note, now, opts)
-  } else {
-    // 追いかける玉。ここに指を置いておく。
-    const at = dragPositionAt(note, Math.min(elapsed, duration))
-    const ball = toPixels(at.x, at.y, rect)
-    drawBody(ctx, ball.px, ball.py, r * 0.82, accent, { style: 'long' })
-  }
-
-  if (opts.showHandles && opts.selected?.has(note.id)) drawDragHandles(ctx, rect, note, r)
-  if (opts.selected?.has(note.id)) drawSelection(ctx, head.px, head.py, r)
-  ctx.restore()
-}
-
 /** 帯を作るときの分割数。 */
 const RIBBON_STEPS = 26
+/** 予告帯の最大の広がり（ノーツ半径に対する片側の倍率）。 */
+const BAND_MAX_RADII = 0.95
+/** 予告帯の濃さ。薄すぎると帯として機能しない。 */
+const BAND_ALPHA = 0.34
+/** 経路そのものを示す実線の太さ。時間の情報は帯が持つので、こちらは固定。 */
+const ROUTE_WIDTH_RATIO = 0.11
 
 /**
- * なぞりの帯。**太さがそのまま時間の情報**になる。
+ * なぞりの予告帯。**太さがそのまま時間の情報**になる。
  *
- * 全体を一律に太らせるのではなく、**経路の点ごとに「その点を通る番が
- * どれだけ近いか」で太さを決める**。太い部分が経路上を進んでいくので、
- * 「いつ・どこに指があるべきか」が形だけで読める。全体を一律にすると
- * 「あと何秒でノーツが来るか」しか分からず、経路のどこにいるべきかは
- * 結局読めない。
+ * 経路の点ごとに「その点を通る番がどれだけ近いか」で太さを決める。
+ * 太い部分が経路上を進んでいくので、いつ・どこに指があるべきかが形で読める。
+ * 全体を一律に太らせると「あと何秒でノーツが来るか」しか分からず、
+ * 経路のどこにいるべきかは結局読めない。
  *
- * 濃さはほとんど変えない。太さと一緒に濃さも動かすと「濃くなった」と
- * しか見えず、肝心の太さの変化が埋もれる。
+ * どこまで先が膨らむかは譜面の approachMs に連動する。ノーツの出現が
+ * 早い譜面ほど、先の道が早くから見えるようになる。
  *
  * 半透明の線を並べて重ねると継ぎ目が二重に乗って濃い節ができるため、
  * 1 枚の多角形として塗る。
  */
-function fillDragRibbon(
+function fillDragBand(
   ctx: CanvasRenderingContext2D,
   rect: StageRect,
   note: DragNote,
   r: number,
-  opts: {
-    now: number
-    approachSec: number
-    /** 0..1。すでに通り過ぎた割合。null なら未開始。 */
-    consumed: number | null
-    from: string
-    to: string
-  },
+  opts: { now: number; approachSec: number; fromDt: number },
 ): void {
   const duration = noteDuration(note)
-  if (duration <= 0) return
+  const span = duration - opts.fromDt
+  if (span <= 0) return
   const spine: { x: number; y: number }[] = []
+  const leads: number[] = []
   for (let i = 0; i <= RIBBON_STEPS; i += 1) {
-    const at = dragPositionAt(note, (i / RIBBON_STEPS) * duration)
+    const dt = opts.fromDt + (i / RIBBON_STEPS) * span
+    const at = dragPositionAt(note, dt)
     const pt = toPixels(at.x, at.y, rect)
     spine.push({ x: pt.px, y: pt.py })
+    leads.push(note.time + dt - opts.now)
   }
   const halfWidth = (i: number) => {
-    const k = i / RIBBON_STEPS
-    // その点を通るべき時刻。全体ではなく点ごとに「あと何秒か」を持たせる。
-    const lead = note.time + k * duration - opts.now
-    const imminence = Math.max(0, Math.min(1, 1 - lead / opts.approachSec))
-    // 通り過ぎた側は痩せる。境目は少しぼかして段差を出さない。
-    const passed =
-      opts.consumed === null ? 0 : Math.max(0, Math.min(1, (opts.consumed - k) / 0.06))
-    return Math.max(0.5, r * 0.46 * (0.07 + 0.93 * imminence) * (1 - 0.78 * passed))
+    const imminence = Math.max(0, Math.min(1, 1 - leads[i] / opts.approachSec))
+    return Math.max(0.5, r * BAND_MAX_RADII * (0.05 + 0.95 * imminence))
   }
   const side = (i: number, sign: number) => {
     const prev = spine[Math.max(0, i - 1)]
@@ -528,81 +446,76 @@ function fillDragRibbon(
     ctx.lineTo(o.x, o.y)
   }
   ctx.closePath()
-  const grad = ctx.createLinearGradient(
-    spine[0].x,
-    spine[0].y,
-    spine[RIBBON_STEPS].x,
-    spine[RIBBON_STEPS].y,
-  )
-  grad.addColorStop(0, opts.from)
-  grad.addColorStop(1, opts.to)
-  ctx.fillStyle = grad
+  ctx.fillStyle = withAlpha(DRAG_RING, BAND_ALPHA)
   ctx.fill()
 }
 
 /**
- * なぞりが来る前に「どこへ・どの向きに・どう動くか」を見せる。
- * 経路をただ薄く描くだけでは、始点と終点のどちらへ進むのか読めない。
+ * なぞり。どこを通るかは固定幅の実線が、いつ通るかは幅の変わる帯が受け持つ。
+ * 押す前と押したあとで道の見え方は変えない（変えると読み方が切り替わる）。
+ * 変わるのは「どこまで残っているか」だけで、通り過ぎた側は線も帯も描かない。
  */
-function drawDragTelegraph(
+export function drawDragNote(
   ctx: CanvasRenderingContext2D,
   rect: StageRect,
   note: DragNote,
-  r: number,
   now: number,
-  progress: number,
-  approachSec: number,
+  opts: NoteRenderOptions,
 ): void {
-  const base = ctx.globalAlpha
+  const r = opts.radius
+  const alpha = noteAlpha(note, now, opts)
+  if (alpha <= 0.01) return
   const duration = noteDuration(note)
-  if (duration <= 0) return
+  const elapsed = now - note.time
+  const holding = opts.holding?.has(note.id) === true
+  const started = elapsed >= 0 && !opts.editing
+  const cursor = Math.max(0, Math.min(duration, elapsed))
 
-  fillDragRibbon(ctx, rect, note, r, {
-    now,
-    approachSec,
-    consumed: null,
-    from: withAlpha(DRAG_RING, 0.4),
-    to: withAlpha(DRAG_RING, 0.28),
-  })
+  ctx.save()
+  ctx.globalAlpha = alpha
+  ctx.lineJoin = 'round'
+  ctx.lineCap = 'round'
 
-  // 進む向きの矢印。経路を等間隔に拾って小さな三角を置く。
-  const marks = 5
-  ctx.fillStyle = withAlpha(DRAG_RING, 0.2 + 0.5 * progress)
-  for (let i = 1; i <= marks; i += 1) {
-    const k = (i / (marks + 1)) * duration
-    const at = dragPositionAt(note, k)
-    const ahead = dragPositionAt(note, Math.min(duration, k + duration * 0.05))
-    const dx = (ahead.x - at.x) * rect.width
-    const dy = (ahead.y - at.y) * rect.height
-    if (dx === 0 && dy === 0) continue
-    const p = toPixels(at.x, at.y, rect)
-    const size = r * (0.1 + 0.14 * progress)
-    ctx.save()
-    ctx.translate(p.px, p.py)
-    ctx.rotate(Math.atan2(dy, dx))
+  if (cursor < duration) {
+    // いつ通るか（幅が時間）。
+    fillDragBand(ctx, rect, note, r, { now, approachSec: opts.approachSec, fromDt: cursor })
+    // どこを通るか（幅は情報を持たないので固定）。
+    ctx.lineWidth = Math.max(2, r * ROUTE_WIDTH_RATIO)
+    ctx.strokeStyle = withAlpha(DRAG_RING, 0.85)
+    strokePath(ctx, rect, note, cursor, duration)
+
+    // 終点の目印
+    const end = dragPositionAt(note, duration)
+    const endPx = toPixels(end.x, end.y, rect)
     ctx.beginPath()
-    ctx.moveTo(size, 0)
-    ctx.lineTo(-size * 0.7, size * 0.62)
-    ctx.lineTo(-size * 0.7, -size * 0.62)
-    ctx.closePath()
+    ctx.arc(endPx.px, endPx.py, r * 0.4, 0, Math.PI * 2)
+    ctx.fillStyle = 'rgba(10, 14, 24, 0.7)'
     ctx.fill()
-    ctx.restore()
+    ctx.lineWidth = Math.max(2, r * 0.1)
+    ctx.strokeStyle = DRAG_RING
+    ctx.stroke()
   }
 
-  // 予行演習の玉。本番と同じ道を先に走らせて、動きそのものを見せる。
-  const sweep = (now % GHOST_PERIOD_SEC) / GHOST_PERIOD_SEC
-  const ghost = dragPositionAt(note, sweep * duration)
-  const gp = toPixels(ghost.x, ghost.y, rect)
-  ctx.save()
-  ctx.globalCompositeOperation = 'lighter'
-  // 端に着いた瞬間に消して、戻る動きを見せない（逆走に見えてしまう）。
-  ctx.globalAlpha = base * progress * 0.6 * Math.sin(Math.PI * sweep)
-  ctx.fillStyle = DRAG_RING
-  ctx.beginPath()
-  ctx.arc(gp.px, gp.py, r * 0.3, 0, Math.PI * 2)
-  ctx.fill()
+  const head = toPixels(note.x, note.y, rect)
+  if (!started) {
+    // 頭は押す場所なので、いつ押すかの手がかりは残す。
+    drawBody(ctx, head.px, head.py, r, DRAG_RING, {
+      fill: approachProgress(note, now, opts.approachSec),
+      style: 'long',
+    })
+    drawApproachRing(ctx, head.px, head.py, note, now, opts)
+  } else if (cursor < duration) {
+    // 追いかける玉。外れていることだけは色で知らせる。
+    const at = dragPositionAt(note, cursor)
+    const ball = toPixels(at.x, at.y, rect)
+    drawBody(ctx, ball.px, ball.py, r * 0.82, holding ? ACTIVE_RING : NOTE_RING_LATE, {
+      style: 'long',
+    })
+  }
+
+  if (opts.showHandles && opts.selected?.has(note.id)) drawDragHandles(ctx, rect, note, r)
+  if (opts.selected?.has(note.id)) drawSelection(ctx, head.px, head.py, r)
   ctx.restore()
-  ctx.globalAlpha = base
 }
 
 function strokePath(

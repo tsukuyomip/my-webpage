@@ -738,6 +738,8 @@ async function testDragRibbonWidth(browser) {
   let lateNear
   let earlyFar
   let lateFar
+  let passedLine
+  let aheadLine
   await page.mouse.move(...at(0.2, 0.5))
   await page.mouse.down()
   for (;;) {
@@ -752,6 +754,9 @@ async function testDragRibbonWidth(browser) {
     if (lateNear === undefined && k > 0.65) {
       lateNear = await ribbonEdge(page, 0.3, 0.25)
       lateFar = await ribbonEdge(page, 0.7, 0.25)
+      // 通り過ぎた側は実線も消えているはず（芯の上を直接見る）
+      passedLine = await ribbonEdge(page, 0.15, 0)
+      aheadLine = await ribbonEdge(page, 0.85, 0)
     }
   }
   await page.mouse.up()
@@ -764,6 +769,11 @@ async function testDragRibbonWidth(browser) {
     'これから通る側は太る',
     lateFar > earlyFar * 1.8,
     `k=0.7: ${earlyFar?.toFixed(1)} → ${lateFar?.toFixed(1)}`,
+  )
+  check(
+    '通り過ぎた側は実線も消える',
+    passedLine < 20 && aheadLine > 60,
+    `通過後 ${passedLine?.toFixed(1)} / これから ${aheadLine?.toFixed(1)}`,
   )
   await page.context().close()
 }

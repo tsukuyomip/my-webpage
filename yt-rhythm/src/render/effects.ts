@@ -234,15 +234,15 @@ registerEffect('burst', ({ px, py, radius, judgement, intensity = 0 }) => {
  * 毎フレーム 1 つずつ足して、指の後ろに尾を引かせる。
  */
 registerEffect('trail', ({ px, py, radius, judgement, vx = 0, vy = 0 }) => {
-  const life = 0.3 + Math.random() * 0.12
+  const life = 0.26 + Math.random() * 0.16
   const color = JUDGEMENT_COLOR[judgement]
   // 向きが無い（長押し）ときは全方向へ散らす。
   const angle =
     vx === 0 && vy === 0
       ? Math.random() * Math.PI * 2
       : Math.atan2(vy, vx) + (Math.random() - 0.5) * 1.4
-  const speed = radius * (0.6 + Math.random() * 1.2)
-  const size = radius * (0.1 + Math.random() * 0.1)
+  const speed = radius * (0.9 + Math.random() * 2.2)
+  const size = radius * (0.08 + Math.random() * 0.12)
   let age = 0
   return {
     update(dt) {
@@ -254,11 +254,18 @@ registerEffect('trail', ({ px, py, radius, judgement, vx = 0, vy = 0 }) => {
       const dist = speed * easeOut(t)
       ctx.save()
       ctx.globalCompositeOperation = 'lighter'
-      ctx.globalAlpha = (1 - t) * 0.8
-      ctx.fillStyle = color
+      ctx.globalAlpha = (1 - t) * 0.9
+      // 点ではなく短い線にする。散る向きが出て火花らしくなる。
+      const cx = px - Math.cos(angle) * dist
+      const cy = py - Math.sin(angle) * dist
+      const tail = size * 2.4 * (1 - t)
+      ctx.strokeStyle = color
+      ctx.lineCap = 'round'
+      ctx.lineWidth = Math.max(1, size * (1 - t * 0.5))
       ctx.beginPath()
-      ctx.arc(px - Math.cos(angle) * dist, py - Math.sin(angle) * dist, size * (1 - t * 0.6), 0, Math.PI * 2)
-      ctx.fill()
+      ctx.moveTo(cx, cy)
+      ctx.lineTo(cx + Math.cos(angle) * tail, cy + Math.sin(angle) * tail)
+      ctx.stroke()
       ctx.restore()
     },
   }

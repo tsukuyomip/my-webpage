@@ -482,14 +482,17 @@ export class PlayScreen {
     const { width, height } = this.stage.rect
     const radius = noteRadius(this.stage.rect, this.opts.settings)
     if (note.type === 'drag') {
-      this.effects.spawn('trail', {
-        px: at.x * width,
-        py: at.y * height,
-        radius,
-        judgement: 'perfect',
-        vx: (at.x - trace.lastAtX) * width,
-        vy: (at.y - trace.lastAtY) * height,
-      })
+      // 通過しながら火花を散らす。1 粒だと線に見えず、尾にならない。
+      for (let i = 0; i < 2; i += 1) {
+        this.effects.spawn('trail', {
+          px: at.x * width,
+          py: at.y * height,
+          radius,
+          judgement: 'perfect',
+          vx: (at.x - trace.lastAtX) * width,
+          vy: (at.y - trace.lastAtY) * height,
+        })
+      }
     } else {
       // 長押しは輪のふちから外へ散らす。
       const angle = Math.random() * Math.PI * 2
