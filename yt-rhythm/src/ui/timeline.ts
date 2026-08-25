@@ -1,4 +1,5 @@
 import { lowerBound } from '../core/chart.ts'
+import { maxNoteDuration, noteDuration, noteEndTime } from '../core/note.ts'
 import type { Note } from '../core/types.ts'
 import { h } from './dom.ts'
 
@@ -17,11 +18,19 @@ export interface TimelineCallbacks {
   onGrab: (note: Note) => void
   /** ノーツの時刻をドラッグ中。 */
   onMoveNote: (note: Note, time: number) => void
+  /** 長いノーツの終端をドラッグ中（長さの変更）。 */
+  onResizeNote: (note: Note, endTime: number) => void
   /** ドラッグ終了。 */
   onCommit: () => void
 }
 
 const HEIGHT = 68
+/** ステージ側のリング色と合わせる。 */
+const NOTE_COLOR: Record<Note['type'], string> = {
+  tap: '#5cc8ff',
+  hold: '#b07cff',
+  drag: '#4ee9a4',
+}
 /** タップでノーツを掴める距離（px）。 */
 const GRAB_PX = 18
 
@@ -37,6 +46,8 @@ export class Timeline {
   /** 画面の半分に相当する秒数。小さいほど拡大。 */
   windowSec = 2
   private dragNote: Note | null = null
+  /** 掴んでいるのが始点か終端か。 */
+  private dragPart: 'head' | 'tail' = 'head'
   private dragStartX = 0
   private dragStartTime = 0
   private scrubbing = false
@@ -45,6 +56,8 @@ export class Timeline {
   private notes: Note[] = []
   private selectedId: string | null = null
   private grid: GridSpec | null = null
+  /** いちばん長いノーツの長さ。どこまで遡って探すかに使う。 */
+  private maxDuration = 0
 
   constructor(private readonly callbacks: TimelineCallbacks) {
     this.canvas = h('canvas', { class: 'timeline-canvas' })
@@ -90,10 +103,11 @@ export class Timeline {
         const now = this.callbacks.getTime()
         const hit = this.hitTest(x, now)
         if (hit) {
-          this.dragNote = hit
+          this.dragNote = hit.note
+          this.dragPart = hit.part
           this.dragStartX = x
-          this.dragStartTime = hit.time
-          this.callbacks.onGrab(hit)
+          this.dragStartTime = hit.part === 'tail' ? noteEndTime(hit.note) : hit.note.time
+          this.callbacks.onGrab(hit.note)
         } else {
           this.scrubbing = true
           this.scrubStartX = x
@@ -107,7 +121,11 @@ export class Timeline {
       const x = e.clientX - this.canvas.getBoundingClientRect().left
       if (this.dragNote) {
         const dt = (x - this.dragStartX) / this.pxPerSec()
-        this.callbacks.onMoveNote(this.dragNote, this.dragStartTime + dt)
+        if (this.dragPart === 'tail') {
+          this.callbacks.onResizeNote(this.dragNote, this.dragStartTime + dt)
+        } else {
+          this.callbacks.onMoveNote(this.dragNote, this.dragStartTime + dt)
+        }
       } else {
         const dt = (this.scrubStartX - x) / this.pxPerSec()
         this.callbacks.onSeek(Math.max(0, this.scrubStartTime + dt))
@@ -123,26 +141,44 @@ export class Timeline {
     this.canvas.addEventListener('contextmenu', (e) => e.preventDefault())
   }
 
-  private hitTest(x: number, now: number): Note | null {
-    let best: Note | null = null
+  private hitTest(x: number, now: number): { note: Note; part: 'head' | 'tail' } | null {
+    let best: { note: Note; part: 'head' | 'tail' } | null = null
     let bestDist = GRAB_PX
-    const from = lowerBound(this.notes, now - this.windowSec * 1.2)
-    for (let i = from; i < this.notes.length; i += 1) {
-      const note = this.notes[i]
-      if (note.time > now + this.windowSec * 1.2) break
+    for (const note of this.visibleNotes(now)) {
       const dist = Math.abs(this.timeToX(note.time, now) - x)
       if (dist <= bestDist) {
-        best = note
+        best = { note, part: 'head' }
         bestDist = dist
+      }
+      // 長いノーツは終端を掴んで長さを変えられる。
+      if (noteDuration(note) > 0) {
+        const tailDist = Math.abs(this.timeToX(noteEndTime(note), now) - x)
+        if (tailDist <= bestDist) {
+          best = { note, part: 'tail' }
+          bestDist = tailDist
+        }
       }
     }
     return best
+  }
+
+  /** 画面に入っているノーツ。長いノーツは始点が画面外でも拾う。 */
+  private *visibleNotes(now: number): Generator<Note> {
+    const span = this.windowSec * 1.2
+    const from = lowerBound(this.notes, now - span - this.maxDuration)
+    for (let i = from; i < this.notes.length; i += 1) {
+      const note = this.notes[i]
+      if (note.time > now + span) break
+      if (noteEndTime(note) < now - span) continue
+      yield note
+    }
   }
 
   update(notes: Note[], selectedId: string | null, grid: GridSpec | null): void {
     this.notes = notes
     this.selectedId = selectedId
     this.grid = grid
+    this.maxDuration = maxNoteDuration(notes)
   }
 
   draw(now: number): void {
@@ -181,14 +217,23 @@ export class Timeline {
       ctx.fillText(`${s}`, x, HEIGHT - 2)
     }
 
-    // ノーツ
-    const from = lowerBound(this.notes, now - this.windowSec * 1.2)
-    for (let i = from; i < this.notes.length; i += 1) {
-      const note = this.notes[i]
-      if (note.time > now + this.windowSec * 1.2) break
+    // ノーツ。長いものは長さぶんの帯を敷いてから始点と終端の棒を出す。
+    for (const note of this.visibleNotes(now)) {
       const x = this.timeToX(note.time, now)
       const selected = note.id === this.selectedId
-      ctx.fillStyle = selected ? '#ffd54a' : '#5cc8ff'
+      const color = selected ? '#ffd54a' : NOTE_COLOR[note.type]
+      if (noteDuration(note) > 0) {
+        const x2 = this.timeToX(noteEndTime(note), now)
+        // 種別で上下に分けて、重なっても両方見えるようにする。
+        const band = (HEIGHT - 46) / 2
+        const top = note.type === 'hold' ? 20 : 20 + band
+        ctx.globalAlpha = 0.4
+        ctx.fillStyle = color
+        ctx.fillRect(x, top, Math.max(1, x2 - x), band)
+        ctx.globalAlpha = 1
+        ctx.fillRect(x2 - 1.5, 12, 3, HEIGHT - 30)
+      }
+      ctx.fillStyle = color
       const width = selected ? 5 : 3
       ctx.fillRect(x - width / 2, 12, width, HEIGHT - 30)
     }

@@ -38,6 +38,17 @@ const ACCURACY_WEIGHT: Record<Judgement, number> = {
   miss: 0,
 }
 
+/**
+ * hold / drag の「最後まで追えたか」の判定。
+ * 追えていた時間の割合から決める（0.5 を切ったら見失い扱い）。
+ */
+export function judgeForCoverage(ratio: number): Judgement {
+  if (ratio >= 0.95) return 'perfect'
+  if (ratio >= 0.8) return 'great'
+  if (ratio >= 0.5) return 'good'
+  return 'miss'
+}
+
 export function judgeFor(delta: number): Judgement | null {
   const d = Math.abs(delta)
   if (d <= WINDOWS.perfect) return 'perfect'

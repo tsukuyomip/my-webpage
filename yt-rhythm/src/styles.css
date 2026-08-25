@@ -429,6 +429,17 @@ body {
   flex-wrap: wrap;
 }
 
+.tool-hint {
+  margin: 0;
+}
+
+.inline-group {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+
 .inspector {
   padding: 0.45rem;
   border: 1px solid var(--accent-2);

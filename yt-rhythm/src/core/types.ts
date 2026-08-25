@@ -2,11 +2,10 @@
 // 読み込み側は「知らない type / 知らないフィールド」を落として読み飛ばす。
 export const FORMAT_VERSION = 1
 
-/** 単発タップ。MVP で唯一サポートするノーツ。 */
-export interface TapNote {
+/** どの種別も共通で持つもの。 */
+export interface NoteBase {
   id: string
-  type: 'tap'
-  /** 判定時刻（秒）。動画のタイムライン基準。 */
+  /** 判定時刻（秒）。動画のタイムライン基準。hold / drag では始点の時刻。 */
   time: number
   /** 動画表示領域を 0..1 に正規化した座標。左上が (0,0)。 */
   x: number
@@ -15,8 +14,40 @@ export interface TapNote {
   fx?: string
 }
 
-// 今後 hold / drag を足すときはここにユニオンを追加する。
-export type Note = TapNote
+/** 単発タップ。 */
+export interface TapNote extends NoteBase {
+  type: 'tap'
+}
+
+/** 長押し。time に押して time + duration まで押し続ける。 */
+export interface HoldNote extends NoteBase {
+  type: 'hold'
+  /** 押し続ける長さ（秒）。 */
+  duration: number
+}
+
+/** なぞりの通過点。dt はノーツの time からの相対秒。 */
+export interface DragPoint {
+  dt: number
+  x: number
+  y: number
+}
+
+/** なぞり。始点 (x, y) から path の点を順になぞる。 */
+export interface DragNote extends NoteBase {
+  type: 'drag'
+  /** 始点に続く通過点。dt は昇順で、最後の dt がノーツの長さになる。 */
+  path: DragPoint[]
+}
+
+export type Note = TapNote | HoldNote | DragNote
+export type NoteType = Note['type']
+
+export const NOTE_TYPE_LABEL: Record<NoteType, string> = {
+  tap: 'タップ',
+  hold: 'ホールド',
+  drag: 'ドラッグ',
+}
 
 export interface ChartMeta {
   title: string

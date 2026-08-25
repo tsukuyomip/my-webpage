@@ -2,13 +2,20 @@ import { lowerBound } from '../core/chart.ts'
 import type { StageRect } from '../core/geometry.ts'
 import { toPixels } from '../core/geometry.ts'
 import { MISS_WINDOW } from '../core/judge.ts'
-import type { Note } from '../core/types.ts'
+import { dragPositionAt, noteDuration, noteEndTime } from '../core/note.ts'
+import type { DragNote, HoldNote, Note } from '../core/types.ts'
 
 const NOTE_FILL = 'rgba(10, 14, 24, 0.62)'
 const NOTE_RING = '#5cc8ff'
 const NOTE_RING_LATE = '#ff9f43'
 const APPROACH_RING = 'rgba(255, 255, 255, 0.85)'
 const SELECTED_RING = '#ffd54a'
+/** 種別が一目で分かるよう、輪の色を分ける。 */
+const HOLD_RING = '#b07cff'
+const DRAG_RING = '#4ee9a4'
+/** 追えているあいだの色。 */
+const ACTIVE_RING = '#8dffb3'
+const HOLD_TRACK = 'rgba(255, 255, 255, 0.16)'
 
 export interface NoteRenderOptions {
   /** ノーツが出現してから判定時刻までの秒数。 */
@@ -20,6 +27,14 @@ export interface NoteRenderOptions {
   selected?: Set<string>
   /** 編集モードでは判定時刻を過ぎたノーツも少し残す。 */
   tailSec?: number
+  /** いま指で追えている hold / drag の ID。 */
+  holding?: Set<string>
+  /** 譜面でいちばん長いノーツの長さ（秒）。遡る範囲の決定に使う。 */
+  maxDurationSec?: number
+  /** 選択中の drag の通過点に、動かせるハンドルを出す（エディタ用）。 */
+  showHandles?: boolean
+  /** 編集中。判定していないので「遅れ」の色を出さない。 */
+  editing?: boolean
 }
 
 export function clearCanvas(ctx: CanvasRenderingContext2D, rect: StageRect): void {
@@ -47,18 +62,100 @@ export function drawNotes(
   opts: NoteRenderOptions,
 ): void {
   const tail = opts.tailSec ?? MISS_WINDOW
-  const from = lowerBound(notes, now - tail)
+  // 長いノーツは始点がずっと前なので、その分だけ余計に遡って探す。
+  const from = lowerBound(notes, now - tail - (opts.maxDurationSec ?? 0))
   // 手前のノーツが上に来るよう、遠いものから描く。
   const visible: Note[] = []
   for (let i = from; i < notes.length; i += 1) {
     const note = notes[i]
     if (note.time > now + opts.approachSec) break
     if (opts.hidden?.has(note.id)) continue
+    if (noteEndTime(note) < now - tail) continue
     visible.push(note)
   }
   for (let i = visible.length - 1; i >= 0; i -= 1) {
-    drawTapNote(ctx, rect, visible[i], now, opts)
+    drawNote(ctx, rect, visible[i], now, opts)
   }
+}
+
+export function drawNote(
+  ctx: CanvasRenderingContext2D,
+  rect: StageRect,
+  note: Note,
+  now: number,
+  opts: NoteRenderOptions,
+): void {
+  if (note.type === 'hold') drawHoldNote(ctx, rect, note, now, opts)
+  else if (note.type === 'drag') drawDragNote(ctx, rect, note, now, opts)
+  else drawTapNote(ctx, rect, note, now, opts)
+}
+
+/** 出現のフェードインと、判定終了後のフェードアウトをまとめた不透明度。 */
+function noteAlpha(note: Note, now: number, opts: NoteRenderOptions): number {
+  const progress = 1 - (note.time - now) / opts.approachSec
+  const fadeIn = Math.max(0, Math.min(1, progress / 0.12))
+  const over = now - noteEndTime(note)
+  const fadeOut = over > 0 ? 1 - Math.min(1, over / MISS_WINDOW) * 0.8 : 1
+  return Math.max(0, fadeIn * fadeOut)
+}
+
+/** 判定時刻に向かって縮んでくる外周リング。どの種別でも同じ。 */
+function drawApproachRing(
+  ctx: CanvasRenderingContext2D,
+  px: number,
+  py: number,
+  note: Note,
+  now: number,
+  opts: NoteRenderOptions,
+): void {
+  const remaining = note.time - now
+  if (remaining <= 0) return
+  const r = opts.radius
+  const approachR = r * (1 + 1.8 * Math.min(1, remaining / opts.approachSec))
+  ctx.beginPath()
+  ctx.arc(px, py, approachR, 0, Math.PI * 2)
+  ctx.strokeStyle = APPROACH_RING
+  ctx.lineWidth = Math.max(1.5, r * 0.1)
+  ctx.stroke()
+}
+
+/** ノーツ本体（塗り + 輪 + 中心点）。 */
+function drawBody(
+  ctx: CanvasRenderingContext2D,
+  px: number,
+  py: number,
+  r: number,
+  ring: string,
+): void {
+  ctx.beginPath()
+  ctx.arc(px, py, r, 0, Math.PI * 2)
+  ctx.fillStyle = NOTE_FILL
+  ctx.fill()
+  ctx.lineWidth = Math.max(2, r * 0.14)
+  ctx.strokeStyle = ring
+  ctx.stroke()
+
+  // 中心の点（狙う位置をはっきりさせる）
+  ctx.beginPath()
+  ctx.arc(px, py, Math.max(1.5, r * 0.1), 0, Math.PI * 2)
+  ctx.fillStyle = 'rgba(255,255,255,0.85)'
+  ctx.fill()
+}
+
+function drawSelection(
+  ctx: CanvasRenderingContext2D,
+  px: number,
+  py: number,
+  r: number,
+): void {
+  ctx.globalAlpha = 1
+  ctx.beginPath()
+  ctx.arc(px, py, r * 1.35, 0, Math.PI * 2)
+  ctx.strokeStyle = SELECTED_RING
+  ctx.lineWidth = Math.max(2, r * 0.12)
+  ctx.setLineDash([r * 0.35, r * 0.25])
+  ctx.stroke()
+  ctx.setLineDash([])
 }
 
 export function drawTapNote(
@@ -70,56 +167,171 @@ export function drawTapNote(
 ): void {
   const { px, py } = toPixels(note.x, note.y, rect)
   const r = opts.radius
-  const remaining = note.time - now
-  // 0 → 出現直後, 1 → 判定時刻ちょうど, 1 超 → 判定時刻を過ぎた
-  const progress = 1 - remaining / opts.approachSec
-
-  const fadeIn = Math.min(1, progress / 0.12)
-  const late = remaining < 0
-  const overshoot = late ? Math.min(1, -remaining / MISS_WINDOW) : 0
-  const alpha = Math.max(0, Math.min(1, fadeIn) * (late ? 1 - overshoot * 0.8 : 1))
+  const alpha = noteAlpha(note, now, opts)
   if (alpha <= 0.01) return
 
   ctx.save()
   ctx.globalAlpha = alpha
+  drawBody(ctx, px, py, r, now > note.time ? NOTE_RING_LATE : NOTE_RING)
+  drawApproachRing(ctx, px, py, note, now, opts)
+  if (opts.selected?.has(note.id)) drawSelection(ctx, px, py, r)
+  ctx.restore()
+}
 
-  // 本体
+/**
+ * 長押し。始点の輪のまわりに「残りの長さ」のアークを出し、
+ * 押しているあいだ減っていくようにする。
+ */
+export function drawHoldNote(
+  ctx: CanvasRenderingContext2D,
+  rect: StageRect,
+  note: HoldNote,
+  now: number,
+  opts: NoteRenderOptions,
+): void {
+  const { px, py } = toPixels(note.x, note.y, rect)
+  const r = opts.radius
+  const alpha = noteAlpha(note, now, opts)
+  if (alpha <= 0.01) return
+  const duration = noteDuration(note)
+  const elapsed = Math.max(0, Math.min(duration, now - note.time))
+  const remain = duration > 0 ? 1 - elapsed / duration : 0
+  const holding = opts.holding?.has(note.id) === true
+  const started = now >= note.time && !opts.editing
+  const accent = started ? (holding ? ACTIVE_RING : NOTE_RING_LATE) : HOLD_RING
+
+  ctx.save()
+  ctx.globalAlpha = alpha
+
+  // 長さを表す輪。背景を敷いてから残りぶんを重ねる。
+  const trackR = r * 1.24
+  const lineWidth = Math.max(3, r * 0.2)
+  ctx.lineWidth = lineWidth
+  ctx.lineCap = 'butt'
   ctx.beginPath()
-  ctx.arc(px, py, r, 0, Math.PI * 2)
-  ctx.fillStyle = NOTE_FILL
+  ctx.arc(px, py, trackR, 0, Math.PI * 2)
+  ctx.strokeStyle = HOLD_TRACK
+  ctx.stroke()
+  if (remain > 0) {
+    ctx.beginPath()
+    ctx.arc(px, py, trackR, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * remain)
+    ctx.strokeStyle = accent
+    ctx.stroke()
+  }
+
+  drawBody(ctx, px, py, r, accent)
+  drawApproachRing(ctx, px, py, note, now, opts)
+  if (opts.selected?.has(note.id)) drawSelection(ctx, px, py, r)
+  ctx.restore()
+}
+
+/** なぞり。経路を線で描き、なぞるべき位置に玉を出す。 */
+export function drawDragNote(
+  ctx: CanvasRenderingContext2D,
+  rect: StageRect,
+  note: DragNote,
+  now: number,
+  opts: NoteRenderOptions,
+): void {
+  const r = opts.radius
+  const alpha = noteAlpha(note, now, opts)
+  if (alpha <= 0.01) return
+  const duration = noteDuration(note)
+  const elapsed = now - note.time
+  const holding = opts.holding?.has(note.id) === true
+  const started = elapsed >= 0
+  const accent = started && !opts.editing ? (holding ? ACTIVE_RING : NOTE_RING_LATE) : DRAG_RING
+
+  ctx.save()
+  ctx.globalAlpha = alpha
+
+  // 経路。まだ通っていない側を明るくして、進む向きを分かるようにする。
+  ctx.lineJoin = 'round'
+  ctx.lineCap = 'round'
+  ctx.lineWidth = r * 0.62
+  ctx.strokeStyle = 'rgba(255,255,255,0.14)'
+  strokePath(ctx, rect, note, 0, duration)
+  if (started && elapsed < duration) {
+    ctx.lineWidth = r * 0.34
+    ctx.strokeStyle = accent
+    ctx.globalAlpha = alpha * 0.7
+    strokePath(ctx, rect, note, Math.max(0, elapsed), duration)
+    ctx.globalAlpha = alpha
+  }
+
+  // 終点の目印
+  const end = dragPositionAt(note, duration)
+  const endPx = toPixels(end.x, end.y, rect)
+  ctx.beginPath()
+  ctx.arc(endPx.px, endPx.py, r * 0.4, 0, Math.PI * 2)
+  ctx.fillStyle = 'rgba(10, 14, 24, 0.7)'
   ctx.fill()
-  ctx.lineWidth = Math.max(2, r * 0.14)
-  ctx.strokeStyle = late ? NOTE_RING_LATE : NOTE_RING
+  ctx.lineWidth = Math.max(2, r * 0.1)
+  ctx.strokeStyle = accent
   ctx.stroke()
 
-  // 中心の点（狙う位置をはっきりさせる）
-  ctx.beginPath()
-  ctx.arc(px, py, Math.max(1.5, r * 0.1), 0, Math.PI * 2)
-  ctx.fillStyle = 'rgba(255,255,255,0.85)'
-  ctx.fill()
-
-  // 縮んでくる外周リング
-  if (!late) {
-    const approachR = r * (1 + 1.8 * Math.max(0, 1 - progress))
-    ctx.beginPath()
-    ctx.arc(px, py, approachR, 0, Math.PI * 2)
-    ctx.strokeStyle = APPROACH_RING
-    ctx.lineWidth = Math.max(1.5, r * 0.1)
-    ctx.stroke()
+  const head = toPixels(note.x, note.y, rect)
+  if (!started) {
+    drawBody(ctx, head.px, head.py, r, DRAG_RING)
+    drawApproachRing(ctx, head.px, head.py, note, now, opts)
+  } else {
+    // 追いかける玉。ここに指を置いておく。
+    const at = dragPositionAt(note, Math.min(elapsed, duration))
+    const ball = toPixels(at.x, at.y, rect)
+    drawBody(ctx, ball.px, ball.py, r * 0.82, accent)
   }
 
-  if (opts.selected?.has(note.id)) {
-    ctx.globalAlpha = 1
-    ctx.beginPath()
-    ctx.arc(px, py, r * 1.35, 0, Math.PI * 2)
-    ctx.strokeStyle = SELECTED_RING
-    ctx.lineWidth = Math.max(2, r * 0.12)
-    ctx.setLineDash([r * 0.35, r * 0.25])
-    ctx.stroke()
-    ctx.setLineDash([])
-  }
-
+  if (opts.showHandles && opts.selected?.has(note.id)) drawDragHandles(ctx, rect, note, r)
+  if (opts.selected?.has(note.id)) drawSelection(ctx, head.px, head.py, r)
   ctx.restore()
+}
+
+function strokePath(
+  ctx: CanvasRenderingContext2D,
+  rect: StageRect,
+  note: DragNote,
+  fromDt: number,
+  toDt: number,
+): void {
+  const start = dragPositionAt(note, fromDt)
+  const first = toPixels(start.x, start.y, rect)
+  ctx.beginPath()
+  ctx.moveTo(first.px, first.py)
+  for (const p of note.path) {
+    if (p.dt <= fromDt) continue
+    if (p.dt > toDt) break
+    const at = toPixels(p.x, p.y, rect)
+    ctx.lineTo(at.px, at.py)
+  }
+  const last = dragPositionAt(note, toDt)
+  const lastPx = toPixels(last.x, last.y, rect)
+  ctx.lineTo(lastPx.px, lastPx.py)
+  ctx.stroke()
+}
+
+/** 通過点を動かせることを示す小さな丸（エディタで選択中のみ）。 */
+export function dragHandleRadius(noteRadiusPx: number): number {
+  return Math.max(9, noteRadiusPx * 0.32)
+}
+
+function drawDragHandles(
+  ctx: CanvasRenderingContext2D,
+  rect: StageRect,
+  note: DragNote,
+  r: number,
+): void {
+  const hr = dragHandleRadius(r)
+  ctx.globalAlpha = 1
+  for (const p of note.path) {
+    const at = toPixels(p.x, p.y, rect)
+    ctx.beginPath()
+    ctx.arc(at.px, at.py, hr, 0, Math.PI * 2)
+    ctx.fillStyle = 'rgba(10, 14, 24, 0.8)'
+    ctx.fill()
+    ctx.lineWidth = 2
+    ctx.strokeStyle = SELECTED_RING
+    ctx.stroke()
+  }
 }
 
 /** 編集モードで「まだ出現前」のノーツを薄く出す。 */
@@ -140,9 +352,18 @@ export function drawGhostNotes(
     const { px, py } = toPixels(note.x, note.y, rect)
     ctx.save()
     ctx.globalAlpha = 0.28
+    const color = selected?.has(note.id) ? SELECTED_RING : '#9fb6d0'
+    if (note.type === 'drag') {
+      ctx.lineJoin = 'round'
+      ctx.lineCap = 'round'
+      ctx.lineWidth = Math.max(1, radius * 0.12)
+      ctx.strokeStyle = color
+      ctx.setLineDash([radius * 0.3, radius * 0.3])
+      strokePath(ctx, rect, note, 0, noteDuration(note))
+    }
     ctx.beginPath()
     ctx.arc(px, py, radius, 0, Math.PI * 2)
-    ctx.strokeStyle = selected?.has(note.id) ? SELECTED_RING : '#9fb6d0'
+    ctx.strokeStyle = color
     ctx.lineWidth = Math.max(1, radius * 0.09)
     ctx.setLineDash([radius * 0.3, radius * 0.3])
     ctx.stroke()

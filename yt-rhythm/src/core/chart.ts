@@ -1,4 +1,5 @@
 import { newId } from './id.ts'
+import { MIN_DURATION_SEC } from './note.ts'
 import {
   APPROACH_RANGE,
   DEFAULT_DISPLAY,
@@ -8,6 +9,7 @@ import {
   type Chart,
   type ChartDisplay,
   type ChartTiming,
+  type DragPoint,
   type Note,
 } from './types.ts'
 
@@ -34,18 +36,26 @@ function roundPos(v: number): number {
   return Math.round(v * 10000) / 10000
 }
 
+/** 書き出し時の丸め。種別ごとの追加フィールドもここで整える。 */
+function roundNote(note: Note): Note {
+  const base = { ...note, time: roundTime(note.time), x: roundPos(note.x), y: roundPos(note.y) }
+  if (base.type === 'hold') return { ...base, duration: roundTime(base.duration) }
+  if (base.type === 'drag') {
+    return {
+      ...base,
+      path: base.path.map((p) => ({ dt: roundTime(p.dt), x: roundPos(p.x), y: roundPos(p.y) })),
+    }
+  }
+  return base
+}
+
 export function serializeChart(chart: Chart): string {
   const out: Chart = {
     formatVersion: FORMAT_VERSION,
     meta: { ...chart.meta },
     timing: { ...chart.timing },
     display: { ...chart.display },
-    notes: sortNotes(chart.notes).map((n) => ({
-      ...n,
-      time: roundTime(n.time),
-      x: roundPos(n.x),
-      y: roundPos(n.y),
-    })),
+    notes: sortNotes(chart.notes).map(roundNote),
   }
   if (chart.fx && chart.fx.length > 0) out.fx = chart.fx
   return JSON.stringify(out, null, 2)
@@ -104,6 +114,29 @@ function parseDisplay(raw: unknown): ChartDisplay {
   }
 }
 
+function parseDragPath(raw: unknown, index: number, warnings: string[]): DragPoint[] | null {
+  if (!Array.isArray(raw) || raw.length === 0) {
+    warnings.push(`notes[${index}] のなぞり経路がないので読み飛ばしました。`)
+    return null
+  }
+  const path: DragPoint[] = []
+  let prev = 0
+  for (const item of raw) {
+    const r = asRecord(item)
+    if (!r) continue
+    const dt = num(r.dt, NaN)
+    // dt は昇順である前提で判定・描画する。逆走している点は落とす。
+    if (!Number.isFinite(dt) || dt <= prev) continue
+    path.push({ dt, x: clamp01(num(r.x, 0.5)), y: clamp01(num(r.y, 0.5)) })
+    prev = dt
+  }
+  if (path.length === 0 || path[path.length - 1].dt < MIN_DURATION_SEC) {
+    warnings.push(`notes[${index}] のなぞり経路が短すぎるので読み飛ばしました。`)
+    return null
+  }
+  return path
+}
+
 function parseNote(raw: unknown, index: number, warnings: string[]): Note | null {
   const r = asRecord(raw)
   if (!r) {
@@ -111,7 +144,7 @@ function parseNote(raw: unknown, index: number, warnings: string[]): Note | null
     return null
   }
   const type = str(r.type, 'tap')
-  if (type !== 'tap') {
+  if (type !== 'tap' && type !== 'hold' && type !== 'drag') {
     // 将来の種別で作られた譜面でも、読める分だけ読む。
     warnings.push(`notes[${index}] の種別 "${type}" は未対応なので読み飛ばしました。`)
     return null
@@ -121,14 +154,26 @@ function parseNote(raw: unknown, index: number, warnings: string[]): Note | null
     warnings.push(`notes[${index}] に時刻がないので読み飛ばしました。`)
     return null
   }
-  const note: Note = {
-    id: str(r.id) || newId(),
-    type: 'tap',
-    time,
-    x: clamp01(num(r.x, 0.5)),
-    y: clamp01(num(r.y, 0.5)),
+  const id = str(r.id) || newId()
+  const x = clamp01(num(r.x, 0.5))
+  const y = clamp01(num(r.y, 0.5))
+  const fx = str(r.fx) || undefined
+
+  let note: Note
+  if (type === 'hold') {
+    const duration = num(r.duration, NaN)
+    if (!Number.isFinite(duration) || duration < MIN_DURATION_SEC) {
+      warnings.push(`notes[${index}] の長押しの長さが不正なので読み飛ばしました。`)
+      return null
+    }
+    note = { id, type: 'hold', time, x, y, duration }
+  } else if (type === 'drag') {
+    const path = parseDragPath(r.path, index, warnings)
+    if (!path) return null
+    note = { id, type: 'drag', time, x, y, path }
+  } else {
+    note = { id, type: 'tap', time, x, y }
   }
-  const fx = str(r.fx)
   if (fx) note.fx = fx
   return note
 }

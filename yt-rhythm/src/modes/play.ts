@@ -6,18 +6,27 @@ import {
   MISS_WINDOW,
   ScoreKeeper,
   judgeFor,
+  judgeForCoverage,
   rankFor,
   type Judgement,
   type ScoreSnapshot,
 } from '../core/judge.ts'
-import type { Chart, Note } from '../core/types.ts'
+import {
+  maxNoteDuration,
+  noteDuration,
+  noteEndPosition,
+  noteEndTime,
+  notePositionAt,
+  totalJudgeUnits,
+} from '../core/note.ts'
+import type { Chart, DragNote, HoldNote, Note } from '../core/types.ts'
 import { resolveDisplay, type ResolvedDisplay, type Settings } from '../core/settings.ts'
 import { sfx } from '../core/sfx.ts'
 import { EffectLayer } from '../render/effects.ts'
 import { drawHud, drawTimingBar } from '../render/hud.ts'
 import { clearCanvas, drawDim, drawNotes } from '../render/renderer.ts'
 import { button, h, toast } from '../ui/dom.ts'
-import { Stage } from '../ui/stage.ts'
+import { Stage, type StagePointer } from '../ui/stage.ts'
 
 export interface PlayScreenOptions {
   chart: Chart
@@ -31,6 +40,25 @@ export interface PlayScreenOptions {
 const LEAD_IN_SEC = 3
 /** この数ごとにコンボ演出を出す。 */
 const COMBO_MILESTONE = 25
+/** 長押しで指がずれてもよい範囲（当たり判定半径の倍率）。 */
+const HOLD_SLACK = 1.7
+/** なぞりで玉から離れてよい範囲（当たり判定半径の倍率）。 */
+const DRAG_SLACK = 1.3
+
+/** 押しっぱなしで追いかけている最中の hold / drag。 */
+interface Trace {
+  note: HoldNote | DragNote
+  pointerId: number
+  /** 追えていた時間の合計（秒）。 */
+  heldSec: number
+  /** ここまで数えた判定時刻。 */
+  lastT: number
+  /** 最後に分かった指の位置（ステージ内ピクセル）。 */
+  px: number
+  py: number
+  /** いま追えているか（描画の色に使う）。 */
+  onTarget: boolean
+}
 
 export class PlayScreen {
   readonly root: HTMLElement
@@ -38,7 +66,14 @@ export class PlayScreen {
   private readonly clock = new MediaClock()
   private readonly effects = new EffectLayer()
   private readonly notes: Note[]
-  private readonly judged = new Set<string>()
+  /** 始点の判定が済んだノーツ。 */
+  private readonly headJudged = new Set<string>()
+  /** すべての判定が済んで、もう描かないノーツ。 */
+  private readonly resolved = new Set<string>()
+  /** 追いかけ中の hold / drag。指ごとに 1 本。 */
+  private readonly traces = new Map<number, Trace>()
+  private readonly maxDuration: number
+  private readonly lastEndTime: number
   private score: ScoreKeeper
   private missCursor = 0
   private recentDeltas: number[] = []
@@ -61,11 +96,15 @@ export class PlayScreen {
   constructor(private readonly opts: PlayScreenOptions) {
     this.notes = sortNotes(opts.chart.notes)
     this.display = resolveDisplay(opts.chart, opts.settings)
-    this.score = new ScoreKeeper(this.notes.length)
+    this.score = new ScoreKeeper(totalJudgeUnits(this.notes))
+    this.maxDuration = maxNoteDuration(this.notes)
+    this.lastEndTime = this.notes.reduce((max, n) => Math.max(max, noteEndTime(n)), 0)
     this.startTime = Math.max(0, (this.notes[0]?.time ?? 0) - LEAD_IN_SEC)
 
     this.stage = new Stage({
-      onPointerDown: (p) => this.handleTap(p.px, p.py),
+      onPointerDown: (p) => this.handlePointerDown(p),
+      onPointerMove: (p) => this.handlePointerMove(p),
+      onPointerUp: (p) => this.handlePointerUp(p),
       onStateChange: (state) => this.handlePlayerState(state),
       onError: (message) => {
         toast(message, 'error')
@@ -136,10 +175,21 @@ export class PlayScreen {
           meta.author ? ` ・ 作: ${meta.author}` : ''
         }`,
       }),
-      h('p', { class: 'muted small', text: '円が重なった瞬間にタップ。横向き画面がおすすめ。' }),
+      h('p', { class: 'muted small', text: this.howToPlayText() }),
       button('▶ スタート', () => this.begin(), 'btn btn-primary btn-big'),
       button('やめる', () => this.exit(), 'btn btn-ghost'),
     ])
+  }
+
+  /** 譜面に入っている種別に合わせて遊び方を出す。 */
+  private howToPlayText(): string {
+    const kinds = new Set(this.notes.map((n) => n.type))
+    const extra = [
+      kinds.has('hold') ? '紫は輪がなくなるまで押しっぱなし' : null,
+      kinds.has('drag') ? '緑は玉を指で追いかける' : null,
+    ].filter((s): s is string => s !== null)
+    const base = '円が重なった瞬間にタップ'
+    return `${[base, ...extra].join('。')}。横向き画面がおすすめ。`
   }
 
   private buildErrorOverlay(message: string): HTMLElement {
@@ -170,6 +220,7 @@ export class PlayScreen {
       this.pauseBtn.textContent = '⏸'
     } else if (state === 'paused') {
       this.clock.stop(this.stage.player.getTime())
+      this.flushTraces()
       this.running = false
       this.pauseBtn.textContent = '▶'
     } else if (state === 'ended') {
@@ -178,6 +229,7 @@ export class PlayScreen {
     } else if (state === 'buffering') {
       // バッファ中は時計を止め、復帰時に取り直す。
       this.clock.stop(this.stage.player.getTime())
+      this.flushTraces()
       this.running = false
     }
   }
@@ -209,8 +261,10 @@ export class PlayScreen {
   }
 
   private restart(): void {
-    this.judged.clear()
-    this.score = new ScoreKeeper(this.notes.length)
+    this.headJudged.clear()
+    this.resolved.clear()
+    this.traces.clear()
+    this.score = new ScoreKeeper(totalJudgeUnits(this.notes))
     this.missCursor = 0
     this.recentDeltas = []
     this.effects.clear()
@@ -253,14 +307,14 @@ export class PlayScreen {
     this.clock.sample(this.stage.player.getTime())
     if (this.running) {
       this.contentStarted = true
+      this.updateTraces()
       this.checkMisses()
     }
     this.effects.update(dt)
     this.draw()
 
-    if (!this.finished && this.running) {
-      const last = this.notes[this.notes.length - 1]
-      if (last && this.judgeTime() > last.time + MISS_WINDOW + 1.5) this.finish()
+    if (!this.finished && this.running && this.notes.length > 0) {
+      if (this.judgeTime() > this.lastEndTime + MISS_WINDOW + 1.5) this.finish()
     }
   }
 
@@ -280,6 +334,8 @@ export class PlayScreen {
 
   private leaveAd(): void {
     this.adPaused = false
+    // 広告をまたいで押しっぱなしは続かないので、追いかけ中のノーツは畳む。
+    this.flushTraces()
     this.adBanner.classList.add('hidden')
     this.stage.setPlayerInteractive(false)
     const resumeAt = Math.max(this.startTime, this.adResumeAt - 1)
@@ -293,22 +349,26 @@ export class PlayScreen {
     while (this.missCursor < this.notes.length) {
       const note = this.notes[this.missCursor]
       if (note.time + MISS_WINDOW >= t) break
-      if (!this.judged.has(note.id)) this.applyJudgement(note, 'miss', 0)
+      // 始点を押せなかったノーツは、続きの判定もまとめて落とす。
+      if (!this.headJudged.has(note.id)) {
+        this.headJudged.add(note.id)
+        this.applyJudgement(note, 'miss', 0, { x: note.x, y: note.y })
+        if (note.type !== 'tap') this.applyJudgement(note, 'miss', 0, noteEndPosition(note))
+        this.resolved.add(note.id)
+      }
       this.missCursor += 1
     }
   }
 
-  private handleTap(px: number, py: number): void {
-    if (!this.running || this.finished) return
-    const t = this.judgeTime()
+  /** 押した位置と時刻から、いま叩けるノーツを 1 つ選ぶ。 */
+  private pickHit(px: number, py: number, t: number): Note | null {
     const radius = hitRadius(this.stage.rect, this.opts.settings)
     let best: Note | null = null
     let bestDelta = Number.POSITIVE_INFINITY
-
     for (let i = lowerBound(this.notes, t - MISS_WINDOW); i < this.notes.length; i += 1) {
       const note = this.notes[i]
       if (note.time > t + MISS_WINDOW) break
-      if (this.judged.has(note.id)) continue
+      if (this.headJudged.has(note.id)) continue
       const dx = note.x * this.stage.rect.width - px
       const dy = note.y * this.stage.rect.height - py
       if (dx * dx + dy * dy > radius * radius) continue
@@ -318,24 +378,115 @@ export class PlayScreen {
         bestDelta = delta
       }
     }
+    return best
+  }
+
+  private handlePointerDown(p: StagePointer): void {
+    if (!this.running || this.finished) return
+    const t = this.judgeTime()
+    const best = this.pickHit(p.px, p.py, t)
     if (!best) return
     const signed = t - best.time
     const judgement = judgeFor(signed)
     if (!judgement) return
-    this.applyJudgement(best, judgement, signed)
+
+    this.headJudged.add(best.id)
+    this.applyJudgement(best, judgement, signed, { x: best.x, y: best.y })
+    if (best.type === 'tap') {
+      this.resolved.add(best.id)
+      return
+    }
+    // 長押し・なぞりはここから指を追いかける。
+    this.traces.set(p.pointerId, {
+      note: best,
+      pointerId: p.pointerId,
+      heldSec: 0,
+      lastT: Math.max(best.time, t),
+      px: p.px,
+      py: p.py,
+      onTarget: true,
+    })
   }
 
-  private applyJudgement(note: Note, judgement: Judgement, delta: number): void {
-    this.judged.add(note.id)
+  /** 再生が途切れたら、追いかけ中のノーツをその時点で確定させる。 */
+  private flushTraces(): void {
+    if (this.traces.size === 0) return
+    const t = this.judgeTime()
+    for (const trace of [...this.traces.values()]) this.finishTrace(trace, t)
+  }
+
+  private handlePointerMove(p: StagePointer): void {
+    const trace = this.traces.get(p.pointerId)
+    if (!trace) return
+    trace.px = p.px
+    trace.py = p.py
+  }
+
+  private handlePointerUp(p: StagePointer): void {
+    const trace = this.traces.get(p.pointerId)
+    if (!trace) return
+    this.finishTrace(trace, this.judgeTime())
+  }
+
+  /** 指が「追えている」位置にいるか。 */
+  private onTarget(trace: Trace, t: number): boolean {
+    const note = trace.note
+    const dt = Math.max(0, Math.min(noteDuration(note), t - note.time))
+    const at = notePositionAt(note, dt)
+    const slack = hitRadius(this.stage.rect, this.opts.settings) *
+      (note.type === 'hold' ? HOLD_SLACK : DRAG_SLACK)
+    const dx = at.x * this.stage.rect.width - trace.px
+    const dy = at.y * this.stage.rect.height - trace.py
+    return dx * dx + dy * dy <= slack * slack
+  }
+
+  /**
+   * 追いかけ中のノーツを進める。pointermove は指を止めると来ないので、
+   * 時間の加算はここ（毎フレーム）で行う。
+   */
+  private updateTraces(): void {
+    if (this.traces.size === 0) return
+    const t = this.judgeTime()
+    for (const trace of [...this.traces.values()]) {
+      const end = noteEndTime(trace.note)
+      const upTo = Math.min(t, end)
+      trace.onTarget = this.onTarget(trace, upTo)
+      const step = upTo - trace.lastT
+      if (step > 0 && trace.onTarget) trace.heldSec += step
+      if (step > 0) trace.lastT = upTo
+      if (t >= end) this.finishTrace(trace, end)
+    }
+  }
+
+  /** 指を離した / 終端に達したときに、追えていた割合から続きの判定を出す。 */
+  private finishTrace(trace: Trace, at: number): void {
+    this.traces.delete(trace.pointerId)
+    const note = trace.note
+    const end = noteEndTime(note)
+    const duration = noteDuration(note)
+    // 終わり際の離しは追い切ったものとして数える。
+    const remaining = Math.max(0, end - at)
+    const credited = remaining <= MISS_WINDOW ? trace.heldSec + remaining : trace.heldSec
+    const ratio = duration > 0 ? credited / duration : 1
+    this.applyJudgement(note, judgeForCoverage(ratio), 0, noteEndPosition(note))
+    this.resolved.add(note.id)
+  }
+
+  private applyJudgement(
+    note: Note,
+    judgement: Judgement,
+    delta: number,
+    at: { x: number; y: number },
+  ): void {
     this.score.add(judgement)
-    if (judgement !== 'miss') {
+    if (judgement !== 'miss' && delta !== 0) {
       this.recentDeltas.push(delta)
       if (this.recentDeltas.length > 24) this.recentDeltas.shift()
     }
     const radius = noteRadius(this.stage.rect, this.opts.settings)
     this.effects.spawn(note.fx, {
-      px: note.x * this.stage.rect.width,
-      py: note.y * this.stage.rect.height,
+      px: at.x * this.stage.rect.width,
+      py: at.y * this.stage.rect.height,
       radius,
       judgement,
     })
@@ -360,15 +511,20 @@ export class PlayScreen {
     clearCanvas(ctx, rect)
     drawDim(ctx, rect, this.display.dimOpacity)
     const t = this.judgeTime()
+    const holding = new Set<string>()
+    for (const trace of this.traces.values()) {
+      if (trace.onTarget) holding.add(trace.note.id)
+    }
     drawNotes(ctx, rect, this.notes, t, {
       approachSec: this.approachSec,
       radius: noteRadius(rect, this.opts.settings),
-      hidden: this.judged,
+      hidden: this.resolved,
+      holding,
+      maxDurationSec: this.maxDuration,
     })
     this.effects.draw(ctx, rect)
 
-    const last = this.notes[this.notes.length - 1]
-    const span = (last?.time ?? 1) - this.startTime
+    const span = (this.notes.length > 0 ? this.lastEndTime : 1) - this.startTime
     drawHud(ctx, rect, this.score.snapshot(), span > 0 ? (t - this.startTime) / span : 0)
     drawTimingBar(ctx, rect, this.recentDeltas, MISS_WINDOW)
   }
