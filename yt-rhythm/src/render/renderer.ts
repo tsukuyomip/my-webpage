@@ -16,10 +16,10 @@ const HOLD_RING = '#b07cff'
 const DRAG_RING = '#4ee9a4'
 /** 追えているあいだの色。 */
 const ACTIVE_RING = '#8dffb3'
+/** 溜めゲージの空の部分。ここが埋まっていく。 */
+const GAUGE_TRACK = 'rgba(255, 255, 255, 0.2)'
 /** 溜め切る直前の色。ここへ寄せて「もう少し」を伝える。 */
 const CHARGE_FULL = '#ffd54a'
-/** 溜めゲージの半径（ノーツ半径に対する倍率）。 */
-const GAUGE_RATIO = 1.34
 
 /** 2 色を混ぜる。溜まり具合で色を寄せるのに使う。 */
 function mixHex(a: string, b: string, t: number): string {
@@ -33,8 +33,9 @@ function mixHex(a: string, b: string, t: number): string {
   }
   return `rgb(${ch(16)}, ${ch(8)}, ${ch(0)})`
 }
-const HOLD_TRACK = 'rgba(255, 255, 255, 0.16)'
 
+/** 接近リングがどこまで外へ広がるか（ノーツ半径に対する倍率）。 */
+const APPROACH_SPREAD = 1.8
 /** 接近リングの透過度。出た瞬間は薄く、判定時刻に向かってはっきりさせる。 */
 const APPROACH_ALPHA = { from: 0.4, to: 0.9 }
 /** 中心から満ちていく予告の透過度。 */
@@ -135,11 +136,20 @@ function noteAlpha(note: Note, now: number, opts: NoteRenderOptions): number {
 }
 
 /**
- * 長押し・なぞりの接近予兆。細い輪だとタップと見分けがつかないので、
- * **線の太さが押さえる時間になっている極太の輪**として描く。
- * 内外にぼかしを入れるので、輪というよりハレーションのように見える。
+ * 長押し・なぞりの接近予兆。**半径を時間軸として使う**。
+ *
+ * ある時刻がどの半径に見えるかは、タップの接近リングとまったく同じ式。
+ * そのうえで
+ *
+ * - 内側の境界 = タップ時刻。タップと同じように迫ってきて、判定時刻に円へ着く
+ * - 外側の境界 = リリース時刻。押している間も迫り続け、離す時刻に円へ着く
+ * - その間だけをハレーションで埋める
+ *
+ * 帯の厚みが押さえる時間そのものになり、押している間は外の境界が吸い込まれて
+ * いく。境界はぼかさずはっきり描く。押す時刻と離す時刻はいちばん読みたい情報で、
+ * グラデーションにすると「いつ」が消えてしまう。
  */
-function drawLongApproachHalo(
+function drawLongTimeBand(
   ctx: CanvasRenderingContext2D,
   px: number,
   py: number,
@@ -148,28 +158,46 @@ function drawLongApproachHalo(
   opts: NoteRenderOptions,
   color: string,
 ): void {
-  const remaining = note.time - now
-  if (remaining <= 0) return
   const r = opts.radius
-  const ringR = r * (1 + 1.8 * Math.min(1, remaining / opts.approachSec))
-  // 押さえる時間がそのまま輪の太さになる。長いノーツほど分厚く見える。
-  const thickness = r * Math.max(0.3, Math.min(1.5, 0.3 + noteDuration(note) * 0.5))
-  const inner = Math.max(0.1, ringR - thickness)
-  const outer = ringR + thickness
-  const p = approachProgress(note, now, opts.approachSec)
-  const peak = (APPROACH_ALPHA.from + (APPROACH_ALPHA.to - APPROACH_ALPHA.from) * p) * 0.75
+  const radiusAt = (t: number) =>
+    r * (1 + APPROACH_SPREAD * Math.max(0, Math.min(1, (t - now) / opts.approachSec)))
+  const inner = radiusAt(note.time)
+  const outer = radiusAt(noteEndTime(note))
+  if (outer - inner < 0.5) return
 
-  const halo = ctx.createRadialGradient(px, py, inner, px, py, outer)
-  halo.addColorStop(0, withAlpha(color, 0))
-  halo.addColorStop(0.5, withAlpha(color, peak))
-  halo.addColorStop(1, withAlpha(color, 0))
+  const p = approachProgress(note, now, opts.approachSec)
+  const edge = APPROACH_ALPHA.from + (APPROACH_ALPHA.to - APPROACH_ALPHA.from) * p
+
+  // 帯の中身。内側を強く、外へ抜けるほど薄く。形が境界を切るので端は立つ。
   ctx.save()
-  ctx.globalCompositeOperation = 'lighter'
-  ctx.fillStyle = halo
   ctx.beginPath()
   ctx.arc(px, py, outer, 0, Math.PI * 2)
+  ctx.arc(px, py, inner, 0, Math.PI * 2, true)
+  ctx.closePath()
+  const halo = ctx.createRadialGradient(px, py, inner, px, py, outer)
+  halo.addColorStop(0, withAlpha(color, edge * 0.55))
+  halo.addColorStop(0.45, withAlpha(color, edge * 0.28))
+  halo.addColorStop(1, withAlpha(color, edge * 0.12))
+  ctx.fillStyle = halo
   ctx.fill()
   ctx.restore()
+
+  // 押す時刻の境界。円に重なるまでは、タップと同じ細い線として迫らせる。
+  if (inner > r + 1) {
+    ctx.beginPath()
+    ctx.arc(px, py, inner, 0, Math.PI * 2)
+    ctx.strokeStyle = withAlpha(color, Math.min(1, edge * 1.1))
+    ctx.lineWidth = Math.max(1.5, r * 0.1)
+    ctx.stroke()
+  }
+  // 離す時刻の境界。
+  if (outer > r + 1) {
+    ctx.beginPath()
+    ctx.arc(px, py, outer, 0, Math.PI * 2)
+    ctx.strokeStyle = withAlpha(color, edge * 0.8)
+    ctx.lineWidth = Math.max(1.5, r * 0.075)
+    ctx.stroke()
+  }
 }
 
 /** 判定時刻に向かって縮んでくる外周リング。どの種別でも同じ。 */
@@ -185,7 +213,7 @@ function drawApproachRing(
   if (remaining <= 0) return
   const r = opts.radius
   const p = approachProgress(note, now, opts.approachSec)
-  const approachR = r * (1 + 1.8 * Math.min(1, remaining / opts.approachSec))
+  const approachR = r * (1 + APPROACH_SPREAD * Math.min(1, remaining / opts.approachSec))
   ctx.beginPath()
   ctx.arc(px, py, approachR, 0, Math.PI * 2)
   // 濃さを一定にすると、遠いノーツも近いノーツも同じ強さで目に入って読みにくい。
@@ -418,33 +446,6 @@ export function drawHoldNote(
   ctx.save()
   ctx.globalAlpha = alpha
 
-  // 溜めゲージ。空の溝を敷いてから、溜まったぶんを上から時計回りに重ねる。
-  const gaugeR = r * GAUGE_RATIO * pulse
-  ctx.lineWidth = Math.max(4, r * 0.26)
-  ctx.lineCap = 'butt'
-  ctx.beginPath()
-  ctx.arc(px, py, gaugeR, 0, Math.PI * 2)
-  ctx.strokeStyle = HOLD_TRACK
-  ctx.stroke()
-  if (charge > 0) {
-    ctx.beginPath()
-    ctx.arc(px, py, gaugeR, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * charge)
-    ctx.strokeStyle = accent
-    ctx.stroke()
-    // 溜まっている先端を光らせて、進んでいることを分かりやすくする。
-    if (holding) {
-      const tip = -Math.PI / 2 + Math.PI * 2 * charge
-      ctx.save()
-      ctx.globalCompositeOperation = 'lighter'
-      ctx.globalAlpha = alpha * 0.9
-      ctx.beginPath()
-      ctx.arc(px + Math.cos(tip) * gaugeR, py + Math.sin(tip) * gaugeR, r * 0.16, 0, Math.PI * 2)
-      ctx.fillStyle = accent
-      ctx.fill()
-      ctx.restore()
-    }
-  }
-
   // 押している間は芯が光る。溜まるほど強くする。
   if (holding) {
     ctx.save()
@@ -461,12 +462,36 @@ export function drawHoldNote(
     ctx.restore()
   }
 
-  // ハローは本体より先に敷く。あとから加算すると本体の色が白く飛ぶ。
-  drawLongApproachHalo(ctx, px, py, note, now, opts, HOLD_RING)
-  drawBody(ctx, px, py, r * pulse, accent, {
+  // 帯は本体より先に敷く。あとから加算すると本体の色が白く飛ぶ。
+  drawLongTimeBand(ctx, px, py, note, now, opts, HOLD_RING)
+  // 押し始めたら、本体の輪はいったん空の溝にする。溜まった分だけを
+  // 明るく上書きするので、どこまで溜まったかが輪そのもので読める。
+  drawBody(ctx, px, py, r * pulse, started ? GAUGE_TRACK : accent, {
     fill: started ? undefined : approachProgress(note, now, opts.approachSec),
     style: 'long',
   })
+
+  // 溜めゲージは本体の輪の上に重ねる。外側は時刻の帯が使うので場所を譲る。
+  if (charge > 0) {
+    const gaugeR = r * pulse
+    const tip = -Math.PI / 2 + Math.PI * 2 * charge
+    ctx.save()
+    ctx.lineCap = 'butt'
+    ctx.lineWidth = Math.max(3, r * 0.24)
+    ctx.strokeStyle = accent
+    ctx.beginPath()
+    ctx.arc(px, py, gaugeR, -Math.PI / 2, tip)
+    ctx.stroke()
+    if (holding) {
+      // 溜まっている先端を光らせて、進んでいることを分かりやすくする。
+      ctx.globalCompositeOperation = 'lighter'
+      ctx.beginPath()
+      ctx.arc(px + Math.cos(tip) * gaugeR, py + Math.sin(tip) * gaugeR, r * 0.16, 0, Math.PI * 2)
+      ctx.fillStyle = accent
+      ctx.fill()
+    }
+    ctx.restore()
+  }
   if (opts.selected?.has(note.id)) drawSelection(ctx, px, py, r)
   ctx.restore()
 }
@@ -599,7 +624,7 @@ export function drawDragNote(
   const head = toPixels(note.x, note.y, rect)
   if (!started) {
     // 頭は押す場所なので、いつ押すかの手がかりは残す。
-    drawLongApproachHalo(ctx, head.px, head.py, note, now, opts, DRAG_RING)
+    drawLongTimeBand(ctx, head.px, head.py, note, now, opts, DRAG_RING)
     drawBody(ctx, head.px, head.py, r, DRAG_RING, {
       fill: approachProgress(note, now, opts.approachSec),
       style: 'long',

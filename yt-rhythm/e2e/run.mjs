@@ -654,20 +654,23 @@ async function testApproachTelegraph(browser) {
   await page.context().close()
 }
 
-/** 溜めゲージ上の一点の明るさ。charge が進むとここが塗られる。 */
-const gaugePixel = (page, nx, ny, charge) =>
-  page.evaluate(([x, y, c]) => {
+/**
+ * ノーツ中心から radii 倍の距離・角度 turn（0..1、真上から時計回り）の明るさ。
+ * 溜めゲージは輪の上（1.0 倍）に、時刻の帯はその外側にある。
+ */
+const ringPixel = (page, nx, ny, turn, radii) =>
+  page.evaluate(([x, y, c, k]) => {
     const el = document.querySelector('.stage-canvas')
     const ctx = el.getContext('2d')
-    const gauge = 0.062 * 1.34 * el.width // NOTE_RADIUS_RATIO × GAUGE_RATIO
+    const radius = 0.062 * k * el.width // NOTE_RADIUS_RATIO
     const angle = -Math.PI / 2 + Math.PI * 2 * c
-    const px = Math.round(x * el.width + Math.cos(angle) * gauge)
-    const py = Math.round(y * el.height + Math.sin(angle) * gauge)
+    const px = Math.round(x * el.width + Math.cos(angle) * radius)
+    const py = Math.round(y * el.height + Math.sin(angle) * radius)
     const d = ctx.getImageData(px - 3, py - 3, 6, 6).data
     let sum = 0
     for (let i = 0; i < d.length; i += 4) sum += d[i] + d[i + 1] + d[i + 2]
     return sum / (d.length / 4)
-  }, [nx, ny, charge])
+  }, [nx, ny, turn, radii])
 
 async function testHoldCharge(browser) {
   console.log('\n[13] プレイ: 長押しは減らずに溜まる')
@@ -686,14 +689,21 @@ async function testHoldCharge(browser) {
 
   // ゲージの 62% 地点（左下）を、溜まる前と溜まったあとで比べる
   await waitTime(page, 6.6) // charge 0.2
-  const early = await gaugePixel(page, 0.5, 0.5, 0.62)
+  const early = await ringPixel(page, 0.5, 0.5, 0.62, 1)
+  const bandEarly = await ringPixel(page, 0.5, 0.5, 0.25, 1.8)
   await waitTime(page, 8.7) // charge 0.9
-  const late = await gaugePixel(page, 0.5, 0.5, 0.62)
+  const late = await ringPixel(page, 0.5, 0.5, 0.62, 1)
+  const bandLate = await ringPixel(page, 0.5, 0.5, 0.25, 1.8)
   await page.mouse.up()
 
   check('溜まった側が明るくなる（減る向きではない）', late > early * 2, `${early.toFixed(0)} → ${late.toFixed(0)}`)
-  // 空の溝と芯の光でいくらか明るいので、溜まった側との比で見る。
   check('押し始めはまだ塗られていない', early < late * 0.6, `${early.toFixed(0)} vs ${late.toFixed(0)}`)
+  // 外側の境界（リリース時刻）は押している間に吸い込まれてくる。
+  check(
+    'リリース時刻の境界が近づいてくる',
+    bandEarly > bandLate * 2,
+    `半径1.8倍の明るさ ${bandEarly.toFixed(0)} → ${bandLate.toFixed(0)}`,
+  )
 
   const counts = await readResult(page)
   check('最後まで押さえ切れる', counts.miss === 0, JSON.stringify(counts))
