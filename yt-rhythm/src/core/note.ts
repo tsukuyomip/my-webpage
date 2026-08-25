@@ -3,9 +3,6 @@ import type { DragNote, HoldNote, Note } from './types.ts'
 
 /** 長押し・なぞりの最短の長さ（秒）。これより短いと押しっぱなしを判定できない。 */
 export const MIN_DURATION_SEC = 0.1
-/** 長さを指定せずに置いたときの既定（秒）。BPM があれば 1 拍が優先される。 */
-export const DEFAULT_HOLD_SEC = 0.5
-
 /** ノーツが占める長さ（秒）。tap は 0。 */
 export function noteDuration(note: Note): number {
   if (note.type === 'hold') return Math.max(0, note.duration)

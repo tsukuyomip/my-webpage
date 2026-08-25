@@ -4,7 +4,6 @@ import { saveDraft } from '../core/draft.ts'
 import { clamp01, hitRadius, noteRadius } from '../core/geometry.ts'
 import { newId } from '../core/id.ts'
 import {
-  DEFAULT_HOLD_SEC,
   MIN_DURATION_SEC,
   maxNoteDuration,
   moveNoteTo,
@@ -20,7 +19,7 @@ import {
   NOTE_TYPE_LABEL,
   type Chart,
   type DragNote,
-  type HoldNote,
+  type DragPoint,
   type Note,
 } from '../core/types.ts'
 import {
@@ -42,51 +41,52 @@ export interface EditScreenOptions {
   onPlaytest: (chart: Chart) => void
 }
 
-type Tool = 'tap' | 'hold' | 'drag' | 'select'
+type Tool = 'place' | 'select'
 
-/** 打ち込み中のノーツ。押していた時間がそのまま長さになる。 */
+/**
+ * 打ち込み中のジェスチャ。種別は最後まで決めず、押していた時間と
+ * 動いた距離から毎フレーム決め直す（押している間そのまま見える）。
+ */
 interface Recording {
-  note: HoldNote | DragNote
+  id: string
+  time: number
+  x: number
+  y: number
   startMs: number
-  lastMs: number
+  /** 間引いて記録した通過点。ドラッグになったときに経路として使う。 */
+  points: DragPoint[]
+  /** 最後に点を記録した時刻。 */
+  lastPointMs: number
+  /** 最後に見たポインタ位置（正規化座標）。 */
   lastX: number
   lastY: number
+  /** 指が動いた総距離（正規化座標）。 */
+  moved: number
 }
 
 function formatDim(v: number): string {
   return v <= 0 ? 'なし' : `${Math.round(v * 100)}%`
 }
 
-/** なぞりの総移動距離（正規化座標）。短すぎる打ち込みを弾くのに使う。 */
-function pathLength(note: DragNote): number {
-  let total = 0
-  let px = note.x
-  let py = note.y
-  for (const p of note.path) {
-    total += Math.hypot(p.x - px, p.y - py)
-    px = p.x
-    py = p.y
-  }
-  return total
-}
 
 const RATES = [0.25, 0.5, 0.75, 1]
 const UNDO_LIMIT = 100
 /** 一度の seek 要求をまとめる間隔（ms）。 */
 const SEEK_THROTTLE_MS = 90
-/** これより短く押しただけなら、長さは既定値にする（秒）。 */
-const QUICK_PRESS_SEC = 0.15
+/**
+ * 種別を決めるしきい値。1 つのツールで置き分けるので、ここが操作感そのものになる。
+ * これより短い押し込みはタップ。
+ */
+const TAP_MAX_SEC = 0.25
+/** ノーツ半径のこの倍だけ指が動いたらドラッグ扱い。 */
+const DRAG_MOVE_RADII = 1
 /** なぞりの通過点を記録する間隔。細かすぎる点は間引く。 */
 const PATH_MIN_DIST = 0.018
 const PATH_MIN_MS = 40
 const PATH_MAX_POINTS = 96
-/** これだけ動かさないと「なぞり」として成立しない（正規化座標の総移動距離）。 */
-const DRAG_MIN_LENGTH = 0.05
 
 const TOOL_HINT: Record<Tool, string> = {
-  tap: '画面をタップして単発ノーツを置く。',
-  hold: '押し始めた位置に長押しノーツを置く。押していた時間がそのまま長さになる（さっと押すと 1 拍）。',
-  drag: '押したまま指を動かすと、その軌跡と速さがそのままなぞりノーツになる。',
+  place: `画面を押して置く。短く押す＝タップ、${TAP_MAX_SEC} 秒以上＝ホールド、押したままなぞる＝ドラッグ。押している間、いまどれになるかがそのまま見える。`,
   select: 'ノーツを掴んで移動。なぞりは選ぶと通過点を動かせる。時刻はタイムラインで調整する。',
 }
 
@@ -96,7 +96,7 @@ export class EditScreen {
   private readonly timeline: Timeline
   private readonly clock = new MediaClock()
   private chart: Chart
-  private tool: Tool = 'tap'
+  private tool: Tool = 'place'
   private selectedId: string | null = null
   private snapOn = false
   private playing = false
@@ -200,9 +200,7 @@ export class EditScreen {
     ])
     this.inspector = h('div', { class: 'panel-row inspector hidden' })
     this.toolButtons = {
-      tap: button('＋ タップ', () => this.setTool('tap'), 'btn btn-toggle'),
-      hold: button('＋ ホールド', () => this.setTool('hold'), 'btn btn-toggle'),
-      drag: button('＋ ドラッグ', () => this.setTool('drag'), 'btn btn-toggle'),
+      place: button('＋ 配置', () => this.setTool('place'), 'btn btn-toggle'),
       select: button('↖ 選択', () => this.setTool('select'), 'btn btn-toggle'),
     }
     this.toolHint = h('p', { class: 'muted small tool-hint' })
@@ -219,7 +217,7 @@ export class EditScreen {
       this.buildPanel(),
     ])
 
-    this.setTool('tap')
+    this.setTool('place')
     // 読み込んだ譜面のノーツ数を最初から出す。
     this.markDirty(false)
     this.refreshInspector()
@@ -388,98 +386,112 @@ export class EditScreen {
     return this.chart.notes.find((n) => n.id === id)
   }
 
-  private addTap(x: number, y: number): void {
-    this.pushUndo()
-    const note: Note = {
-      id: newId(),
-      type: 'tap',
-      time: Math.max(0, this.snap(this.chartTime())),
-      x: clamp01(x),
-      y: clamp01(y),
-    }
-    this.chart.notes = sortNotes([...this.chart.notes, note])
-    this.selectedId = note.id
-    this.markDirty()
-  }
-
-  /** 長さを指定せずに置いたときの長さ。BPM があれば 1 拍。 */
-  private defaultDurationSec(): number {
-    const bpm = this.chart.timing.bpm
-    return bpm && bpm > 0 ? 60 / bpm : DEFAULT_HOLD_SEC
+  /** ドラッグと見なす移動距離（正規化座標）。ノーツ半径を基準にする。 */
+  private dragThreshold(): number {
+    const r = noteRadius(this.stage.rect, this.opts.settings) * DRAG_MOVE_RADII
+    return this.stage.rect.width > 0 ? r / this.stage.rect.width : 0.06
   }
 
   /**
-   * ホールド / ドラッグの打ち込み開始。押していた実時間がそのまま長さになり、
-   * ドラッグは指の軌跡がそのまま経路になる（動画を止めたままでも描ける）。
+   * 打ち込み開始。この時点ではまだ種別を決めない。
+   * 離すまでのあいだ、押していた時間と動いた距離から毎フレーム決め直す。
    */
   private beginRecording(x: number, y: number): void {
     this.pushUndo()
-    const time = Math.max(0, this.snap(this.chartTime()))
-    const head = { id: newId(), time, x: clamp01(x), y: clamp01(y) }
-    const note: HoldNote | DragNote =
-      this.tool === 'hold'
-        ? { ...head, type: 'hold', duration: MIN_DURATION_SEC }
-        : { ...head, type: 'drag', path: [] }
-    this.chart.notes = sortNotes([...this.chart.notes, note])
-    this.selectedId = note.id
     const now = performance.now()
-    this.recording = { note, startMs: now, lastMs: now, lastX: note.x, lastY: note.y }
-    // 打ち込みの途中は自動保存しない（まだ形になっていないため）。
+    this.recording = {
+      id: newId(),
+      time: Math.max(0, this.snap(this.chartTime())),
+      x: clamp01(x),
+      y: clamp01(y),
+      startMs: now,
+      points: [],
+      lastPointMs: now,
+      lastX: clamp01(x),
+      lastY: clamp01(y),
+      moved: 0,
+    }
+    this.chart.notes = sortNotes([...this.chart.notes, this.buildRecordingNote()])
+    this.selectedId = this.recording.id
+    // 打ち込みの途中は自動保存しない（まだ形が決まっていないため）。
     this.markDirty(false)
   }
 
-  private recordDragPoint(x: number, y: number): void {
+  private recordMove(x: number, y: number): void {
     const rec = this.recording
-    if (!rec || rec.note.type !== 'drag') return
-    if (rec.note.path.length >= PATH_MAX_POINTS) return
-    const now = performance.now()
+    if (!rec) return
     const nx = clamp01(x)
     const ny = clamp01(y)
-    const moved = Math.hypot(nx - rec.lastX, ny - rec.lastY)
-    if (moved < PATH_MIN_DIST && now - rec.lastMs < PATH_MIN_MS) return
-    const dt = (now - rec.startMs) / 1000
-    const last = rec.note.path[rec.note.path.length - 1]
-    if (last && dt <= last.dt + 0.005) return
-    rec.note.path.push({ dt, x: nx, y: ny })
-    rec.lastMs = now
+    rec.moved += Math.hypot(nx - rec.lastX, ny - rec.lastY)
     rec.lastX = nx
     rec.lastY = ny
+
+    // 通過点は間引いて記録する。
+    if (rec.points.length >= PATH_MAX_POINTS) return
+    const now = performance.now()
+    const last = rec.points[rec.points.length - 1]
+    const fromX = last?.x ?? rec.x
+    const fromY = last?.y ?? rec.y
+    if (Math.hypot(nx - fromX, ny - fromY) < PATH_MIN_DIST && now - rec.lastPointMs < PATH_MIN_MS) {
+      return
+    }
+    const dt = (now - rec.startMs) / 1000
+    if (last && dt <= last.dt + 0.005) return
+    rec.points.push({ dt, x: nx, y: ny })
+    rec.lastPointMs = now
   }
 
-  /** 押しっぱなしのあいだ長さを伸ばす（pointermove が来なくても進むよう毎フレーム呼ぶ）。 */
-  private advanceRecording(): void {
+  /**
+   * いまの押し方から種別を決めてノーツを作る。
+   * release を渡すと、その位置と時刻を終点にして確定させる。
+   */
+  private buildRecordingNote(release?: { x: number; y: number }): Note {
     const rec = this.recording
-    if (!rec || rec.note.type !== 'hold') return
-    rec.note.duration = Math.max(MIN_DURATION_SEC, (performance.now() - rec.startMs) / 1000)
+    if (!rec) throw new Error('打ち込み中ではありません。')
+    const elapsed = (performance.now() - rec.startMs) / 1000
+    const base = { id: rec.id, time: rec.time, x: rec.x, y: rec.y }
+    if (elapsed < TAP_MAX_SEC) return { ...base, type: 'tap' }
+    const hold: Note = { ...base, type: 'hold', duration: Math.max(MIN_DURATION_SEC, elapsed) }
+    if (rec.moved < this.dragThreshold()) return hold
+
+    const path = [...rec.points]
+    if (release) {
+      // 離した位置と時刻を終点にする。
+      const last = path[path.length - 1]
+      if (!last || elapsed > last.dt + 0.01) {
+        path.push({
+          dt: Math.max(elapsed, (last?.dt ?? 0) + 0.02),
+          x: clamp01(release.x),
+          y: clamp01(release.y),
+        })
+      }
+    }
+    // 経路が取れていなければ長押しとして扱う（消してしまうより親切）。
+    if (path.length === 0 || path[path.length - 1].dt < MIN_DURATION_SEC) return hold
+    return { ...base, type: 'drag', path }
+  }
+
+  /** 打ち込み中のノーツを、いまの押し方に合わせて置き換える。 */
+  private syncRecordingNote(release?: { x: number; y: number }): void {
+    const rec = this.recording
+    if (!rec) return
+    const index = this.chart.notes.findIndex((n) => n.id === rec.id)
+    if (index < 0) return
+    this.chart.notes[index] = this.buildRecordingNote(release)
+  }
+
+  /** 押しっぱなしでも種別と長さが進むよう、毎フレーム呼ぶ。 */
+  private advanceRecording(): void {
+    if (!this.recording) return
+    this.syncRecordingNote()
+    // いま何になっているかをインスペクタにも出す（自動保存はまだしない）。
+    this.markDirty(false)
   }
 
   private finishRecording(x: number, y: number): void {
-    const rec = this.recording
+    if (!this.recording) return
+    this.syncRecordingNote({ x, y })
     this.recording = null
-    if (!rec) return
-    const elapsed = (performance.now() - rec.startMs) / 1000
-    const note = rec.note
-    if (note.type === 'hold') {
-      note.duration =
-        elapsed < QUICK_PRESS_SEC ? this.defaultDurationSec() : Math.max(MIN_DURATION_SEC, elapsed)
-    } else {
-      // 離した位置と時刻を終点にする。
-      const last = note.path[note.path.length - 1]
-      const dt = Math.max(elapsed, (last?.dt ?? 0) + 0.02)
-      if (!last || elapsed > last.dt + 0.01) {
-        note.path.push({ dt, x: clamp01(x), y: clamp01(y) })
-      }
-      if (noteDuration(note) < MIN_DURATION_SEC || pathLength(note) < DRAG_MIN_LENGTH) {
-        // なぞりになっていないので取り消す。置いた分の履歴も戻す。
-        this.chart.notes = this.chart.notes.filter((n) => n.id !== note.id)
-        this.selectedId = null
-        this.undoStack.pop()
-        this.refreshUndoButtons()
-        this.markDirty()
-        toast('ドラッグは指を動かしてなぞってください。', 'error')
-        return
-      }
-    }
     this.markDirty()
   }
 
@@ -556,15 +568,12 @@ export class EditScreen {
       this.select(null)
       return
     }
-    const x = px / this.stage.rect.width
-    const y = py / this.stage.rect.height
-    if (this.tool === 'tap') this.addTap(x, y)
-    else this.beginRecording(x, y)
+    this.beginRecording(px / this.stage.rect.width, py / this.stage.rect.height)
   }
 
   private handleStageMove(x: number, y: number): void {
     if (this.recording) {
-      this.recordDragPoint(x, y)
+      this.recordMove(x, y)
       return
     }
     if (this.dragHandle) {
@@ -843,9 +852,7 @@ export class EditScreen {
     }
 
     const tools = h('div', { class: 'panel-row' }, [
-      this.toolButtons.tap,
-      this.toolButtons.hold,
-      this.toolButtons.drag,
+      this.toolButtons.place,
       this.toolButtons.select,
       rateSelect,
       button('－', () => this.timeline.zoom(2), 'icon-btn'),
