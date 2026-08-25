@@ -17,9 +17,29 @@ YouTube の動画の上にノーツを置いて遊ぶタップ音ゲー。
 npm install
 npm run dev      # 開発サーバ
 npm run build    # tsc --noEmit && vite build
+npm run test:e2e # 通し確認（開発サーバの起動と後片付けまで込み）
 ```
 
 依存は Vite と TypeScript だけ。UI は素の DOM、ゲーム描画は Canvas 2D。
+
+## テスト
+
+`e2e/run.mjs` が唯一のテスト。**偽の YouTube プレイヤー**を `addInitScript` で
+先に生やし、`loadYouTubeApi()` を即 resolve させて全機能を通しで動かす
+（サンドボックスから youtube.com へは出られず、実際の再生は検証できないため）。
+
+判定・広告・マルチタッチ・譜面の入出力・打ち込みのジェスチャまで、
+実際の DOM とキャンバスを触って確認する。
+
+- **Playwright はグローバル導入のものを使う**。`package.json` に依存を足さない方針なので、
+  無ければ `npm i -g playwright`（ブラウザは `/opt/pw-browsers` にあるものを探す）
+- `BASE=http://.../` を渡すと、動いているサーバに当てる。渡さなければ自分で
+  開発サーバを起動して最後に止める
+- 検証の勘どころ: 暗さはキャンバスの画素を読む（`getImageData(4,4,1,1).data[3]/255`）、
+  効果音は `AudioBufferSourceNode.prototype.start` を包んで数える、
+  書き出しは `waitForEvent('download')`
+- `pkill -f vite` は**自分のシェルごと落とす**ので使わないこと。
+  このスクリプトは起動した子プロセスだけを止める
 
 ## 構成
 
