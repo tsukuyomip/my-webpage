@@ -1,5 +1,5 @@
 import { clamp01 } from './geometry.ts'
-import type { DragNote, FlickNote, HoldNote, Note } from './types.ts'
+import { NOTE_TYPE_LABEL, type DragNote, type HoldNote, type Note } from './types.ts'
 
 /** 長押し・なぞりの最短の長さ（秒）。これより短いと押しっぱなしを判定できない。 */
 export const MIN_DURATION_SEC = 0.1
@@ -36,8 +36,22 @@ export function normalizeDirection(dx: number, dy: number): { dx: number; dy: nu
 }
 
 /** はじきの向き（ラジアン）。描画と演出で共通に使う。 */
-export function flickAngle(note: FlickNote): number {
-  return Math.atan2(note.dy, note.dx)
+export function flickAngle(dir: { dx: number; dy: number }): number {
+  return Math.atan2(dir.dy, dir.dx)
+}
+
+/**
+ * 「離す瞬間に払う」ホールド（ホールドフリック）なら、その向き。
+ * 向きを持たないただの長押しなら null。
+ */
+export function releaseFlick(note: Note): { dx: number; dy: number } | null {
+  if (note.type !== 'hold') return null
+  return normalizeDirection(note.dx ?? 0, note.dy ?? 0)
+}
+
+/** 画面に出す種別名。ホールドフリックは hold だが別物として見せる。 */
+export function noteTypeLabel(note: Note): string {
+  return releaseFlick(note) ? 'ホールドフリック' : NOTE_TYPE_LABEL[note.type]
 }
 
 export function totalJudgeUnits(notes: Note[]): number {

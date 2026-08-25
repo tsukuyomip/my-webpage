@@ -8,6 +8,7 @@ import {
   judgeFor,
   judgeForCoverage,
   rankFor,
+  worseJudgement,
   type Judgement,
   type ScoreSnapshot,
 } from '../core/judge.ts'
@@ -18,6 +19,7 @@ import {
   noteEndPosition,
   noteEndTime,
   notePositionAt,
+  releaseFlick,
   totalJudgeUnits,
 } from '../core/note.ts'
 import type { Chart, DragNote, FlickNote, HoldNote, Note } from '../core/types.ts'
@@ -59,6 +61,12 @@ const FLICK_ANGLE_SLACK = Math.PI * 0.42
  * ならない（0.5 倍速で練習して等速に戻すと急に間に合わなくなる）。
  */
 const FLICK_WINDOW_MS = 300
+/**
+ * ホールドフリックで「払った」と見なす、始点からの距離（ノーツ半径の倍率）。
+ * 単発のはじきより広いのは、押さえている指は少しずつ動いてしまうから。
+ * HOLD_SLACK より内側なので、払っても長押しそのものは切れない。
+ */
+const RELEASE_FLICK_RADII = 1
 
 /** 押したあと、払われるのを待っているはじき。 */
 interface FlickPending {
@@ -96,6 +104,10 @@ interface Trace {
   /** 直前に玉がいた位置（尾の向きを出すのに使う）。 */
   lastAtX: number
   lastAtY: number
+  /** ホールドフリックなら払う向き。ただの長押しなら null。 */
+  flickDir: { dx: number; dy: number } | null
+  /** 払えた判定時刻。まだ払えていなければ null。 */
+  flickedAt: number | null
 }
 
 export class PlayScreen {
@@ -464,6 +476,8 @@ export class PlayScreen {
       onTarget: true,
       lastAtX: best.x,
       lastAtY: best.y,
+      flickDir: releaseFlick(best),
+      flickedAt: null,
     })
   }
 
@@ -484,6 +498,7 @@ export class PlayScreen {
     if (!trace) return
     trace.px = p.px
     trace.py = p.py
+    this.checkTraceFlick(trace, this.judgeTime())
   }
 
   /** 押した位置から、狙った向きへ十分に払えたら成立させる。 */
@@ -536,7 +551,12 @@ export class PlayScreen {
     }
     const trace = this.traces.get(p.pointerId)
     if (!trace) return
-    this.finishTrace(trace, this.judgeTime())
+    // 離す直前の位置でもう一度見る。速い払いは move が粗いことがある。
+    trace.px = p.px
+    trace.py = p.py
+    const t = this.judgeTime()
+    if (this.checkTraceFlick(trace, t)) return
+    this.finishTrace(trace, t)
   }
 
   /** 指が「追えている」位置にいるか。 */
@@ -566,7 +586,10 @@ export class PlayScreen {
       if (step > 0 && trace.onTarget) trace.heldSec += step
       if (step > 0) trace.lastT = upTo
       if (trace.onTarget) this.spawnTrail(trace, upTo)
-      if (t >= end) this.finishTrace(trace, end)
+      if (this.checkTraceFlick(trace, t)) continue
+      // 払って終わるノーツは、終端を過ぎても判定幅のあいだは払うのを待つ。
+      const deadline = trace.flickDir ? end + MISS_WINDOW : end
+      if (t >= deadline) this.finishTrace(trace, end)
     }
   }
 
@@ -602,6 +625,31 @@ export class PlayScreen {
     trace.lastAtY = at.y
   }
 
+  /**
+   * ホールドフリックが払われたか見る。払えたらその場で確定させる。
+   *
+   * 見るのは**終端の判定幅に入ってから**だけ。押さえている最中の指のずれを
+   * 払いと取り違えると、まだ押している途中で勝手に終わってしまう。
+   */
+  private checkTraceFlick(trace: Trace, t: number): boolean {
+    const dir = trace.flickDir
+    if (!dir) return false
+    const note = trace.note
+    const end = noteEndTime(note)
+    if (t < end - MISS_WINDOW) return false
+    const dx = trace.px - note.x * this.stage.rect.width
+    const dy = trace.py - note.y * this.stage.rect.height
+    const need = noteRadius(this.stage.rect, this.opts.settings) * RELEASE_FLICK_RADII
+    if (Math.hypot(dx, dy) < need) return false
+    let diff = Math.atan2(dy, dx) - Math.atan2(dir.dy, dir.dx)
+    while (diff > Math.PI) diff -= Math.PI * 2
+    while (diff < -Math.PI) diff += Math.PI * 2
+    if (Math.abs(diff) > FLICK_ANGLE_SLACK) return false
+    trace.flickedAt = t
+    this.finishTrace(trace, t)
+    return true
+  }
+
   /** 指を離した / 終端に達したときに、追えていた割合から続きの判定を出す。 */
   private finishTrace(trace: Trace, at: number): void {
     this.traces.delete(trace.pointerId)
@@ -612,7 +660,24 @@ export class PlayScreen {
     const remaining = Math.max(0, end - at)
     const credited = remaining <= MISS_WINDOW ? trace.heldSec + remaining : trace.heldSec
     const ratio = duration > 0 ? credited / duration : 1
-    this.applyJudgement(note, judgeForCoverage(ratio), 0, noteEndPosition(note), 'release')
+    let judgement = judgeForCoverage(ratio)
+    const dir = trace.flickDir
+    let delta = 0
+    if (dir) {
+      // 払って終わるノーツは、押さえ切れていても払えていなければ見逃し。
+      // 逆に、払えていても途中で見失っていれば割合のほうが効く。
+      delta = trace.flickedAt === null ? 0 : trace.flickedAt - end
+      const timing = trace.flickedAt === null ? 'miss' : (judgeFor(delta) ?? 'miss')
+      judgement = worseJudgement(judgement, timing)
+    }
+    this.applyJudgement(
+      note,
+      judgement,
+      delta,
+      noteEndPosition(note),
+      'release',
+      dir ? { vx: dir.dx, vy: dir.dy } : undefined,
+    )
     this.resolved.add(note.id)
   }
 
@@ -635,7 +700,8 @@ export class PlayScreen {
     // コンボが伸びるほど派手にする（積み上がっている感じを出す）。
     const intensity = Math.min(1, this.score.combo / 60)
     const released = kind === 'release' && judgement !== 'miss'
-    const name = released ? 'release' : dir && judgement !== 'miss' ? 'flick' : note.fx
+    // 向きがあるなら粒をその向きだけに飛ばす（押さえ切った解放より優先）。
+    const name = dir && judgement !== 'miss' ? 'flick' : released ? 'release' : note.fx
     this.effects.spawn(name, {
       px: at.x * this.stage.rect.width,
       py: at.y * this.stage.rect.height,

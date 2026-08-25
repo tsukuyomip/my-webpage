@@ -902,6 +902,113 @@ async function testFlickWindowIsRealTime(browser) {
   await page.context().close()
 }
 
+const HOLD_FLICK_CHART = JSON.stringify({
+  formatVersion: 1,
+  meta: { title: 'ホールドフリック', videoId: 'testvideo01' },
+  timing: { offsetMs: 0 },
+  notes: [
+    { id: 'hf1', type: 'hold', time: 6, x: 0.35, y: 0.5, duration: 1, dx: 1, dy: 0 },
+    { id: 'hf2', type: 'hold', time: 8.5, x: 0.65, y: 0.5, duration: 1, dx: 1, dy: 0 },
+  ],
+})
+
+async function testHoldFlick(browser) {
+  console.log('\n[19] プレイ: ホールドフリックは払って終わる')
+  const page = await newPage(browser, { draft: HOLD_FLICK_CHART })
+  const box = await startPlayFromDraft(page)
+  const at = (x, y) => [box.x + x * box.width, box.y + y * box.height]
+
+  // 1 つめ: 押さえ続けて、終端の判定幅の中で右へ払う
+  await waitTime(page, 5.98)
+  await page.mouse.move(...at(0.35, 0.5))
+  await page.mouse.down()
+  await waitTime(page, 6.92)
+  for (let i = 1; i <= 3; i += 1) await page.mouse.move(...at(0.35 + 0.05 * i, 0.5))
+  await page.mouse.up()
+
+  // 2 つめ: 最後まで押さえるが、払わずに離す
+  await waitTime(page, 8.48)
+  await page.mouse.move(...at(0.65, 0.5))
+  await page.mouse.down()
+  await waitTime(page, 9.8)
+  await page.mouse.up()
+
+  const counts = await readResult(page)
+  const hit = (counts.perfect ?? 0) + (counts.great ?? 0) + (counts.good ?? 0)
+  check('払って終われば取れる', hit === 3, JSON.stringify(counts))
+  check('押さえ切っても払わなければ終端は見逃し', counts.miss === 1, JSON.stringify(counts))
+  await page.context().close()
+}
+
+async function testEditorHoldFlick(browser) {
+  console.log('\n[20] クリエイト: 押さえたまま最後だけ払うとホールドフリック')
+  const page = await newPage(browser)
+  await page.locator('button', { hasText: 'クリエイトモード' }).first().click()
+  await page.locator('.text-input.wide').fill('https://www.youtube.com/watch?v=testvideo01')
+  await page.locator('button', { hasText: '新しく作る' }).click()
+  const advance = async () => {
+    await page.locator('button', { hasText: '+1s' }).click()
+    await page.waitForTimeout(400)
+  }
+
+  // 捨てノーツを 1 つ置いてインスペクタを開かせ、そのあとで画面を測る。
+  // 1 つめを置いた瞬間にインスペクタが開いて動画領域が狭くなるので、先に
+  // 測っておくと、押さえている最中に同じ画素の正規化座標がずれてしまう。
+  await page.mouse.click(...(await (async () => {
+    const b = await page.locator('.stage-canvas').boundingBox()
+    return [b.x + 0.15 * b.width, b.y + 0.2 * b.height]
+  })()))
+  await advance()
+  const box = await page.locator('.stage-canvas').boundingBox()
+  const at = (x, y) => [box.x + x * box.width, box.y + y * box.height]
+
+  // 1s: 600ms その場で押さえてから、最後に一気に右へ払う → ホールドフリック
+  await page.mouse.move(...at(0.3, 0.5))
+  await page.mouse.down()
+  await page.waitForTimeout(600)
+  for (let i = 1; i <= 3; i += 1) {
+    await page.mouse.move(...at(0.3 + 0.05 * i, 0.5))
+    await page.waitForTimeout(20)
+  }
+  await page.mouse.up()
+  check(
+    'インスペクタがホールドフリックになる',
+    (await page.locator('.inspector').textContent()).includes('ホールドフリック'),
+  )
+
+  await advance()
+
+  // 2s: 同じだけ動かすが、ゆっくり動かし続ける → ドラッグのまま
+  await page.mouse.move(...at(0.3, 0.8))
+  await page.mouse.down()
+  await page.waitForTimeout(400)
+  for (let i = 1; i <= 6; i += 1) {
+    await page.mouse.move(...at(0.3 + 0.025 * i, 0.8))
+    await page.waitForTimeout(70)
+  }
+  await page.mouse.up()
+
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    page.locator('button', { hasText: '書き出し' }).click(),
+  ])
+  const stream = await download.createReadStream()
+  let text = ''
+  for await (const chunk of stream) text += chunk
+  const chart = JSON.parse(text)
+  const [, flickHold, slow] = chart.notes
+
+  check('種別は hold のまま（古いプレイヤーでも長押しとして遊べる）', flickHold.type === 'hold', flickHold.type)
+  check('払った向きを持つ', flickHold.dx > 0.8 && Math.abs(flickHold.dy) < 0.4, JSON.stringify({ dx: flickHold.dx, dy: flickHold.dy }))
+  check(
+    '長さは払い始めた時刻（離した時刻ではない）',
+    flickHold.duration > 0.45 && flickHold.duration < 0.85,
+    String(flickHold.duration),
+  )
+  check('ゆっくり動かし続けたほうはドラッグのまま', slow.type === 'drag', slow.type)
+  await page.context().close()
+}
+
 // ---------------------------------------------------------------- 実行
 
 async function waitForServer(url, timeoutMs = 30000) {
@@ -957,6 +1064,8 @@ try {
   await testFlick(browser)
   await testFlickWrongWay(browser)
   await testFlickWindowIsRealTime(browser)
+  await testHoldFlick(browser)
+  await testEditorHoldFlick(browser)
 } finally {
   await browser.close()
   // pkill は自分のシェルごと落とすので、起動した子だけを止める。

@@ -2,7 +2,7 @@ import { lowerBound } from '../core/chart.ts'
 import type { StageRect } from '../core/geometry.ts'
 import { toPixels } from '../core/geometry.ts'
 import { MISS_WINDOW } from '../core/judge.ts'
-import { dragPositionAt, flickAngle, noteDuration, noteEndTime } from '../core/note.ts'
+import { dragPositionAt, flickAngle, noteDuration, noteEndTime, releaseFlick } from '../core/note.ts'
 import type { DragNote, FlickNote, HoldNote, Note } from '../core/types.ts'
 
 const NOTE_FILL = 'rgba(10, 14, 24, 0.62)'
@@ -362,6 +362,42 @@ export function drawTapNote(
  * 押しているあいだ減っていくようにする。
  */
 /**
+ * 払う向きの矢印。判定が近いほど前へせり出して、動かす向きを急かす。
+ * はじきとホールドフリックで同じ形にする（同じ動作を求めているため）。
+ */
+function drawFlickArrow(
+  ctx: CanvasRenderingContext2D,
+  px: number,
+  py: number,
+  r: number,
+  angle: number,
+  color: string,
+  /** 0..1。1 が「いま払う」。 */
+  p: number,
+): void {
+  ctx.save()
+  ctx.translate(px, py)
+  ctx.rotate(angle)
+  const reach = r * (0.5 + 0.75 * p)
+  ctx.strokeStyle = color
+  ctx.lineCap = 'round'
+  ctx.lineJoin = 'round'
+  ctx.lineWidth = Math.max(2, r * 0.16)
+  ctx.beginPath()
+  ctx.moveTo(-r * 0.45, 0)
+  ctx.lineTo(reach, 0)
+  ctx.stroke()
+  ctx.beginPath()
+  ctx.moveTo(reach + r * 0.42, 0)
+  ctx.lineTo(reach - r * 0.16, r * 0.4)
+  ctx.lineTo(reach - r * 0.16, -r * 0.4)
+  ctx.closePath()
+  ctx.fillStyle = color
+  ctx.fill()
+  ctx.restore()
+}
+
+/**
  * はじき。タップと同じ「弾けさせる」質感のまま、**払う向きを矢印で示す**。
  * 向きが分からないと当てようがないので、矢印は本体より外まで伸ばす。
  */
@@ -384,27 +420,7 @@ export function drawFlickNote(
   ctx.globalAlpha = alpha
   drawBody(ctx, px, py, r, ring, { fill: late ? undefined : p, style: 'tap' })
 
-  // 払う向きの矢印。判定が近いほど前へせり出して、動かす向きを急かす。
-  ctx.save()
-  ctx.translate(px, py)
-  ctx.rotate(flickAngle(note))
-  const reach = r * (0.5 + 0.75 * p)
-  ctx.strokeStyle = ring
-  ctx.lineCap = 'round'
-  ctx.lineJoin = 'round'
-  ctx.lineWidth = Math.max(2, r * 0.16)
-  ctx.beginPath()
-  ctx.moveTo(-r * 0.45, 0)
-  ctx.lineTo(reach, 0)
-  ctx.stroke()
-  ctx.beginPath()
-  ctx.moveTo(reach + r * 0.42, 0)
-  ctx.lineTo(reach - r * 0.16, r * 0.4)
-  ctx.lineTo(reach - r * 0.16, -r * 0.4)
-  ctx.closePath()
-  ctx.fillStyle = ring
-  ctx.fill()
-  ctx.restore()
+  drawFlickArrow(ctx, px, py, r, flickAngle(note), ring, p)
 
   drawApproachRing(ctx, px, py, note, now, opts)
   if (opts.selected?.has(note.id)) drawSelection(ctx, px, py, r)
@@ -491,6 +507,16 @@ export function drawHoldNote(
       ctx.fill()
     }
     ctx.restore()
+  }
+
+  // 離す瞬間に払うホールドは、払う向きを矢印で出す。矢印は**リリース時刻**に
+  // 向かってせり出す（はじきは判定時刻に向かってせり出す）ので、
+  // 押さえながら「そろそろ払う」を読める。
+  const flick = releaseFlick(note)
+  if (flick) {
+    const left = noteEndTime(note) - now
+    const rp = Math.max(0, Math.min(1, 1 - left / opts.approachSec))
+    drawFlickArrow(ctx, px, py, r * pulse, flickAngle(flick), FLICK_RING, rp)
   }
   if (opts.selected?.has(note.id)) drawSelection(ctx, px, py, r)
   ctx.restore()

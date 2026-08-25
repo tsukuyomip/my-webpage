@@ -49,6 +49,12 @@ export function judgeForCoverage(ratio: number): Judgement {
   return 'miss'
 }
 
+/** 悪いほうを取る。判定の条件が 2 つあるノーツ（ホールドフリック）で使う。 */
+const JUDGEMENT_ORDER: Judgement[] = ['perfect', 'great', 'good', 'miss']
+export function worseJudgement(a: Judgement, b: Judgement): Judgement {
+  return JUDGEMENT_ORDER.indexOf(a) >= JUDGEMENT_ORDER.indexOf(b) ? a : b
+}
+
 export function judgeFor(delta: number): Judgement | null {
   const d = Math.abs(delta)
   if (d <= WINDOWS.perfect) return 'perfect'

@@ -1,5 +1,5 @@
 import { newId } from './id.ts'
-import { MIN_DURATION_SEC, normalizeDirection } from './note.ts'
+import { MIN_DURATION_SEC, normalizeDirection, releaseFlick } from './note.ts'
 import { SFX_KITS, type SfxKit } from './sfx.ts'
 import {
   APPROACH_RANGE,
@@ -41,7 +41,12 @@ function roundPos(v: number): number {
 function roundNote(note: Note): Note {
   const base = { ...note, time: roundTime(note.time), x: roundPos(note.x), y: roundPos(note.y) }
   if (base.type === 'flick') return { ...base, dx: roundPos(base.dx), dy: roundPos(base.dy) }
-  if (base.type === 'hold') return { ...base, duration: roundTime(base.duration) }
+  if (base.type === 'hold') {
+    const held = { ...base, duration: roundTime(base.duration) }
+    const dir = releaseFlick(held)
+    // 向きが不正なら落とす。中途半端に残すと「払えないホールドフリック」になる。
+    return dir ? { ...held, dx: roundPos(dir.dx), dy: roundPos(dir.dy) } : { ...held, dx: undefined, dy: undefined }
+  }
   if (base.type === 'drag') {
     return {
       ...base,
@@ -179,6 +184,13 @@ function parseNote(raw: unknown, index: number, warnings: string[]): Note | null
       return null
     }
     note = { id, type: 'hold', time, x, y, duration }
+    // 向きがあれば「離す瞬間に払う」ホールド。無ければただの長押しなので、
+    // 向きが壊れていてもノーツごと落とさず、長押しとして読む。
+    const dir = normalizeDirection(num(r.dx, NaN), num(r.dy, NaN))
+    if (dir) {
+      note.dx = dir.dx
+      note.dy = dir.dy
+    }
   } else if (type === 'drag') {
     const path = parseDragPath(r.path, index, warnings)
     if (!path) return null

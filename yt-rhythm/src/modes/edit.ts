@@ -11,6 +11,8 @@ import {
   normalizeDirection,
   noteDuration,
   noteEndTime,
+  noteTypeLabel,
+  releaseFlick,
   setNoteDuration,
 } from '../core/note.ts'
 import type { Settings } from '../core/settings.ts'
@@ -22,7 +24,6 @@ import {
   type Chart,
   type DragNote,
   type DragPoint,
-  type FlickNote,
   type Note,
 } from '../core/types.ts'
 import {
@@ -75,12 +76,16 @@ interface Recording {
   lastY: number
   /** 指が動いた総距離（正規化座標）。 */
   moved: number
+  /** 始点のそばにいた最後の時刻（秒）。ここが「払い始め」＝離すべき瞬間。 */
+  stillUntil: number
+  /** 始点から離れていた時間の合計（秒）。長ければ払いではなくなぞり。 */
+  awaySec: number
 }
 
 /** はじく向きを 8 方位の記号にする。数値より一目で分かる。 */
-function flickLabel(note: FlickNote): string {
+function flickLabel(dir: { dx: number; dy: number }): string {
   const names = ['→', '↘', '↓', '↙', '←', '↖', '↑', '↗']
-  const index = Math.round((Math.atan2(note.dy, note.dx) / (Math.PI / 4) + 8) % 8)
+  const index = Math.round((Math.atan2(dir.dy, dir.dx) / (Math.PI / 4) + 8) % 8)
   return names[index % 8]
 }
 
@@ -112,7 +117,7 @@ const PATH_MAX_POINTS = 96
 const PATH_IDLE_FACTOR = 4
 
 const TOOL_HINT: Record<Tool, string> = {
-  place: `画面を押して置く。短く押す＝タップ、短く払う＝フリック、${TAP_MAX_SEC} 秒以上＝ホールド、押したままなぞる＝ドラッグ。押している間、いまどれになるかがそのまま見える。`,
+  place: `画面を押して置く。短く押す＝タップ、短く払う＝フリック、${TAP_MAX_SEC} 秒以上＝ホールド、押したままなぞる＝ドラッグ、押さえたまま最後だけ払う＝ホールドフリック。押している間、いまどれになるかがそのまま見える。`,
   select: 'ノーツを掴んで移動。なぞりは選ぶと通過点を動かせる。時刻はタイムラインで調整する。',
 }
 
@@ -440,6 +445,8 @@ export class EditScreen {
       lastX: clamp01(x),
       lastY: clamp01(y),
       moved: 0,
+      stillUntil: 0,
+      awaySec: 0,
     }
     this.chart.notes = sortNotes([...this.chart.notes, this.buildRecordingNote()])
     this.selectedId = this.recording.id
@@ -520,9 +527,41 @@ export class EditScreen {
         })
       }
     }
+
+    // 「長く押した」+「動かした」はドラッグとホールドフリックの両方があり得る。
+    // 見分けるのは動いた量ではなく **いつ動いたか**。ずっとその場にいて
+    // 最後の一瞬だけ払っていればホールドフリック、それ以外はドラッグ。
+    const flick = this.readReleaseFlick(rec, release)
+    if (flick) {
+      return { ...base, type: 'hold', duration: flick.duration, dx: flick.dx, dy: flick.dy }
+    }
+
     // 経路が取れていなければ長押しとして扱う（消してしまうより親切）。
     if (path.length === 0 || path[path.length - 1].dt < MIN_DURATION_SEC) return hold
     return { ...base, type: 'drag', path }
+  }
+
+  /**
+   * 「押さえたまま、最後だけ払った」形かを見る。
+   *
+   * 見分けるのは動いた量ではなく **始点から離れていた時間**。ほとんどの時間
+   * 始点にいて、離れていたのが {@link TAP_MAX_SEC} 以内なら払い。長さは
+   * **始点を離れた時刻**にする（そこが離すべき瞬間で、プレイ側が払いを
+   * 検出するのも同じ距離を越えた瞬間だから）。
+   */
+  private readReleaseFlick(
+    rec: Recording,
+    release?: { x: number; y: number },
+  ): { duration: number; dx: number; dy: number } | null {
+    // 行って戻ってきた動きは払いではない。
+    const endX = clamp01(release?.x ?? rec.lastX)
+    const endY = clamp01(release?.y ?? rec.lastY)
+    const dir = normalizeDirection(endX - rec.x, endY - rec.y)
+    if (!dir || Math.hypot(endX - rec.x, endY - rec.y) < this.dragThreshold()) return null
+    // 長く離れていればそれはなぞり。往復してから払った場合もここで落ちる。
+    if (rec.awaySec > TAP_MAX_SEC) return null
+    if (rec.stillUntil < MIN_DURATION_SEC) return null
+    return { duration: rec.stillUntil, dx: dir.dx, dy: dir.dy }
   }
 
   /** 打ち込み中のノーツを、いまの押し方に合わせて置き換える。 */
@@ -547,6 +586,14 @@ export class EditScreen {
     if (step > 0) rec.elapsed += step
     rec.lastChart = chart
     rec.lastWallMs = nowMs
+
+    // 始点のそばにいた時間はここで数える。指が止まっているあいだ pointermove は
+    // 飛んでこないので、通過点だけを見ていると「いつ動き出したか」が分からない。
+    if (Math.hypot(rec.lastX - rec.x, rec.lastY - rec.y) > this.dragThreshold()) {
+      if (step > 0) rec.awaySec += step
+    } else {
+      rec.stillUntil = rec.elapsed
+    }
   }
 
   /** 押しっぱなしでも種別と長さが進むよう、毎フレーム呼ぶ。 */
@@ -734,11 +781,12 @@ export class EditScreen {
     if (document.activeElement !== this.noteTimeInput) {
       this.noteTimeInput.value = String(Math.round(note.time * 1000))
     }
+    const dir = note.type === 'flick' ? note : releaseFlick(note)
     this.noteKindLabel.textContent =
       note.type === 'drag'
         ? `${NOTE_TYPE_LABEL.drag}（${note.path.length + 1} 点）`
-        : note.type === 'flick'
-          ? `${NOTE_TYPE_LABEL.flick}（${flickLabel(note)}）`
+        : dir
+          ? `${noteTypeLabel(note)}（${flickLabel(dir)}）`
           : NOTE_TYPE_LABEL[note.type]
     const long = isLongNote(note)
     this.durationGroup.classList.toggle('hidden', !long)
