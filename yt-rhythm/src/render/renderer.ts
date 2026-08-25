@@ -168,6 +168,11 @@ function drawBody(
     }
   }
 
+  // 大きさの変わらない輪。ここが実際の狙う場所なので、
+  // 予告の円を塗ったあとに必ず引き直す（塗りのパスをそのまま
+  // stroke すると、輪が予告と一緒に大きくなってしまう）。
+  ctx.beginPath()
+  ctx.arc(px, py, r, 0, Math.PI * 2)
   ctx.lineWidth = Math.max(2, r * 0.14)
   ctx.strokeStyle = ring
   ctx.stroke()

@@ -119,6 +119,15 @@ function sweep(sr: number, freqAt: (t: number) => number): (t: number) => number
 
 const exp = (t: number, d: number) => Math.exp(-t / d)
 
+/**
+ * 二段の指数減衰。速く落ちてから、低い音量で長く尾を引く。
+ * 指数を一本にすると「短く切れる」か「もたつく」かのどちらかになりやすい。
+ * 直線的に減らすと機械的で、抜けずに途中で切られたように聞こえる。
+ */
+function decay2(t: number, fast: number, slow: number, mix: number): number {
+  return exp(t, fast) * (1 - mix) + exp(t, slow) * mix
+}
+
 // ---------------------------------------------------------------- ヒット
 
 /**
@@ -127,32 +136,61 @@ const exp = (t: number, d: number) => Math.exp(-t / d)
  */
 function impactHit(
   sr: number,
-  opts: { edge: number; edgeDecay: number; crunch: number; punch: number; low: number },
+  opts: {
+    edge: number
+    edgeDecay: number
+    crunch: number
+    punch: number
+    low: number
+    /** 尾を引く長さ（秒）。省略すると尾なし。 */
+    tail?: number
+  },
 ): (t: number) => number {
   const edge = bandPass(sr, 6800, 2.4)
   const crunch = bandPass(sr, 1500, 1.1)
   const body = sweep(sr, (t) => opts.low + 240 * exp(t, 0.011))
+  const tail = opts.tail ?? 0
+  const env = (t: number, d: number) => (tail > 0 ? decay2(t, d, tail, 0.22) : exp(t, d))
   return (t) => {
     const n = noise()
     // 芯の当たり。ここが遅いと「ビシッ」にならない。
     const crack = n * exp(t, 0.0045) * 1.3
-    const shine = edge(n) * exp(t, opts.edgeDecay) * opts.edge
-    const meat = crunch(n) * exp(t, 0.04) * opts.crunch
-    const punch = body(t) * exp(t, 0.05) * opts.punch
+    const shine = edge(n) * env(t, opts.edgeDecay) * opts.edge
+    const meat = crunch(n) * env(t, 0.04) * opts.crunch
+    const punch = body(t) * env(t, 0.05) * opts.punch
     return crack + shine + meat + punch
   }
 }
 
 function buildImpactKit(ctx: BaseAudioContext): Record<SfxName, AudioBuffer> {
   return {
-    perfect: renderBuffer(ctx, 0.22, 1, (sr) =>
-      impactHit(sr, { edge: 0.95, edgeDecay: 0.028, crunch: 0.6, punch: 0.85, low: 95 }),
+    /**
+     * いちばん気持ちよく鳴らす音。芯の鋭さはそのままに、厚みと抜けを足して
+     * 長さを倍にした。尾は二段の指数で、鋭く落ちてから低い音量で残す。
+     */
+    perfect: renderBuffer(ctx, 0.46, 1, (sr) => {
+      const edge = bandPass(sr, 6800, 2.4)
+      const open = bandPass(sr, 3400, 1.1)
+      const crunch = bandPass(sr, 1500, 1.1)
+      // 厚み。芯を 1 本ではなく、オクターブ下も重ねる。
+      const body = sweep(sr, (t) => 105 + 260 * exp(t, 0.013))
+      const sub = sweep(sr, (t) => 62 + 40 * exp(t, 0.05))
+      return (t) => {
+        const n = noise()
+        const crack = n * exp(t, 0.0045) * 1.25
+        const shine = edge(n) * decay2(t, 0.02, 0.13, 0.28) * 0.9
+        const airy = open(n) * decay2(t, 0.035, 0.2, 0.35) * 0.55
+        const meat = crunch(n) * decay2(t, 0.03, 0.12, 0.3) * 0.65
+        const punch = body(t) * decay2(t, 0.035, 0.16, 0.3) * 0.95
+        const low = sub(t) * decay2(t, 0.05, 0.22, 0.4) * 0.5
+        return crack + shine + airy + meat + punch + low
+      }
+    }),
+    great: renderBuffer(ctx, 0.24, 0.95, (sr) =>
+      impactHit(sr, { edge: 0.55, edgeDecay: 0.018, crunch: 0.7, punch: 0.85, low: 82, tail: 0.18 }),
     ),
-    great: renderBuffer(ctx, 0.19, 0.95, (sr) =>
-      impactHit(sr, { edge: 0.55, edgeDecay: 0.018, crunch: 0.7, punch: 0.85, low: 82 }),
-    ),
-    good: renderBuffer(ctx, 0.16, 0.86, (sr) =>
-      impactHit(sr, { edge: 0.18, edgeDecay: 0.012, crunch: 0.75, punch: 0.9, low: 70 }),
+    good: renderBuffer(ctx, 0.18, 0.86, (sr) =>
+      impactHit(sr, { edge: 0.18, edgeDecay: 0.012, crunch: 0.75, punch: 0.9, low: 70, tail: 0.1 }),
     ),
     miss: renderBuffer(ctx, 0.26, 0.8, (sr) => {
       const thud = lowPass(sr, 380)
@@ -194,7 +232,7 @@ const JINGLE_OFFSETS = [
 
 function tambourineHit(
   sr: number,
-  opts: { decay: number; bright: number; skin: number },
+  opts: { decay: number; bright: number; skin: number; tail?: number },
 ): (t: number) => number {
   // 広めのバンドパスを重ねて色をつける。Q を上げすぎると鈴＝音程になる。
   const bands = [
@@ -209,7 +247,9 @@ function tambourineHit(
     let grains = 0
     for (const g of JINGLE_OFFSETS) {
       if (t < g.at) continue
-      grains += noise() * exp(t - g.at, opts.decay) * g.amp
+      // 頭は乾いたまま、尾だけ二段の指数で伸ばす。
+      const e = opts.tail ? decay2(t - g.at, opts.decay, opts.tail, 0.26) : exp(t - g.at, opts.decay)
+      grains += noise() * e * g.amp
     }
     let out = 0
     for (const b of bands) out += b.f(grains) * b.a
@@ -220,11 +260,11 @@ function tambourineHit(
 
 function buildTambourineKit(ctx: BaseAudioContext): Record<SfxName, AudioBuffer> {
   return {
-    perfect: renderBuffer(ctx, 0.26, 1, (sr) =>
-      tambourineHit(sr, { decay: 0.075, bright: 1, skin: 0.7 }),
+    perfect: renderBuffer(ctx, 0.44, 1, (sr) =>
+      tambourineHit(sr, { decay: 0.075, bright: 1, skin: 0.7, tail: 0.26 }),
     ),
-    great: renderBuffer(ctx, 0.2, 0.95, (sr) =>
-      tambourineHit(sr, { decay: 0.05, bright: 0.75, skin: 0.75 }),
+    great: renderBuffer(ctx, 0.26, 0.95, (sr) =>
+      tambourineHit(sr, { decay: 0.05, bright: 0.75, skin: 0.75, tail: 0.14 }),
     ),
     good: renderBuffer(ctx, 0.15, 0.86, (sr) =>
       tambourineHit(sr, { decay: 0.03, bright: 0.45, skin: 0.85 }),

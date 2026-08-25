@@ -177,7 +177,11 @@ async function testChartRoundTrip(browser) {
 
   check('未知の type / 壊れた hold / 空の drag を読み飛ばす', out.types.join(',') === 'tap,hold,drag', out.types.join(','))
   check('読み飛ばしを警告する', out.warnings.length === 3, `${out.warnings.length} 件: ${out.warnings.join(' / ')}`)
-  check('display のない譜面は既定値', out.display.dimOpacity === 0.5 && out.display.approachMs === 800)
+  check(
+    'display のない譜面は既定値',
+    out.display.dimOpacity === 0.35 && out.display.approachMs === 800,
+    JSON.stringify(out.display),
+  )
   check('書き出し → 読み込みで hold の長さが保たれる', out.round[1].duration === 1.25, String(out.round[1].duration))
   check(
     '書き出し → 読み込みで drag の経路が保たれる',

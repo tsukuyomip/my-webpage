@@ -58,6 +58,7 @@ export class App {
               `編集中の譜面「${draft.chart.meta.title}」が保存されています。`,
             ])
           : null,
+        this.buildBraveNotice(),
         this.buildSettingsPanel(),
         this.buildAccountPanel(),
         h('p', { class: 'muted small', text: `build ${__BUILD_INFO__}` }),
@@ -285,6 +286,31 @@ export class App {
    * 埋め込みプレイヤーにログイン機能はなく、ログイン状態を読むこともできないので、
    * できるのは「YouTube を開いてログインしてもらう」ところまで。
    */
+  /**
+   * 広告への対処の案内。折りたたみの中だと読まれないので、
+   * ホームと譜面選びの両方に、開いたまま目に入る形で出す。
+   */
+  private buildBraveNotice(): HTMLElement {
+    return h('div', { class: 'notice notice-brave' }, [
+      h('strong', { text: '⚡ 広告を出したくないなら Brave ブラウザを推奨' }),
+      h('p', {
+        class: 'small',
+        text: 'このアプリは YouTube の埋め込みプレイヤーを使うので、広告はアプリ側からは消せません。Brave なら既定で広告なしで再生でき、いちばん快適に遊べます。YouTube Premium にログイン済みのブラウザでも広告は出ません。',
+      }),
+      h('div', { class: 'panel-row' }, [
+        button(
+          'Brave を入手',
+          () => window.open('https://brave.com/download/', '_blank', 'noopener'),
+          'btn btn-small btn-primary',
+        ),
+      ]),
+      h('p', {
+        class: 'small muted',
+        text: 'どちらも使わない場合も遊べます。広告のあいだはゲームを止めて待ち、終わったら自動で再開します。',
+      }),
+    ])
+  }
+
   private buildAccountPanel(): HTMLElement {
     return h('details', { class: 'settings' }, [
       h('summary', { text: '📺 広告と YouTube アカウント' }),
@@ -370,6 +396,7 @@ export class App {
           button('◀', () => this.showHome(), 'icon-btn'),
           h('h2', { text: 'プレイする譜面を選ぶ' }),
         ]),
+        this.buildBraveNotice(),
         drop,
         draft
           ? button(

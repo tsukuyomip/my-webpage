@@ -429,6 +429,26 @@ body {
   flex-wrap: wrap;
 }
 
+.notice {
+  border: 1px solid var(--accent-2);
+  border-left-width: 4px;
+  border-radius: 10px;
+  background: rgba(255, 213, 74, 0.08);
+  padding: 0.7rem 0.85rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+
+.notice strong {
+  color: var(--accent-2);
+  font-size: 1rem;
+}
+
+.notice p {
+  margin: 0;
+}
+
 .tool-hint {
   margin: 0;
 }

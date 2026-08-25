@@ -90,7 +90,8 @@ export interface Chart {
 }
 
 export const DEFAULT_DISPLAY: ChartDisplay = {
-  dimOpacity: 0.5,
+  // 黒を 35% 敷く = 動画は 65% の明るさで見える。
+  dimOpacity: 0.35,
   approachMs: 800,
   sfxKit: DEFAULT_SFX_KIT,
 }
