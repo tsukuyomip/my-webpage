@@ -1009,6 +1009,93 @@ async function testEditorHoldFlick(browser) {
   await page.context().close()
 }
 
+async function testEditorParallelInput(browser) {
+  console.log('\n[21] クリエイト: 左でホールドしながら右でタップする')
+  const page = await newPage(browser, { touch: true })
+  await page.locator('button', { hasText: 'クリエイトモード' }).first().click()
+  await page.locator('.text-input.wide').fill('https://www.youtube.com/watch?v=testvideo01')
+  await page.locator('button', { hasText: '新しく作る' }).click()
+  await page.waitForTimeout(400)
+  const box = await page.locator('.stage-canvas').boundingBox()
+  const at = (x, y, id) => ({ x: box.x + x * box.width, y: box.y + y * box.height, id })
+  const cdp = await page.context().newCDPSession(page)
+  const left = at(0.25, 0.5, 1)
+  // 2 回目は別の場所に置く。同じ場所だと 1 つめのノーツを掴んでしまう
+  // （それは選択の仕様であって、並列入力の話ではない）。
+  const rightA = at(0.75, 0.55, 2)
+  const rightB = at(0.75, 0.2, 3)
+
+  // 左を押さえたまま、右で 2 回タップする
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [left] })
+  await page.waitForTimeout(250)
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [left, rightA] })
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [rightA] })
+  await page.waitForTimeout(200)
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [left, rightB] })
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [rightB] })
+  await page.waitForTimeout(200)
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [left] })
+
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    page.locator('button', { hasText: '書き出し' }).click(),
+  ])
+  const stream = await download.createReadStream()
+  let text = ''
+  for await (const chunk of stream) text += chunk
+  const notes = JSON.parse(text).notes
+  const hold = notes.find((n) => n.type === 'hold')
+  const taps = notes.filter((n) => n.type === 'tap')
+
+  check('3 つ置ける（ホールド 1 + タップ 2）', notes.length === 3, JSON.stringify(notes.map((n) => n.type)))
+  check('押さえていたほうはホールドになる', !!hold && hold.duration > 0.5, JSON.stringify(hold))
+  check('押さえたまま置いたタップが 2 つ残る', taps.length === 2, String(taps.length))
+  check('タップは右側に置かれている', taps.every((n) => n.x > 0.6), JSON.stringify(taps.map((n) => n.x)))
+  await page.context().close()
+}
+
+/** 0.1 秒おきにノーツが並んだ、タイムラインが埋まる譜面。 */
+const DENSE_CHART = JSON.stringify({
+  formatVersion: 1,
+  meta: { title: '密', videoId: 'testvideo01' },
+  timing: { offsetMs: 0 },
+  notes: Array.from({ length: 60 }, (_, i) => ({
+    id: `d${i}`,
+    type: 'tap',
+    time: 0.2 + i * 0.1,
+    x: 0.5,
+    y: 0.5,
+  })),
+})
+
+async function testTimelineScrubLane(browser) {
+  console.log('\n[22] クリエイト: ノーツが詰まっていても下の帯でシークできる')
+  const page = await newPage(browser, { draft: DENSE_CHART })
+  await page.locator('button', { hasText: 'クリエイトモード' }).first().click()
+  await page.locator('button', { hasText: '前回の続きから' }).click()
+  await page.locator('button', { hasText: '+1s' }).click()
+  await page.waitForTimeout(500)
+
+  const tl = await page.locator('.timeline-canvas').boundingBox()
+  const readTime = () => page.locator('.time-label').textContent()
+  const before = await readTime()
+
+  // 下の帯を掴んで左へ引く → 時刻が進む（ノーツは選ばれない）
+  const scrubY = tl.y + tl.height - 8
+  await page.mouse.move(tl.x + tl.width / 2, scrubY)
+  await page.mouse.down()
+  await page.mouse.move(tl.x + tl.width / 2 - 60, scrubY, { steps: 6 })
+  await page.mouse.up()
+  const after = await readTime()
+  check('下の帯を引くとシークできる', after !== before, `${before} → ${after}`)
+  check('シークではノーツを選ばない', await page.locator('.inspector').isHidden())
+
+  // 同じ x でも、上のノーツ帯を押せば従来どおり選択できる
+  await page.mouse.click(tl.x + tl.width / 2, tl.y + 16)
+  check('ノーツの帯を押せば選択できる', await page.locator('.inspector').isVisible())
+  await page.context().close()
+}
+
 // ---------------------------------------------------------------- 実行
 
 async function waitForServer(url, timeoutMs = 30000) {
@@ -1066,6 +1153,8 @@ try {
   await testFlickWindowIsRealTime(browser)
   await testHoldFlick(browser)
   await testEditorHoldFlick(browser)
+  await testEditorParallelInput(browser)
+  await testTimelineScrubLane(browser)
 } finally {
   await browser.close()
   // pkill は自分のシェルごと落とすので、起動した子だけを止める。

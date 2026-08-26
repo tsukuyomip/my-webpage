@@ -24,7 +24,15 @@ export interface TimelineCallbacks {
   onCommit: () => void
 }
 
-const HEIGHT = 68
+const HEIGHT = 76
+/**
+ * 下端に置くシーク専用の帯の高さ（px）。
+ * ノーツが詰まると、どこを押しても掴めてしまってシークできなくなる。
+ * ここだけはノーツを拾わないので、密な譜面でも必ずスクラブできる。
+ */
+const SCRUB_H = 26
+/** ノーツの棒の上端（px）。 */
+const NOTE_TOP = 6
 /** ステージ側のリング色と合わせる。 */
 const NOTE_COLOR: Record<Note['type'], string> = {
   tap: '#5cc8ff',
@@ -44,6 +52,7 @@ export class Timeline {
   private readonly canvas: HTMLCanvasElement
   private readonly ctx: CanvasRenderingContext2D
   private width = 300
+  private height = HEIGHT
   /** 画面の半分に相当する秒数。小さいほど拡大。 */
   windowSec = 2
   private dragNote: Note | null = null
@@ -74,16 +83,29 @@ export class Timeline {
     const bounds = this.root.getBoundingClientRect()
     if (bounds.width < 2) return
     this.width = bounds.width
+    // 高さは CSS 側で決める（横向きでは詰める）。定数で固定すると、
+    // 縮めたときにキャンバスだけがはみ出す。
+    this.height = Math.max(48, Math.round(bounds.height) || HEIGHT)
     const dpr = Math.min(window.devicePixelRatio || 1, 2.5)
     this.canvas.width = Math.round(bounds.width * dpr)
-    this.canvas.height = Math.round(HEIGHT * dpr)
+    this.canvas.height = Math.round(this.height * dpr)
     this.canvas.style.width = `${bounds.width}px`
-    this.canvas.style.height = `${HEIGHT}px`
+    this.canvas.style.height = `${this.height}px`
     this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
   }
 
   zoom(factor: number): void {
     this.windowSec = Math.min(16, Math.max(0.25, this.windowSec * factor))
+  }
+
+  /** ここから下はシーク専用。 */
+  private scrubTop(): number {
+    return this.height - SCRUB_H
+  }
+
+  /** ノーツの棒の下端。 */
+  private noteBottom(): number {
+    return this.scrubTop() - 4
   }
 
   private pxPerSec(): number {
@@ -107,9 +129,12 @@ export class Timeline {
             // 捕捉できなくても入力自体は届く。
           }
         }
-        const x = e.clientX - this.canvas.getBoundingClientRect().left
+        const bounds = this.canvas.getBoundingClientRect()
+        const x = e.clientX - bounds.left
+        const y = e.clientY - bounds.top
         const now = this.callbacks.getTime()
-        const hit = this.hitTest(x, now)
+        // 下の帯を掴んだときは、ノーツがあっても必ずシーク。
+        const hit = y >= this.scrubTop() ? null : this.hitTest(x, now)
         if (hit) {
           this.dragNote = hit.note
           this.dragPart = hit.part
@@ -192,11 +217,14 @@ export class Timeline {
   draw(now: number): void {
     const ctx = this.ctx
     const w = this.width
-    ctx.clearRect(0, 0, w, HEIGHT)
+    const h = this.height
+    const scrubTop = this.scrubTop()
+    const noteBottom = this.noteBottom()
+    ctx.clearRect(0, 0, w, h)
     ctx.fillStyle = '#0e1420'
-    ctx.fillRect(0, 0, w, HEIGHT)
+    ctx.fillRect(0, 0, w, h)
 
-    // ビートグリッド
+    // ビートグリッド（ノーツのレーンの中だけ）
     if (this.grid && this.grid.bpm > 0) {
       const step = 60 / this.grid.bpm / Math.max(1, this.grid.division)
       const offset = this.grid.beatOffsetMs / 1000
@@ -209,23 +237,13 @@ export class Timeline {
         if (x < -2 || x > w + 2) continue
         const onBeat = Math.abs(t - offset - Math.round((t - offset) / beatStep) * beatStep) < 1e-6
         ctx.fillStyle = onBeat ? 'rgba(255,255,255,0.22)' : 'rgba(255,255,255,0.09)'
-        ctx.fillRect(x, onBeat ? 8 : 18, 1, HEIGHT - (onBeat ? 16 : 36))
+        const top = onBeat ? NOTE_TOP : NOTE_TOP + 8
+        ctx.fillRect(x, top, 1, noteBottom - top)
       }
     }
 
-    // 秒目盛り
-    ctx.fillStyle = 'rgba(140,170,200,0.5)'
-    ctx.font = '10px system-ui, sans-serif'
-    ctx.textAlign = 'center'
-    const secFrom = Math.ceil(now - this.windowSec)
-    const secTo = Math.floor(now + this.windowSec)
-    for (let s = secFrom; s <= secTo; s += 1) {
-      const x = this.timeToX(s, now)
-      ctx.fillRect(x, HEIGHT - 12, 1, 6)
-      ctx.fillText(`${s}`, x, HEIGHT - 2)
-    }
-
     // ノーツ。長いものは長さぶんの帯を敷いてから始点と終端の棒を出す。
+    const barH = noteBottom - NOTE_TOP
     for (const note of this.visibleNotes(now)) {
       const x = this.timeToX(note.time, now)
       const selected = note.id === this.selectedId
@@ -233,22 +251,39 @@ export class Timeline {
       if (noteDuration(note) > 0) {
         const x2 = this.timeToX(noteEndTime(note), now)
         // 種別で上下に分けて、重なっても両方見えるようにする。
-        const band = (HEIGHT - 46) / 2
-        const top = note.type === 'hold' ? 20 : 20 + band
+        const band = (barH - 12) / 2
+        const top = note.type === 'hold' ? NOTE_TOP + 6 : NOTE_TOP + 6 + band
         ctx.globalAlpha = 0.4
         ctx.fillStyle = color
         ctx.fillRect(x, top, Math.max(1, x2 - x), band)
         ctx.globalAlpha = 1
-        ctx.fillRect(x2 - 1.5, 12, 3, HEIGHT - 30)
+        ctx.fillRect(x2 - 1.5, NOTE_TOP, 3, barH)
       }
       ctx.fillStyle = color
       const width = selected ? 5 : 3
-      ctx.fillRect(x - width / 2, 12, width, HEIGHT - 30)
+      ctx.fillRect(x - width / 2, NOTE_TOP, width, barH)
     }
 
-    // 現在位置
+    // シーク専用の帯。目盛りをここへ入れて「つまんで動かす所」に見せる。
+    ctx.fillStyle = 'rgba(255,255,255,0.06)'
+    ctx.fillRect(0, scrubTop, w, h - scrubTop)
+    ctx.fillStyle = 'rgba(255,255,255,0.12)'
+    ctx.fillRect(0, scrubTop, w, 1)
+
+    ctx.fillStyle = 'rgba(140,170,200,0.55)'
+    ctx.font = '10px system-ui, sans-serif'
+    ctx.textAlign = 'center'
+    const secFrom = Math.ceil(now - this.windowSec)
+    const secTo = Math.floor(now + this.windowSec)
+    for (let s = secFrom; s <= secTo; s += 1) {
+      const x = this.timeToX(s, now)
+      ctx.fillRect(x, scrubTop + 4, 1, 5)
+      ctx.fillText(`${s}`, x, h - 4)
+    }
+
+    // 現在位置。下の帯まで通して、つまむ位置と時刻の対応を分かりやすくする。
     ctx.fillStyle = '#ff5e6c'
-    ctx.fillRect(w / 2 - 1, 4, 2, HEIGHT - 12)
+    ctx.fillRect(w / 2 - 1, 4, 2, h - 6)
     ctx.beginPath()
     ctx.moveTo(w / 2 - 6, 0)
     ctx.lineTo(w / 2 + 6, 0)

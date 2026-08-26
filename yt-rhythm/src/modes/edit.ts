@@ -34,7 +34,7 @@ import {
   drawNotes,
 } from '../render/renderer.ts'
 import { button, downloadText, formatTime, h, pickFile, toast } from '../ui/dom.ts'
-import { Stage } from '../ui/stage.ts'
+import { Stage, type StagePointer } from '../ui/stage.ts'
 import { Timeline, type GridSpec } from '../ui/timeline.ts'
 
 export interface EditScreenOptions {
@@ -132,10 +132,15 @@ export class EditScreen {
   private snapOn = false
   private playing = false
   private pausedTime = 0
-  private draggingNote: Note | null = null
+  /**
+   * いま触っている指の状態。**指ごとに独立**して持つ。
+   * 1 つしか持たないと「左でホールドしながら右でタップ」ができない
+   * （2 本目の down が 1 本目の記録を上書きしてしまう）。
+   */
+  private readonly recordings = new Map<number, Recording>()
+  private readonly draggingNotes = new Map<number, Note>()
   /** 選択中のなぞりの通過点を掴んでいる状態。 */
-  private dragHandle: { note: DragNote; index: number } | null = null
-  private recording: Recording | null = null
+  private readonly dragHandles = new Map<number, { note: DragNote; index: number }>()
   private undoStack: string[] = []
   private redoStack: string[] = []
   private rafId = 0
@@ -173,9 +178,9 @@ export class EditScreen {
     this.chart = { ...opts.chart, notes: sortNotes(opts.chart.notes) }
 
     this.stage = new Stage({
-      onPointerDown: (p) => this.handleStageDown(p.px, p.py),
-      onPointerMove: (p) => this.handleStageMove(p.x, p.y),
-      onPointerUp: (p) => this.handleStageUp(p.x, p.y),
+      onPointerDown: (p) => this.handleStageDown(p),
+      onPointerMove: (p) => this.handleStageMove(p),
+      onPointerUp: (p) => this.handleStageUp(p),
       onStateChange: (state) => this.handlePlayerState(state),
       onError: (message) => toast(message, 'error'),
       onResize: () => this.draw(),
@@ -365,13 +370,19 @@ export class EditScreen {
 
   // ---------- 編集操作 ----------
 
-  /** ドラッグ開始時に控えを取り、実際に変わったときだけ Undo 履歴に積む。 */
+  /**
+   * ドラッグ開始時に控えを取り、実際に変わったときだけ Undo 履歴に積む。
+   * 指が複数あるあいだは控えを取り直さず、まとめて 1 件にする。
+   */
   private beginChange(): void {
+    if (this.pendingSnapshot !== null) return
     this.pendingSnapshot = JSON.stringify(this.chart.notes)
     this.dragChanged = false
   }
 
   private commitChange(): void {
+    // まだ触っている指があれば、その指が離すまで待つ。
+    if (this.draggingNotes.size > 0 || this.dragHandles.size > 0) return
     const snapshot = this.pendingSnapshot
     this.pendingSnapshot = null
     if (snapshot === null || !this.dragChanged) return
@@ -428,10 +439,11 @@ export class EditScreen {
    * 打ち込み開始。この時点ではまだ種別を決めない。
    * 離すまでのあいだ、押していた時間と動いた距離から毎フレーム決め直す。
    */
-  private beginRecording(x: number, y: number): void {
-    this.pushUndo()
+  private beginRecording(pointerId: number, x: number, y: number): void {
+    // 同時に打ち込んでいる指があるなら、履歴はまとめて 1 件にする。
+    if (this.recordings.size === 0) this.pushUndo()
     const now = performance.now()
-    this.recording = {
+    const rec: Recording = {
       id: newId(),
       time: Math.max(0, this.snap(this.chartTime())),
       x: clamp01(x),
@@ -448,15 +460,14 @@ export class EditScreen {
       stillUntil: 0,
       awaySec: 0,
     }
-    this.chart.notes = sortNotes([...this.chart.notes, this.buildRecordingNote()])
-    this.selectedId = this.recording.id
+    this.recordings.set(pointerId, rec)
+    this.chart.notes = sortNotes([...this.chart.notes, this.buildRecordingNote(rec)])
+    this.selectedId = rec.id
     // 打ち込みの途中は自動保存しない（まだ形が決まっていないため）。
     this.markDirty(false)
   }
 
-  private recordMove(x: number, y: number): void {
-    const rec = this.recording
-    if (!rec) return
+  private recordMove(rec: Recording, x: number, y: number): void {
     const nx = clamp01(x)
     const ny = clamp01(y)
     rec.moved += Math.hypot(nx - rec.lastX, ny - rec.lastY)
@@ -494,9 +505,7 @@ export class EditScreen {
    * いまの押し方から種別を決めてノーツを作る。
    * release を渡すと、その位置と時刻を終点にして確定させる。
    */
-  private buildRecordingNote(release?: { x: number; y: number }): Note {
-    const rec = this.recording
-    if (!rec) throw new Error('打ち込み中ではありません。')
+  private buildRecordingNote(rec: Recording, release?: { x: number; y: number }): Note {
     const elapsed = rec.elapsed
     const base = { id: rec.id, time: rec.time, x: rec.x, y: rec.y }
     const moved = rec.moved >= this.dragThreshold()
@@ -565,21 +574,17 @@ export class EditScreen {
   }
 
   /** 打ち込み中のノーツを、いまの押し方に合わせて置き換える。 */
-  private syncRecordingNote(release?: { x: number; y: number }): void {
-    const rec = this.recording
-    if (!rec) return
+  private syncRecordingNote(rec: Recording, release?: { x: number; y: number }): void {
     const index = this.chart.notes.findIndex((n) => n.id === rec.id)
     if (index < 0) return
-    this.chart.notes[index] = this.buildRecordingNote(release)
+    this.chart.notes[index] = this.buildRecordingNote(rec, release)
   }
 
   /**
    * 押し始めからの経過を進める。再生中は譜面時刻で数えるので、
    * 0.5 倍速で描いても曲に対する長さは見たとおりになる。
    */
-  private updateRecordingElapsed(): void {
-    const rec = this.recording
-    if (!rec) return
+  private updateRecordingElapsed(rec: Recording): void {
     const nowMs = performance.now()
     const chart = this.chartTime()
     const step = this.playing ? chart - rec.lastChart : (nowMs - rec.lastWallMs) / 1000
@@ -598,18 +603,19 @@ export class EditScreen {
 
   /** 押しっぱなしでも種別と長さが進むよう、毎フレーム呼ぶ。 */
   private advanceRecording(): void {
-    if (!this.recording) return
-    this.updateRecordingElapsed()
-    this.syncRecordingNote()
+    if (this.recordings.size === 0) return
+    for (const rec of this.recordings.values()) {
+      this.updateRecordingElapsed(rec)
+      this.syncRecordingNote(rec)
+    }
     // いま何になっているかをインスペクタにも出す（自動保存はまだしない）。
     this.markDirty(false)
   }
 
-  private finishRecording(x: number, y: number): void {
-    if (!this.recording) return
-    this.updateRecordingElapsed()
-    this.syncRecordingNote({ x, y })
-    this.recording = null
+  private finishRecording(pointerId: number, rec: Recording, x: number, y: number): void {
+    this.recordings.delete(pointerId)
+    this.updateRecordingElapsed(rec)
+    this.syncRecordingNote(rec, { x, y })
     this.markDirty()
   }
 
@@ -627,6 +633,11 @@ export class EditScreen {
   }
 
   /** 画面上でタップされた位置に近いノーツを探す。掴むのは始点。 */
+  private isRecordingNote(id: string): boolean {
+    for (const rec of this.recordings.values()) if (rec.id === id) return true
+    return false
+  }
+
   private pickNote(px: number, py: number): Note | null {
     const t = this.chartTime()
     const radius = hitRadius(this.stage.rect, this.opts.settings)
@@ -639,6 +650,9 @@ export class EditScreen {
       const note = this.chart.notes[i]
       if (note.time > t + approach) break
       if (noteEndTime(note) < t - 0.6) continue
+      // いま打ち込んでいる最中のノーツは掴ませない。2 本目の指が
+      // 1 本目の書きかけを拾ってしまい、並行して置けなくなる。
+      if (this.isRecordingNote(note.id)) continue
       const dx = note.x * this.stage.rect.width - px
       const dy = note.y * this.stage.rect.height - py
       if (dx * dx + dy * dy > radius * radius) continue
@@ -668,60 +682,62 @@ export class EditScreen {
     return null
   }
 
-  private handleStageDown(px: number, py: number): void {
-    const handle = this.pickHandle(px, py)
+  private handleStageDown(p: StagePointer): void {
+    const handle = this.pickHandle(p.px, p.py)
     if (handle) {
       this.beginChange()
-      this.dragHandle = handle
+      this.dragHandles.set(p.pointerId, handle)
       return
     }
-    const hit = this.pickNote(px, py)
+    const hit = this.pickNote(p.px, p.py)
     if (hit) {
       this.beginChange()
       this.select(hit.id)
-      this.draggingNote = hit
+      this.draggingNotes.set(p.pointerId, hit)
       return
     }
     if (this.tool === 'select') {
       this.select(null)
       return
     }
-    this.beginRecording(px / this.stage.rect.width, py / this.stage.rect.height)
+    this.beginRecording(p.pointerId, p.px / this.stage.rect.width, p.py / this.stage.rect.height)
   }
 
-  private handleStageMove(x: number, y: number): void {
-    if (this.recording) {
-      this.recordMove(x, y)
+  private handleStageMove(p: StagePointer): void {
+    const rec = this.recordings.get(p.pointerId)
+    if (rec) {
+      this.recordMove(rec, p.x, p.y)
       return
     }
-    if (this.dragHandle) {
-      const p = this.dragHandle.note.path[this.dragHandle.index]
-      p.x = clamp01(x)
-      p.y = clamp01(y)
+    const handle = this.dragHandles.get(p.pointerId)
+    if (handle) {
+      const point = handle.note.path[handle.index]
+      point.x = clamp01(p.x)
+      point.y = clamp01(p.y)
       this.dragChanged = true
       this.markDirty(false)
       return
     }
-    if (!this.draggingNote) return
+    const note = this.draggingNotes.get(p.pointerId)
+    if (!note) return
     // なぞりは形を保ったまま全体を動かす。
-    moveNoteTo(this.draggingNote, x, y)
+    moveNoteTo(note, p.x, p.y)
     this.dragChanged = true
     this.markDirty(false)
   }
 
-  private handleStageUp(x: number, y: number): void {
-    if (this.recording) {
-      this.finishRecording(x, y)
+  private handleStageUp(p: StagePointer): void {
+    const rec = this.recordings.get(p.pointerId)
+    if (rec) {
+      this.finishRecording(p.pointerId, rec, p.x, p.y)
       return
     }
-    if (this.dragHandle) {
-      this.dragHandle = null
+    if (this.dragHandles.delete(p.pointerId)) {
       this.commitChange()
       this.markDirty()
       return
     }
-    if (this.draggingNote) {
-      this.draggingNote = null
+    if (this.draggingNotes.delete(p.pointerId)) {
       this.commitChange()
       this.markDirty()
     }
