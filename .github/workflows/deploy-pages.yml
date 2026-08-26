@@ -76,7 +76,7 @@ jobs:
           npm ci
           npm run build
 
-      - name: Assemble site (root static page + /mixer/ + /make-medley/ + /media-vault/ + /gkms-sprtcrd/ + /train-sandbox/ + /sensitive-font/ + /yt-rhythm/ + /dopamine_calc/ + /dopamine-slot/ + /tmmn-house/ + /toio/)
+      - name: Assemble site (root static page + /mixer/ + /make-medley/ + /media-vault/ + /gkms-sprtcrd/ + /train-sandbox/ + /sensitive-font/ + /yt-rhythm/ + /dopamine_calc/ + /dopamine-slot/ + /tmmn-house/ + /toio/ + /yt-dlp-lab/)
         run: |
           mkdir -p _site/mixer _site/make-medley _site/media-vault _site/gkms-sprtcrd _site/train-sandbox _site/sensitive-font _site/yt-rhythm _site/dopamine_calc _site/dopamine-slot
           cp index.html style.css _site/
@@ -94,6 +94,8 @@ jobs:
           cp -r tmmn-house _site/tmmn-house
           # toio 配下もビルド不要の静的アプリ。今後ページが増えてもいいようにまるごとコピーする
           cp -r toio _site/toio
+          # yt-dlp-lab も同様。py/ と extension/ を含むのでディレクトリごと運ぶ
+          cp -r yt-dlp-lab _site/yt-dlp-lab
 
       - uses: actions/upload-pages-artifact@v3
         with:
