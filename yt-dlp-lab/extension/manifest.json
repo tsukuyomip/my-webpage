@@ -1,0 +1,17 @@
+{
+  "manifest_version": 3,
+  "name": "yt-dlp-lab CORS bridge",
+  "version": "0.1.0",
+  "description": "yt-dlp-lab のページからの XHR に限って、レスポンスに CORS 許可ヘッダを足す。ロジックは一切持たない。",
+  "permissions": ["declarativeNetRequest"],
+  "host_permissions": ["<all_urls>"],
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "cors",
+        "enabled": true,
+        "path": "rules.json"
+      }
+    ]
+  }
+}

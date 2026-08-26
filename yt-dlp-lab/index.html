@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>yt-dlp lab</title>
+<meta name="description" content="yt-dlp をブラウザの中（Pyodide）でそのまま動かし、動画ページのメタ情報とフォーマット一覧を取り出す実験ページ。">
+<!-- ?v= はキャッシュ避け。JS/CSS/py を変更したら必ず上げること -->
+<link rel="stylesheet" href="style.css?v=20260826a">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <a class="home" href="../">&larr;</a>
+    <h1>yt-dlp lab</h1>
+    <span class="tag">実験中</span>
+  </div>
+</header>
+
+<main>
+
+  <section class="panel" id="statusPanel">
+    <h2>環境</h2>
+    <ul class="checks">
+      <li id="chkRuntime"><span class="dot"></span><span class="label">Pyodide + yt-dlp</span><span class="detail">未起動</span></li>
+      <li id="chkBridge"><span class="dot"></span><span class="label">CORS ブリッジ拡張</span><span class="detail">未確認</span></li>
+    </ul>
+    <div class="actions">
+      <button id="btnBoot">起動する</button>
+      <button id="btnProbe" disabled>拡張を確認</button>
+    </div>
+    <p class="note" id="bridgeHelp" hidden>
+外部サイトに届きませんでした。拡張が未導入であれば、<code>yt-dlp-lab/extension/</code> を
+      <code>chrome://extensions</code> の「パッケージ化されていない拡張機能を読み込む」で追加してください。
+      拡張なしでも、CORS を許可しているサイトなら動きます。
+    </p>
+  </section>
+
+  <section class="panel">
+    <h2>抽出</h2>
+    <form id="extractForm" class="row">
+      <input type="url" id="url" placeholder="https://..." required autocomplete="off" spellcheck="false">
+      <button type="submit" id="btnExtract" disabled>情報を取得</button>
+    </form>
+    <p class="note">ダウンロードはしません。yt-dlp の <code>extract_info(download=False)</code> 相当です。</p>
+  </section>
+
+  <section class="panel" id="resultPanel" hidden>
+    <h2>結果</h2>
+    <div id="summary" class="summary"></div>
+    <div class="table-wrap">
+      <table id="formats">
+        <thead>
+          <tr><th>format_id</th><th>ext</th><th>解像度</th><th>fps</th><th>コーデック</th><th>サイズ</th><th>note</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <details>
+      <summary>生の JSON</summary>
+      <pre id="rawJson"></pre>
+    </details>
+  </section>
+
+  <section class="panel">
+    <h2>ログ</h2>
+    <pre id="log" class="log"></pre>
+  </section>
+
+</main>
+
+<script src="app.js?v=20260826a"></script>
+</body>
+</html>
