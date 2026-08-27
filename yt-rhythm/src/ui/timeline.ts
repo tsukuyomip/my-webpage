@@ -31,8 +31,12 @@ const HEIGHT = 76
  * ここだけはノーツを拾わないので、密な譜面でも必ずスクラブできる。
  */
 const SCRUB_H = 26
-/** ノーツの棒の上端（px）。 */
-const NOTE_TOP = 6
+/** ノーツの棒の上端（px）。上に重なり数を出すぶんだけ空けてある。 */
+const NOTE_TOP = 15
+/** これだけ近ければ「同じタイミング」とみなす（秒）。 */
+const STACK_SEC = 0.03
+/** 重なり数の表示が隣とぶつからないよう、この間隔より近いものは出さない（px）。 */
+const STACK_LABEL_GAP = 14
 /** ステージ側のリング色と合わせる。 */
 const NOTE_COLOR: Record<Note['type'], string> = {
   tap: '#5cc8ff',
@@ -264,6 +268,10 @@ export class Timeline {
       ctx.fillRect(x - width / 2, NOTE_TOP, width, barH)
     }
 
+    // ほぼ同じ時刻に重なっているものは、数を小さく添える。棒は重なると
+    // 1 本に見えるので、何個あるかは形からは分からない。
+    drawStackCounts(ctx, [...this.visibleNotes(now)], (t) => this.timeToX(t, now))
+
     // シーク専用の帯。目盛りをここへ入れて「つまんで動かす所」に見せる。
     ctx.fillStyle = 'rgba(255,255,255,0.06)'
     ctx.fillRect(0, scrubTop, w, h - scrubTop)
@@ -291,4 +299,36 @@ export class Timeline {
     ctx.closePath()
     ctx.fill()
   }
+}
+
+/** ほぼ同じ時刻のノーツをまとめて、2 つ以上なら数を控えめに出す。 */
+function drawStackCounts(
+  ctx: CanvasRenderingContext2D,
+  notes: Note[],
+  timeToX: (time: number) => number,
+): void {
+  if (notes.length < 2) return
+  const times = notes.map((n) => n.time).sort((a, b) => a - b)
+  ctx.save()
+  ctx.font = '9px system-ui, sans-serif'
+  ctx.textAlign = 'center'
+  ctx.textBaseline = 'alphabetic'
+  let lastLabelX = Number.NEGATIVE_INFINITY
+  let i = 0
+  while (i < times.length) {
+    let j = i + 1
+    while (j < times.length && times[j] - times[j - 1] <= STACK_SEC) j += 1
+    const count = j - i
+    if (count >= 2) {
+      const x = timeToX((times[i] + times[j - 1]) / 2)
+      // 隣の数字と近すぎたら出さない。並べても読めないうえ、うるさい。
+      if (x - lastLabelX >= STACK_LABEL_GAP) {
+        ctx.fillStyle = 'rgba(232, 238, 247, 0.55)'
+        ctx.fillText(String(count), x, NOTE_TOP - 4)
+        lastLabelX = x
+      }
+    }
+    i = j
+  }
+  ctx.restore()
 }

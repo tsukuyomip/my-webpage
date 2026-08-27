@@ -433,6 +433,14 @@ body {
   touch-action: none;
 }
 
+/* 再生コントロールは常に見えていてほしいので、スクロールする欄の外に置く。 */
+.transport {
+  flex: 0 0 auto;
+  padding: 0.45rem 0.6rem;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+}
+
 .edit-panel {
   flex: 0 0 auto;
   max-height: 44vh;

@@ -535,7 +535,7 @@ async function testLongDrag(browser) {
   const at = (x, y) => [box.x + x * box.width, box.y + y * box.height]
 
   // 再生しながら描く（実際の打ち込みと同じ状況）
-  await page.locator('.edit-panel button', { hasText: '▶' }).first().click()
+  await page.locator('.transport button', { hasText: '▶' }).first().click()
   await page.waitForTimeout(400)
 
   await page.mouse.move(...at(0.5, 0.5))
@@ -562,7 +562,7 @@ async function testDragAtHalfSpeed(browser) {
   const at = (x, y) => [box.x + x * box.width, box.y + y * box.height]
 
   await page.locator('.edit-panel select').first().selectOption('0.5')
-  await page.locator('.edit-panel button', { hasText: '▶' }).first().click()
+  await page.locator('.transport button', { hasText: '▶' }).first().click()
   await page.waitForTimeout(400)
 
   await page.mouse.move(...at(0.5, 0.5))
@@ -1010,7 +1010,9 @@ async function testEditorHoldFlick(browser) {
   const [, flickHold, slow] = chart.notes
 
   check('種別は hold のまま（古いプレイヤーでも長押しとして遊べる）', flickHold.type === 'hold', flickHold.type)
-  check('払った向きを持つ', flickHold.dx > 0.8 && Math.abs(flickHold.dy) < 0.4, JSON.stringify({ dx: flickHold.dx, dy: flickHold.dy }))
+  // 右へ払ったこと（30 度以内）を見る。打ち込み中はインスペクタの文字数で
+  // パネルの高さが変わり、そのぶんステージが動くので縦は多少ぶれる。
+  check('払った向きを持つ', flickHold.dx > 0.86, JSON.stringify({ dx: flickHold.dx, dy: flickHold.dy }))
   check(
     '長さは払い始めた時刻（離した時刻ではない）',
     flickHold.duration > 0.45 && flickHold.duration < 0.85,
@@ -1150,7 +1152,7 @@ async function testEditorPreviewSfx(browser) {
 
   // 再生して通過させる
   await page.evaluate(() => { window.__sfxDur = [] })
-  await page.locator('.panel-row button', { hasText: '▶' }).first().click()
+  await page.locator('.transport button', { hasText: '▶' }).first().click()
   await waitTime(page, 2.9)
   const passed = await page.evaluate(() => window.__sfxDur)
 
@@ -1257,7 +1259,7 @@ async function testTempoTool(browser) {
   check('停止中は測らない', (await readout.textContent()).includes('0 タップ'), await readout.textContent())
 
   // 再生して、譜面時刻の 150 BPM ちょうどで叩く
-  await page.locator('.panel-row button', { hasText: '▶' }).first().click()
+  await page.locator('.transport button', { hasText: '▶' }).first().click()
   await page.waitForTimeout(300)
   // 再生ボタンを押すとパネルが上へスクロールするので、測るボタンを出し直してから
   // 座標を取る。取り直さないと画面外を叩きにいって 1 回も入らない。
@@ -1285,10 +1287,135 @@ async function testTempoTool(browser) {
   // ÷2 で拍の取り方を変えられる
   await page.locator('button', { hasText: '÷2' }).click()
   const halved = Number((await readout.textContent()).match(/([\d.]+) BPM/)?.[1])
-  check('÷2 で半分になる', Math.abs(halved - bpm / 2) < 0.02, `${halved} / 元 ${bpm}`)
+  // 表示は小数 1 桁。半分にすると丸めの差が倍になるので、そのぶん見込む。
+  check('÷2 で半分になる', Math.abs(halved - bpm / 2) < 0.08, `${halved} / 元 ${bpm}`)
 
   await page.locator('button', { hasText: 'やり直す' }).click()
   check('やり直すと消える', (await readout.textContent()).includes('0 タップ'), await readout.textContent())
+  await page.context().close()
+}
+
+async function testTransportAlwaysVisible(browser) {
+  console.log('\n[26] クリエイト: 再生コントロールは常に見える')
+  const draft = JSON.stringify({
+    formatVersion: 1,
+    meta: { title: '常時表示', videoId: 'testvideo01' },
+    timing: { offsetMs: 0 },
+    notes: [{ id: 'a', type: 'tap', time: 1, x: 0.5, y: 0.5 }],
+  })
+  const page = await newPage(browser, { draft })
+  await page.locator('button', { hasText: 'クリエイトモード' }).first().click()
+  await page.locator('button', { hasText: '前回の続きから' }).click()
+  await page.waitForTimeout(400)
+
+  const play = page.locator('.transport button', { hasText: '▶' }).first()
+  const view = page.viewportSize()
+  // 設定を開いてから測る（開いた時点で高さが変わるのは想定どおり）。
+  await page.locator('.meta-details summary').click()
+  await page.waitForTimeout(200)
+  const before = await play.boundingBox()
+  await page.locator('.edit-panel').evaluate((el) => { el.scrollTop = el.scrollHeight })
+  await page.waitForTimeout(200)
+  const after = await play.boundingBox()
+
+  check('パネルを下までスクロールしても動かない', Math.abs(after.y - before.y) < 1, `${before.y} → ${after.y}`)
+  check('画面の中に収まっている', after.y >= 0 && after.y + after.height <= view.height, JSON.stringify(after))
+  // 押せる（他の要素に隠れていない）ことも見る
+  await play.click({ timeout: 3000 })
+  await page.waitForTimeout(200)
+  check('スクロールした状態でも再生できる', (await videoTime(page)) > 0)
+  await page.context().close()
+}
+
+async function testSnapToGrid(browser) {
+  console.log('\n[27] クリエイト: 置いてあるノーツを拍に合わせる')
+  // 120 BPM / 8 分 = 0.25 秒ごと。拍からわざと外して置く。
+  const draft = JSON.stringify({
+    formatVersion: 1,
+    meta: { title: 'スナップ', videoId: 'testvideo01' },
+    timing: { offsetMs: 0, bpm: 120, beatOffsetMs: 0, division: 2 },
+    notes: [
+      { id: 'a', type: 'tap', time: 1.02, x: 0.2, y: 0.5 },
+      { id: 'b', type: 'tap', time: 1.47, x: 0.4, y: 0.5 },
+      { id: 'c', type: 'hold', time: 2.04, x: 0.6, y: 0.5, duration: 0.53 },
+      { id: 'd', type: 'tap', time: 3.5, x: 0.8, y: 0.5 },
+    ],
+  })
+  const page = await newPage(browser, { draft })
+  await page.locator('button', { hasText: 'クリエイトモード' }).first().click()
+  await page.locator('button', { hasText: '前回の続きから' }).click()
+  await page.locator('.meta-details summary').click()
+  await page.waitForTimeout(300)
+  await page.locator('button', { hasText: '置いてあるノーツを拍に合わせる' }).click()
+  await page.waitForTimeout(200)
+
+  const readChart = async () => {
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      page.locator('button', { hasText: '書き出し' }).click(),
+    ])
+    const stream = await download.createReadStream()
+    let text = ''
+    for await (const chunk of stream) text += chunk
+    return JSON.parse(text).notes
+  }
+  const notes = await readChart()
+  const times = notes.map((n) => n.time)
+  const step = 0.25
+  check(
+    '全部いちばん近い拍に乗る',
+    times.every((t) => Math.abs(t / step - Math.round(t / step)) < 1e-6),
+    JSON.stringify(times),
+  )
+  check('もともと拍の上にあるものは動かない', times.includes(3.5), JSON.stringify(times))
+  const hold = notes.find((n) => n.type === 'hold')
+  check('長いノーツは終端も拍に乗る', Math.abs(hold.duration - 0.5) < 1e-6, String(hold.duration))
+
+  await page.locator('button', { hasText: '元に戻す' }).click()
+  await page.waitForTimeout(200)
+  const back = (await readChart()).map((n) => n.time)
+  check('元に戻せる', back.includes(1.02) && back.includes(1.47), JSON.stringify(back))
+  await page.context().close()
+}
+
+/** タイムラインの、ノーツの棒より上の帯にある「明るい画素」の数（重なり数の文字）。 */
+const stackLabel = (page, offsetSec) =>
+  page.evaluate((dt) => {
+    const c = document.querySelector('.timeline-canvas')
+    const dpr = c.width / c.clientWidth
+    // windowSec は既定 2。中央が現在時刻。
+    const x = Math.round((c.clientWidth / 2 + dt * (c.clientWidth / 2 / 2)) * dpr)
+    const d = c.getContext('2d').getImageData(x - 6 * dpr, 2 * dpr, 12 * dpr, 11 * dpr).data
+    // 背景は #0e1420（合計 66）。文字は白なので、はっきり明るい画素だけ数える。
+    let bright = 0
+    for (let i = 0; i < d.length; i += 4) if (d[i] + d[i + 1] + d[i + 2] > 200) bright += 1
+    return bright
+  }, offsetSec)
+
+async function testTimelineStackCount(browser) {
+  console.log('\n[28] タイムライン: 重なっている数を添える')
+  const draft = JSON.stringify({
+    formatVersion: 1,
+    meta: { title: '重なり', videoId: 'testvideo01' },
+    timing: { offsetMs: 0 },
+    notes: [
+      // 現在時刻 1.0 の左右に置く。真上は再生位置の印と重なって測れない。
+      { id: 'a', type: 'tap', time: 1.6, x: 0.2, y: 0.5 },
+      { id: 'b', type: 'tap', time: 1.605, x: 0.5, y: 0.5 },
+      { id: 'c', type: 'tap', time: 1.61, x: 0.8, y: 0.5 },
+      { id: 'd', type: 'tap', time: 0.4, x: 0.5, y: 0.2 },
+    ],
+  })
+  const page = await newPage(browser, { draft })
+  await page.locator('button', { hasText: 'クリエイトモード' }).first().click()
+  await page.locator('button', { hasText: '前回の続きから' }).click()
+  await page.locator('button', { hasText: '+1s' }).click()
+  await page.waitForTimeout(500)
+
+  const stacked = await stackLabel(page, 0.6)
+  const alone = await stackLabel(page, -0.6)
+  check('重なっている所には数が出る', stacked > 6, `明るい画素 ${stacked}`)
+  check('1 つだけの所には出ない', alone === 0, `明るい画素 ${alone}`)
   await page.context().close()
 }
 
@@ -1354,6 +1481,9 @@ try {
   await testEditorPreviewSfx(browser)
   await testTempoEstimator(browser)
   await testTempoTool(browser)
+  await testTransportAlwaysVisible(browser)
+  await testSnapToGrid(browser)
+  await testTimelineStackCount(browser)
 } finally {
   await browser.close()
   // pkill は自分のシェルごと落とすので、起動した子だけを止める。

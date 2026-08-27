@@ -272,6 +272,7 @@ export class EditScreen {
       this.buildTopbar(),
       this.stage.root,
       this.timeline.root,
+      this.buildTransport(),
       this.buildPanel(),
     ])
 
@@ -1003,8 +1004,12 @@ export class EditScreen {
     sfx.setKit(this.chart.display.sfxKit)
   }
 
-  private buildPanel(): HTMLElement {
-    const transport = h('div', { class: 'panel-row' }, [
+  /**
+   * 再生コントロール。**スクロールする欄の外**に置く。中に入れておくと、
+   * 下のほうを触っているあいだ再生・シークに手が届かなくなる。
+   */
+  private buildTransport(): HTMLElement {
+    return h('div', { class: 'transport panel-row' }, [
       button('⏮', () => this.seekVideo(0), 'icon-btn'),
       button('-1s', () => this.nudge(-1), 'btn btn-small'),
       button('-0.1s', () => this.nudge(-0.1), 'btn btn-small'),
@@ -1013,7 +1018,9 @@ export class EditScreen {
       button('+1s', () => this.nudge(1), 'btn btn-small'),
       this.timeLabel,
     ])
+  }
 
+  private buildPanel(): HTMLElement {
     const rateSelect = h('select', {
       class: 'select',
       on: {
@@ -1183,6 +1190,13 @@ export class EditScreen {
         text: 'BPM と拍オフセットを入れるとタイムラインに拍線が出て、スナップが効くようになります。',
       }),
       this.buildTempoTool(),
+      h('div', { class: 'panel-row' }, [
+        button('置いてあるノーツを拍に合わせる', () => this.snapAllNotes(), 'btn btn-small'),
+      ]),
+      h('p', {
+        class: 'muted small',
+        text: 'BPM と拍オフセットが決まったあとに 1 回かけると、耳で置いたぶんのばらつきがまとめて取れます（元に戻せます）。',
+      }),
       h('div', { class: 'panel-row' }, [dim.field, approach.field, sfxField]),
       h('p', {
         class: 'muted small',
@@ -1191,7 +1205,6 @@ export class EditScreen {
     ])
 
     return h('div', { class: 'edit-panel' }, [
-      transport,
       tools,
       this.toolHint,
       this.inspector,
@@ -1351,6 +1364,49 @@ export class EditScreen {
       ]),
       this.tempoHint,
     ])
+  }
+
+  /**
+   * 置いてあるノーツを、いちばん近い拍へ寄せる。
+   * BPM と拍オフセットが決まったあとに 1 回かけると、耳で置いたぶんの
+   * ばらつきがまとめて取れる。長いノーツは終端も拍に寄せるので、
+   * 押さえる長さも拍の倍数になる。
+   */
+  private snapAllNotes(): void {
+    const grid = this.grid()
+    if (!grid) {
+      toast('先に BPM と拍オフセットを決めてください。', 'error')
+      return
+    }
+    const step = 60 / grid.bpm / Math.max(1, grid.division)
+    const base = grid.beatOffsetMs / 1000
+    const toGrid = (t: number) => base + Math.round((t - base) / step) * step
+
+    this.pushUndo()
+    let moved = 0
+    let worst = 0
+    for (const note of this.chart.notes) {
+      // 終端は動かす前の時刻から出す。先に time を書き換えると長さがずれる。
+      const end = noteEndTime(note)
+      const time = Math.max(0, toGrid(note.time))
+      const shift = Math.abs(time - note.time)
+      if (shift > 1e-6) {
+        moved += 1
+        worst = Math.max(worst, shift)
+      }
+      note.time = time
+      if (isLongNote(note)) {
+        setNoteDuration(note, Math.max(MIN_DURATION_SEC, toGrid(end) - time))
+      }
+    }
+    this.chart.notes = sortNotes(this.chart.notes)
+    this.markDirty()
+    this.refreshInspector()
+    toast(
+      moved > 0
+        ? `${moved} ノーツを拍に合わせました（最大 ${Math.round(worst * 1000)}ms 移動）。`
+        : 'すでに全部拍の上にありました。',
+    )
   }
 
   private toggleSnap(): void {
