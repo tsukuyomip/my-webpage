@@ -153,7 +153,6 @@ export class EditScreen {
   private saveTimer: number | undefined
   /** 再生プレビュー中にノーツ音を鳴らすか。 */
   private sfxOn = true
-  private sfxIndex = 0
   private lastSfxTime = Number.NaN
   private adShown = false
 
@@ -335,11 +334,15 @@ export class EditScreen {
 
   // ---------- 再生制御 ----------
 
-  private togglePlay(): void {
-    // 音はユーザー操作の中で用意する。
+  /** 音はユーザー操作の中でしか用意できないので、触られた所で毎回呼ぶ。 */
+  private armSfx(): void {
     sfx.ensure()
     sfx.setVolume(this.opts.settings.sfxVolume)
     sfx.setKit(this.chart.display.sfxKit)
+  }
+
+  private togglePlay(): void {
+    this.armSfx()
     if (this.playing) this.stage.player.pause()
     else {
       this.flushSeek(true)
@@ -461,6 +464,12 @@ export class EditScreen {
       awaySec: 0,
     }
     this.recordings.set(pointerId, rec)
+    // 置いた手応えを返す。余韻のない tick なので、詰めて置いても濁らない。
+    // 打ち込みもユーザー操作なので、ここが音を用意できる最初の機会になる。
+    if (this.sfxOn) {
+      this.armSfx()
+      sfx.play('tick')
+    }
     this.chart.notes = sortNotes([...this.chart.notes, this.buildRecordingNote(rec)])
     this.selectedId = rec.id
     // 打ち込みの途中は自動保存しない（まだ形が決まっていないため）。
@@ -669,6 +678,9 @@ export class EditScreen {
   private pickHandle(px: number, py: number): { note: DragNote; index: number } | null {
     const note = this.selectedId ? this.findNote(this.selectedId) : undefined
     if (!note || note.type !== 'drag') return null
+    // 打ち込んでいる最中のなぞりのハンドルは掴ませない。掴めてしまうと、
+    // 2 本目の指が書きかけの経路を掴んで並行して置けなくなる。
+    if (this.isRecordingNote(note.id)) return null
     // 画面に出ていないノーツのハンドルは掴めない。
     const t = this.chartTime()
     if (note.time > t + this.approachSec() || noteEndTime(note) < t - 0.6) return null
@@ -1177,17 +1189,37 @@ export class EditScreen {
     this.sfxBtn.classList.toggle('active', this.sfxOn)
   }
 
-  /** 再生プレビューで、ノーツを通過した瞬間に音を鳴らす（タイミング確認用）。 */
+  /**
+   * 再生プレビューで、ノーツを通過した瞬間に音を鳴らす（タイミング確認用）。
+   *
+   * **プレイと同じ音を鳴らす。** ここだけ短い確認音にしていたが、それでは
+   * 立ち上がりが違うぶん体感のタイミングもずれて、確認の意味がなくなる。
+   * 長いノーツは終端で解放音も鳴らすので、押さえる長さもそのまま聞ける。
+   */
   private playPassedSfx(t: number): void {
-    const index = lowerBound(this.chart.notes, t)
-    const jumped =
-      !Number.isFinite(this.lastSfxTime) || t < this.lastSfxTime || t - this.lastSfxTime > 0.4
-    if (!jumped && this.playing && this.sfxOn && index > this.sfxIndex) {
-      // シークや低速再生でまとめて溜まったときに連打しない。
-      for (let i = 0; i < Math.min(3, index - this.sfxIndex); i += 1) sfx.play('tick')
-    }
-    this.sfxIndex = index
+    const from = this.lastSfxTime
     this.lastSfxTime = t
+    // シークや一時停止をまたいだら、溜まったぶんを鳴らさない。
+    const jumped = !Number.isFinite(from) || t < from || t - from > 0.4
+    if (jumped || !this.playing || !this.sfxOn) return
+
+    let played = 0
+    const start = lowerBound(this.chart.notes, from - maxNoteDuration(this.chart.notes))
+    for (let i = start; i < this.chart.notes.length; i += 1) {
+      const note = this.chart.notes[i]
+      if (note.time > t) break
+      // 低速再生などでまとめて溜まったときに連打しない。
+      if (played >= 3) break
+      if (note.time > from) {
+        sfx.play('perfect')
+        played += 1
+      }
+      const end = noteEndTime(note)
+      if (end > note.time && end > from && end <= t && played < 3) {
+        sfx.play('release')
+        played += 1
+      }
+    }
   }
 
   private toggleSnap(): void {

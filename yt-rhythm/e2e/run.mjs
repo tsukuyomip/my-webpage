@@ -71,8 +71,15 @@ window.YT = {
   },
 }
 window.__sfx = 0
+// 鳴った音の長さも控える。tick は 0.04 秒、判定音は 0.5 秒前後なので、
+// どの音が鳴ったかを長さで見分けられる。
+window.__sfxDur = []
 const __origStart = AudioBufferSourceNode.prototype.start
-AudioBufferSourceNode.prototype.start = function (...a) { window.__sfx += 1; return __origStart.apply(this, a) }
+AudioBufferSourceNode.prototype.start = function (...a) {
+  window.__sfx += 1
+  window.__sfxDur.push(this.buffer ? this.buffer.duration : 0)
+  return __origStart.apply(this, a)
+}
 `
 
 const results = []
@@ -1051,6 +1058,24 @@ async function testEditorParallelInput(browser) {
   check('押さえていたほうはホールドになる', !!hold && hold.duration > 0.5, JSON.stringify(hold))
   check('押さえたまま置いたタップが 2 つ残る', taps.length === 2, String(taps.length))
   check('タップは右側に置かれている', taps.every((n) => n.x > 0.6), JSON.stringify(taps.map((n) => n.x)))
+
+  // iOS Safari は pointerdown の preventDefault ではジェスチャを止めない。
+  // 2 本目の指がピンチ扱いになると進行中のポインタが pointercancel で落ちる。
+  // touch イベント側を止めていることをここで確かめる。
+  const prevented = await page.evaluate(() => {
+    const canvas = document.querySelector('.stage-canvas')
+    const touch = new Touch({ identifier: 1, target: canvas, clientX: 10, clientY: 10 })
+    const event = new TouchEvent('touchstart', {
+      bubbles: true,
+      cancelable: true,
+      touches: [touch],
+      targetTouches: [touch],
+      changedTouches: [touch],
+    })
+    canvas.dispatchEvent(event)
+    return event.defaultPrevented
+  })
+  check('ステージのタッチはブラウザのジェスチャに渡さない', prevented)
   await page.context().close()
 }
 
@@ -1093,6 +1118,44 @@ async function testTimelineScrubLane(browser) {
   // 同じ x でも、上のノーツ帯を押せば従来どおり選択できる
   await page.mouse.click(tl.x + tl.width / 2, tl.y + 16)
   check('ノーツの帯を押せば選択できる', await page.locator('.inspector').isVisible())
+  await page.context().close()
+}
+
+async function testEditorPreviewSfx(browser) {
+  console.log('\n[23] クリエイト: 再生確認の音はプレイと同じ音')
+  const draft = JSON.stringify({
+    formatVersion: 1,
+    meta: { title: '確認音', videoId: 'testvideo01' },
+    timing: { offsetMs: 0 },
+    notes: [
+      { id: 'a', type: 'tap', time: 1.2, x: 0.3, y: 0.5 },
+      { id: 'b', type: 'hold', time: 2, x: 0.6, y: 0.5, duration: 0.6 },
+    ],
+  })
+  const page = await newPage(browser, { draft })
+  await page.locator('button', { hasText: 'クリエイトモード' }).first().click()
+  await page.locator('button', { hasText: '前回の続きから' }).click()
+  await page.waitForTimeout(400)
+
+  // 置いた瞬間は短い確認音（余韻があると詰めて置けない）
+  const box = await page.locator('.stage-canvas').boundingBox()
+  await page.evaluate(() => { window.__sfxDur = [] })
+  await page.mouse.click(box.x + 0.2 * box.width, box.y + 0.25 * box.height)
+  const placed = await page.evaluate(() => window.__sfxDur)
+  check('置いた瞬間は短い確認音', placed.length === 1 && placed[0] < 0.1, JSON.stringify(placed))
+
+  // 再生して通過させる
+  await page.evaluate(() => { window.__sfxDur = [] })
+  await page.locator('.panel-row button', { hasText: '▶' }).first().click()
+  await waitTime(page, 2.9)
+  const passed = await page.evaluate(() => window.__sfxDur)
+
+  check('通過音はプレイと同じ長さの音', passed.length >= 2 && passed.every((d) => d > 0.2), JSON.stringify(passed))
+  check(
+    '長いノーツは終端でも鳴る（頭 + 解放）',
+    passed.length >= 3,
+    `${passed.length} 回: ${JSON.stringify(passed)}`,
+  )
   await page.context().close()
 }
 
@@ -1155,6 +1218,7 @@ try {
   await testEditorHoldFlick(browser)
   await testEditorParallelInput(browser)
   await testTimelineScrubLane(browser)
+  await testEditorPreviewSfx(browser)
 } finally {
   await browser.close()
   // pkill は自分のシェルごと落とすので、起動した子だけを止める。

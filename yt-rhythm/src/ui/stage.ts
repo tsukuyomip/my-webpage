@@ -125,6 +125,13 @@ export class Stage {
     }
     this.canvas.addEventListener('pointerup', up)
     this.canvas.addEventListener('pointercancel', up)
+    // iOS Safari は pointerdown の preventDefault ではタッチのジェスチャを
+    // 止めない。2 本目の指が触れた瞬間にピンチとみなされ、進行中のポインタが
+    // pointercancel で落ちて「押さえながらタップ」が丸ごと消える。
+    // touch イベント側を止めないと防げないので、ここで潰しておく。
+    const stopTouch = (e: TouchEvent) => e.preventDefault()
+    this.canvas.addEventListener('touchstart', stopTouch, { passive: false })
+    this.canvas.addEventListener('touchmove', stopTouch, { passive: false })
     // ダブルタップ拡大・長押しの選択・コンテキストメニューを抑止する。
     this.canvas.addEventListener('contextmenu', (e) => e.preventDefault())
     this.canvas.addEventListener('dblclick', (e) => e.preventDefault())
