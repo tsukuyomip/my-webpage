@@ -595,3 +595,33 @@ body {
 .settings-note input {
   accent-color: var(--accent);
 }
+
+/* BPM をタップで測る */
+.tempo-tool {
+  margin-top: 0.5rem;
+  padding: 0.6rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+
+.tap-tempo {
+  min-width: 8.5rem;
+  min-height: 3.4rem;
+  touch-action: manipulation;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.tap-tempo:active {
+  background: #1d4c68;
+  border-color: var(--accent);
+}
+
+.tempo-readout {
+  font-variant-numeric: tabular-nums;
+  font-size: 1.05rem;
+}

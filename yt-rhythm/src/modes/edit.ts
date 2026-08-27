@@ -16,6 +16,7 @@ import {
   setNoteDuration,
 } from '../core/note.ts'
 import type { Settings } from '../core/settings.ts'
+import { estimateTempo, type TempoEstimate } from '../core/tempo.ts'
 import { SFX_KITS, sfx, type SfxKit } from '../core/sfx.ts'
 import {
   APPROACH_RANGE,
@@ -83,6 +84,20 @@ interface Recording {
 }
 
 /** はじく向きを 8 方位の記号にする。数値より一目で分かる。 */
+/** 拍の取り方を倍・半分にずらす。位相は新しい 1 拍の中に収め直す。 */
+function scaleTempo(tempo: TempoEstimate | null, factor: number): TempoEstimate | null {
+  if (!tempo) return null
+  const bpm = tempo.bpm * factor
+  if (bpm < 40 || bpm > 300) return null
+  const period = 60 / bpm
+  return {
+    ...tempo,
+    bpm,
+    errorBpm: tempo.errorBpm * factor,
+    offsetSec: tempo.offsetSec - Math.floor(tempo.offsetSec / period) * period,
+  }
+}
+
 function flickLabel(dir: { dx: number; dy: number }): string {
   const names = ['→', '↘', '↓', '↙', '←', '↖', '↑', '↗']
   const index = Math.round((Math.atan2(dir.dy, dir.dx) / (Math.PI / 4) + 8) % 8)
@@ -154,6 +169,14 @@ export class EditScreen {
   /** 再生プレビュー中にノーツ音を鳴らすか。 */
   private sfxOn = true
   private lastSfxTime = Number.NaN
+  /** BPM 測定で叩いた時刻（譜面時刻・秒）。 */
+  private tapTimes: number[] = []
+  private tempo: TempoEstimate | null = null
+  /** 拍の取り方を倍・半分にずらすための倍率。叩き直しても保つ。 */
+  private tempoScale = 1
+  private tempoReadout!: HTMLElement
+  private tempoHint!: HTMLElement
+  private tempoApplyBtn!: HTMLButtonElement
   private adShown = false
 
   // UI 参照
@@ -1159,6 +1182,7 @@ export class EditScreen {
         class: 'muted small',
         text: 'BPM と拍オフセットを入れるとタイムラインに拍線が出て、スナップが効くようになります。',
       }),
+      this.buildTempoTool(),
       h('div', { class: 'panel-row' }, [dim.field, approach.field, sfxField]),
       h('p', {
         class: 'muted small',
@@ -1220,6 +1244,113 @@ export class EditScreen {
         played += 1
       }
     }
+  }
+
+  // ---------- BPM をタップで測る ----------
+
+  /**
+   * 叩いた時刻を溜めて、その場で BPM を出し直す。
+   * 時刻は**譜面時刻**で取る。実時間だと再生速度を変えたときに合わなくなる。
+   */
+  private tapTempo(): void {
+    if (!this.playing) {
+      this.tempoHint.textContent = '再生しながら曲に合わせて叩いてください。'
+      return
+    }
+    this.armSfx()
+    if (this.sfxOn) sfx.play('tick')
+    this.tapTimes.push(this.chartTime())
+    this.tempo = scaleTempo(estimateTempo(this.tapTimes), this.tempoScale)
+    this.refreshTempo()
+  }
+
+  private resetTempo(): void {
+    this.tapTimes = []
+    this.tempo = null
+    this.tempoScale = 1
+    this.refreshTempo()
+  }
+
+  /**
+   * 倍・半分は「拍のどこを叩いたか」の違いで、測り直しても同じ取り違えを
+   * する。倍率として覚えておき、叩き足しても保つ。
+   */
+  private shiftTempo(factor: number): void {
+    const next = scaleTempo(this.tempo, factor)
+    if (!next) return
+    this.tempoScale *= factor
+    this.tempo = next
+    this.refreshTempo()
+  }
+
+  private applyTempo(): void {
+    const tempo = this.tempo
+    if (!tempo) return
+    this.chart.timing.bpm = Math.round(tempo.bpm * 100) / 100
+    this.chart.timing.beatOffsetMs = Math.round(tempo.offsetSec * 1000)
+    this.metaInputs.bpm.value = String(this.chart.timing.bpm)
+    this.metaInputs.beatOffset.value = String(this.chart.timing.beatOffsetMs)
+    this.markDirty()
+    toast(`BPM ${this.chart.timing.bpm} / 拍オフセット ${this.chart.timing.beatOffsetMs}ms を設定しました。`)
+  }
+
+  private refreshTempo(): void {
+    const tempo = this.tempo
+    this.tempoApplyBtn.disabled = !tempo
+    if (!tempo) {
+      this.tempoReadout.textContent = `-- BPM（${this.tapTimes.length} タップ）`
+      this.tempoHint.textContent = '再生しながら拍に合わせて 8 回以上叩いてください。'
+      return
+    }
+    const digits = tempo.errorBpm < 0.1 ? 2 : 1
+    this.tempoReadout.textContent =
+      `${tempo.bpm.toFixed(digits)} BPM ±${tempo.errorBpm.toFixed(2)}` +
+      `（${tempo.taps} タップ / ${tempo.linked} か所）`
+    // 「次はどのくらい先まで届くか」を出す。これが分かると、離れた所を
+    // つなぐのに何秒あければいいかが読めて、精度をどこまでも上げられる。
+    const reach = Math.floor(tempo.reachSec)
+    const missed = tempo.bursts - tempo.linked
+    this.tempoHint.textContent =
+      (missed > 0 ? `離れすぎてつなげなかった所が ${missed} か所あります。` : '') +
+      (reach >= 2
+        ? `いったん止めて、${reach} 秒先までの間でもう一度叩くと精度が上がります。`
+        : 'もう少し続けて叩いてください。')
+  }
+
+  private buildTempoTool(): HTMLElement {
+    this.tempoReadout = h('strong', { text: '-- BPM（0 タップ）' })
+    this.tempoHint = h('p', {
+      class: 'muted small',
+      text: '再生しながら拍に合わせて 8 回以上叩いてください。',
+    })
+    // click ではなく pointerdown で拾う。押した瞬間が測りたい時刻なので、
+    // click まで待つとその遅れがそのまま誤差になる。
+    const tapBtn = h('button', {
+      class: 'btn btn-big tap-tempo',
+      text: 'タップ',
+      attrs: { type: 'button' },
+      on: {
+        pointerdown: (e: Event) => {
+          e.preventDefault()
+          this.tapTempo()
+        },
+      },
+    })
+    this.tempoApplyBtn = button('この値を使う', () => this.applyTempo(), 'btn btn-primary btn-small')
+    this.tempoApplyBtn.disabled = true
+    return h('div', { class: 'tempo-tool' }, [
+      h('div', { class: 'panel-row' }, [
+        tapBtn,
+        h('div', { class: 'tempo-readout' }, [this.tempoReadout]),
+      ]),
+      h('div', { class: 'panel-row' }, [
+        this.tempoApplyBtn,
+        button('÷2', () => this.shiftTempo(0.5), 'btn btn-small'),
+        button('×2', () => this.shiftTempo(2), 'btn btn-small'),
+        button('やり直す', () => this.resetTempo(), 'btn btn-small btn-ghost'),
+      ]),
+      this.tempoHint,
+    ])
   }
 
   private toggleSnap(): void {

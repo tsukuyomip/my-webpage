@@ -726,7 +726,10 @@ const STRAIGHT_DRAG = JSON.stringify({
 
 /** まっすぐな経路の k 地点で、芯から縦に離れた画素の緑みを測る。 */
 const ribbonEdge = (page, k, offsetRatio) =>
-  page.evaluate(([kk, off]) => {
+  page.evaluate(([kk, off]) => new Promise((resolve) => {
+    // 描き直しを 1 フレーム待ってから読む。待たずに読むと、rAF が詰まったときに
+    // 古い絵を測ってしまい、「もう通り過ぎたはずの所がまだ太い」ように見える。
+    requestAnimationFrame(() => requestAnimationFrame(() => {
     const c = document.querySelector('.stage-canvas')
     const radius = 0.062 * c.width // NOTE_RADIUS_RATIO
     const x = Math.round((0.2 + 0.6 * kk) * c.width)
@@ -734,8 +737,9 @@ const ribbonEdge = (page, k, offsetRatio) =>
     const d = c.getContext('2d').getImageData(x - 2, y - 2, 4, 4).data
     let g = 0
     for (let i = 0; i < d.length; i += 4) g += d[i + 1]
-    return g / (d.length / 4)
-  }, [k, offsetRatio])
+    resolve(g / (d.length / 4))
+    }))
+  }), [k, offsetRatio])
 
 async function testDragRibbonWidth(browser) {
   console.log('\n[14] プレイ: 帯の太い部分が経路上を移動する')
@@ -1159,6 +1163,135 @@ async function testEditorPreviewSfx(browser) {
   await page.context().close()
 }
 
+async function testTempoEstimator(browser) {
+  console.log('\n[24] BPM 推定: 離れた所をつなぐと精度が上がる')
+  const page = await newPage(browser)
+  const out = await page.evaluate(async (base) => {
+    const { estimateTempo } = await import(`${base}src/core/tempo.ts`)
+    // 決まった乱数。落ちたときに同じ数字で追える。
+    let seed = 12345
+    const rnd = () => { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return seed / 0x7fffffff }
+    const jitter = (ms) => (rnd() - 0.5) * 2 * (ms / 1000)
+    // 実際の曲と同じく、どのまとまりも共通の拍グリッドの上に乗せる。
+    const taps = (bpm, aroundSec, count, jitterMs, phase = 0) => {
+      const p = 60 / bpm
+      const first = Math.ceil((aroundSec - phase) / p)
+      return Array.from({ length: count }, (_, i) => phase + (first + i) * p + jitter(jitterMs))
+    }
+    const pick = (e) => e && { bpm: e.bpm, err: Math.abs(e.bpm - 128), pm: e.errorBpm, linked: e.linked, bursts: e.bursts, reach: e.reachSec, taps: e.taps, offsetSec: e.offsetSec }
+
+    // 案内どおり、間隔を広げながら 4 か所叩く
+    const guided = pick(estimateTempo([
+      ...taps(128, 10, 12, 30), ...taps(128, 22, 8, 30),
+      ...taps(128, 50, 8, 30), ...taps(128, 145, 8, 30),
+    ]))
+    // 1 か所だけ 8 タップ
+    const single = pick(estimateTempo(taps(128, 10, 8, 30)))
+    // いきなり 35 秒先へ飛ぶ（つなげないはず）
+    const farJump = pick(estimateTempo([...taps(128, 10, 8, 30), ...taps(128, 45, 8, 30)]))
+    // 指が滑って 2 発ずれた
+    const noisy = taps(128, 10, 12, 30)
+    noisy[6] += 0.2
+    noisy[9] -= 0.19
+    const outlier = pick(estimateTempo(noisy))
+    // 叩き忘れ 2 回
+    const missed = pick(estimateTempo(taps(128, 10, 12, 30).filter((_, i) => i !== 4 && i !== 8)))
+    // 下手（±60ms）でも案内どおりなら
+    const sloppy = pick(estimateTempo([
+      ...taps(128, 10, 16, 60), ...taps(128, 20, 10, 60),
+      ...taps(128, 40, 10, 60), ...taps(128, 110, 10, 60),
+    ]))
+    // 位相（拍オフセット）
+    const phase = estimateTempo([...taps(120, 10, 12, 20, 0.25), ...taps(120, 22, 10, 20, 0.25)])
+    return { guided, single, farJump, outlier, missed, sloppy, phase: phase && { offsetSec: phase.offsetSec, bpm: phase.bpm }, tooFew: estimateTempo([1, 1.5]) }
+  }, BASE)
+
+  check('3 回未満では出さない', out.tooFew === null)
+  check('1 か所でもだいたい合う', out.single.err < 1, `${out.single.bpm.toFixed(2)} BPM`)
+  check(
+    '離れた所をつなぐと桁違いに正確になる',
+    out.guided.linked === 4 && out.guided.err < 0.05,
+    `${out.guided.bpm.toFixed(3)} BPM（誤差 ${out.guided.err.toFixed(3)} / ${out.guided.linked} か所）`,
+  )
+  check(
+    '誤差の見積もりが実際の誤差より小さくならない',
+    out.guided.pm >= out.guided.err && out.single.pm >= out.single.err,
+    `つないだ: ±${out.guided.pm.toFixed(3)} vs ${out.guided.err.toFixed(3)} / 1 か所: ±${out.single.pm.toFixed(2)} vs ${out.single.err.toFixed(2)}`,
+  )
+  check(
+    '届かない距離はつながず、正直に返す',
+    out.farJump.linked === 1 && out.farJump.bursts === 2,
+    `${out.farJump.linked}/${out.farJump.bursts} か所`,
+  )
+  check('どこまで届くかを返す', out.single.reach > 2 && out.single.reach < 60, `${out.single.reach.toFixed(1)} 秒`)
+  check('滑ったタップに引きずられない', out.outlier.err < 1, `${out.outlier.bpm.toFixed(2)} BPM`)
+  check('叩き忘れても拍数を数え直せる', out.missed.err < 1, `${out.missed.bpm.toFixed(2)} BPM`)
+  check('下手でも案内どおりなら正確', out.sloppy.linked === 4 && out.sloppy.err < 0.1, `${out.sloppy.bpm.toFixed(3)} BPM`)
+  check(
+    '拍の位相も出る',
+    Math.abs(out.phase.offsetSec - 0.25) < 0.05,
+    `${out.phase.offsetSec.toFixed(3)} 秒（正解 0.25）`,
+  )
+  await page.context().close()
+}
+
+async function testTempoTool(browser) {
+  console.log('\n[25] クリエイト: タップで BPM を測って譜面に入れる')
+  const draft = JSON.stringify({
+    formatVersion: 1,
+    meta: { title: 'BPM 測定', videoId: 'testvideo01' },
+    timing: { offsetMs: 0 },
+    notes: [{ id: 'a', type: 'tap', time: 1, x: 0.5, y: 0.5 }],
+  })
+  const page = await newPage(browser, { draft })
+  await page.locator('button', { hasText: 'クリエイトモード' }).first().click()
+  await page.locator('button', { hasText: '前回の続きから' }).click()
+  await page.locator('.meta-details summary').click()
+  await page.waitForTimeout(300)
+
+  const tap = page.locator('button.tap-tempo')
+  const readout = page.locator('.tempo-readout')
+
+  // 停止中は測れない（実時間で測ると再生速度で狂うため）
+  await tap.click()
+  check('停止中は測らない', (await readout.textContent()).includes('0 タップ'), await readout.textContent())
+
+  // 再生して、譜面時刻の 150 BPM ちょうどで叩く
+  await page.locator('.panel-row button', { hasText: '▶' }).first().click()
+  await page.waitForTimeout(300)
+  // 再生ボタンを押すとパネルが上へスクロールするので、測るボタンを出し直してから
+  // 座標を取る。取り直さないと画面外を叩きにいって 1 回も入らない。
+  await tap.scrollIntoViewIfNeeded()
+  const box = await tap.boundingBox()
+  const beat = 60 / 150
+  const start = (await videoTime(page)) + 0.5
+  for (let i = 0; i < 14; i += 1) {
+    await waitTime(page, start + i * beat)
+    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
+  }
+  const text = await readout.textContent()
+  const bpm = Number(text.match(/([\d.]+) BPM/)?.[1])
+  check('叩いた速さの BPM が出る', Math.abs(bpm - 150) < 6, text)
+
+  await page.locator('button', { hasText: 'この値を使う' }).click()
+  // タイミング行は 譜面オフセット / BPM / 拍オフセット の順。
+  const fields = page.locator('.meta-details .num-input')
+  const applied = Number(await fields.nth(1).inputValue())
+  const beatOffset = Number(await fields.nth(2).inputValue())
+  // 表示は小数 1 桁に丸めてあるので、そのぶんの差は許す。
+  check('譜面の BPM に入る', Math.abs(applied - bpm) < 0.06, `${applied} / 表示 ${bpm}`)
+  check('拍オフセットも入る', beatOffset > 0 && beatOffset < 60000 / bpm, `${beatOffset} ms`)
+
+  // ÷2 で拍の取り方を変えられる
+  await page.locator('button', { hasText: '÷2' }).click()
+  const halved = Number((await readout.textContent()).match(/([\d.]+) BPM/)?.[1])
+  check('÷2 で半分になる', Math.abs(halved - bpm / 2) < 0.02, `${halved} / 元 ${bpm}`)
+
+  await page.locator('button', { hasText: 'やり直す' }).click()
+  check('やり直すと消える', (await readout.textContent()).includes('0 タップ'), await readout.textContent())
+  await page.context().close()
+}
+
 // ---------------------------------------------------------------- 実行
 
 async function waitForServer(url, timeoutMs = 30000) {
@@ -1219,6 +1352,8 @@ try {
   await testEditorParallelInput(browser)
   await testTimelineScrubLane(browser)
   await testEditorPreviewSfx(browser)
+  await testTempoEstimator(browser)
+  await testTempoTool(browser)
 } finally {
   await browser.close()
   // pkill は自分のシェルごと落とすので、起動した子だけを止める。
