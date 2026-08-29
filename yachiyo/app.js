@@ -145,7 +145,7 @@
   let show = null;                    // { def, t, x, y, dir, phase }
   let showIdle = QSHOW ? 1.5 : rnd(7, 13);   // 次の演目まで（秒）
   let lastShow = '';
-  let sceneIdle = rnd(150, 260);            // 景色がひとりでに変わるまで（秒）
+  let sceneIdle = rnd(48, 74);              // 景色がひとりでに変わるまで（秒）
 
   /* 演目が毎フレーム作る値。内側のループを軽くするため先に出しておく。 */
   const SH = { on: 0, x: 0, y: 0, r2: 0, w: 0, pull: 0, rise: 0, lat: 0,
@@ -279,7 +279,7 @@
 
   function bakeTorii() {
     // 実物は縦より横に広い。以前は縦長にしていたので鳥居に見えていなかった。
-    const tw = Math.min(W * 0.88, H * 0.56);
+    const tw = Math.min(W * 0.88, H * 0.56) * (2 / 3);
     const th = tw * 0.80;
     const topY = waterY - th;
     const x0 = (W - tw) / 2;
@@ -366,7 +366,7 @@
     tctx.fillStyle = '#000'; tctx.fillRect(0, 0, WD, HD);
 
     waterY = Math.round(H * 0.76);
-    baseFish = clamp(Math.min(W, H) / 46, 8, 18);
+    baseFish = clamp(Math.min(W, H) / 46, 8, 18) * 0.8;
 
     gw = Math.ceil(W / CELL) + 2;
     gh = Math.ceil(H / CELL) + 2;
@@ -863,13 +863,15 @@
       showIdle = Math.max(showIdle, rnd(8, 15));
       return;
     }
+    // 景色の時計は演目の最中も進める。演目のあいだ止めていたときは、
+    // 演目が時間の 4 割ほどを占めるせいで、60 秒のつもりが実時間で 2 分近く
+    // かかっていた。数えるのは通しで、切り替えるのは演目の切れ目だけにする。
+    sceneIdle -= dt;
+
     if (!show) {
       if (!S.shows) return;
-      // 景色もときどき変える。演目より長い周期にして、
-      // 「気づいたら景色が変わっていた」くらいにする。
-      sceneIdle -= dt;
       if (sceneIdle <= 0) {
-        sceneIdle = rnd(150, 260);
+        sceneIdle = rnd(48, 74);
         const other = SCENES.filter((sc) => sc !== S.scene);
         setScene(other[(Math.random() * other.length) | 0], true);
       }
@@ -1882,9 +1884,29 @@
    * ============================================================ */
   let last = 0, frames = 0, slow = 0, fast = 0;
 
+  /* 回っているループはいつでも 1 本だけにする。
+     以前は frame() の中で requestAnimationFrame を呼びっぱなしにして、
+     止めるのは「S.running を見て return する」だけだった。ところが裏へ回った
+     時点で予約済みのコールバックが 1 個宙に浮いたまま残り（裏では発火しない）、
+     戻ってきたときに新しく 1 個予約するので、往復するたびに 1 本ずつ増える。
+     実測で 1 → 2 → 3 → 4 → 5 本／フレーム。step と render がそのぶん
+     何度も走るので「復帰するとめちゃ重い」。
+     予約は必ず控えておいて、止めるときは取り消す。 */
+  let rafId = 0;
+
+  function startLoop() {
+    if (rafId) return;                 // すでに回っている
+    last = 0;
+    rafId = requestAnimationFrame(frame);
+  }
+  function stopLoop() {
+    if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
+  }
+
   function frame(now) {
+    rafId = 0;
     if (!S.running) return;
-    requestAnimationFrame(frame);
+    rafId = requestAnimationFrame(frame);
 
     const t = now / 1000;
     let dt = last ? (now - last) / 1000 : 0.016;
@@ -1940,8 +1962,7 @@
     setTimeout(() => showHint('押さえて溜める → 離す', 3400), 1200);
     setTimeout(() => { if (S.lanterns === 0) showHint('2本の指で押さえると双子の渦', 3200); }, 12000);
 
-    last = 0;
-    requestAnimationFrame(frame);
+    startLoop();
   }
 
   $('btnStart').addEventListener('click', start);
@@ -1961,6 +1982,7 @@
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
       S.running = false;
+      stopLoop();
       Audio.stopCharge();
       Audio.suspend();
       pointers.clear();
@@ -1971,8 +1993,7 @@
       // 取り直さないと、入れたつもりのまま効かなくなる。
       wakeLock = null;
       acquireWake();
-      last = 0;
-      requestAnimationFrame(frame);
+      startLoop();
     }
   });
 
