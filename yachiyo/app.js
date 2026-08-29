@@ -64,11 +64,23 @@
   /* ============================================================
    * 状態
    * ============================================================ */
+  /* 景色は切り替えではなく混ぜる。S.scene は「いま画面に出ている景色」で、
+     切り替えのあいだは 2 つの定義の中間値が入る可変オブジェクト。
+     読む側（描画・魚・鳥居）は今までどおり S.scene を見るだけでよい。 */
+  const sceneSnap = (d) => ({
+    id: d.id, name: d.name, sub: d.sub,
+    bg: d.bg.slice(), fade: d.fade,
+    colors: d.colors.map((c) => c.slice()), torii: d.torii.slice(),
+    fishScale: d.fishScale, density: d.density, swirl: d.swirl,
+    glow: d.glow, speed: d.speed,
+  });
+
   const S = {
-    scene: SCENES[0],
+    scene: sceneSnap(SCENES[0]),
     quality: 1,          // 実測 FPS で自動調整 0.35..1（?q= で固定）
     density: 1,          // スライダー
     swirl: 1,            // スライダー
+    burst: 0.8,          // ひらく強さ（スライダー）
     sound: true,
     awake: false,                          // スリープ無効（Screen Wake Lock）
     reflect: true,
@@ -78,6 +90,7 @@
     flash: 0,            // 白フラッシュ
     shake: 0,
     dim: 0,              // 溜め中の暗転
+    hdim: 0,             // 螺旋のあいだ光を落とす量 0..1（1 秒かけて出入り）
     boost: 0,            // 開いた直後の速度上限ブースト
     wrapM: 60,           // 画面外の折り返しまでの余白
     lanterns: 0,
@@ -113,6 +126,8 @@
   /* 個体ごとの癖。全員が同じ流れ場に従うと一本の帯に潰れてしまうので、
      一匹ずつ違う定常加速を足して散らす。 */
   const bx_ = new Float32Array(CAP), by_ = new Float32Array(CAP);
+  /* 螺旋を何周ぶん登ったか。変わった瞬間に裾へ戻す。 */
+  const lap_ = new Int32Array(CAP);
   let N = 0;
 
   /* ============================================================
@@ -135,7 +150,7 @@
   const SHOWS = [
     { id: 'suikomi', name: '吸い込み',   dur: 7.5, w: 3 },
     { id: 'hiraku',  name: '天がひらく', dur: 4.2, w: 3 },
-    { id: 'rasen',   name: '昇り螺旋',   dur: 13.0, w: 3 },
+    { id: 'rasen',   name: '昇り螺旋',   dur: 19.5, w: 3 },
     { id: 'shio',    name: '潮',        dur: 6.5, w: 2 },
     { id: 'hoshi',   name: '星降り',     dur: 10.0, w: 2 },
     { id: 'nagi',    name: '凪',        dur: 5.0, w: 1 },
@@ -146,13 +161,17 @@
   let showIdle = QSHOW ? 1.5 : rnd(7, 13);   // 次の演目まで（秒）
   let lastShow = '';
   let sceneIdle = rnd(48, 74);              // 景色がひとりでに変わるまで（秒）
+  const SCENE_FADE = 1.5;                   // 景色が混ざりきるまで（秒）
+  let sceneFrom = null, sceneTo = null, sceneMix = 1;
+  let bakeSprT = 0, bakeToriiT = 0;
+  let helixT = 0;                           // 螺旋が始まってからの秒数
 
   /* 演目が毎フレーム作る値。内側のループを軽くするため先に出しておく。 */
   const SH = { on: 0, x: 0, y: 0, r2: 0, w: 0, pull: 0, rise: 0, lat: 0,
                ringR: 0, ringW: 0, ringF: 0, calm: 0,
                // 昇り螺旋（垂直な軸のまわりを回りながら昇る）
                hr: 0, hx: 0, hk: 0.3, hw: 0, hph: 0,
-               hbase: 0, hapex: 0, hlen: 1, hturns: 0, hu: 0, hpow: 1,
+               hbase: 0, hapex: 0, hlen: 1, hturns: 0, hu: 0, hflow: 0,
                // 螺旋の前段。まず水際の帯に一様に集まる
                gath: 0, gw: 0, gy0: 0, gy1: 0 };
 
@@ -165,7 +184,6 @@
   const streaks = [];   // 星降り {x,y,vx,vy,life,len,rgb}
   const drops = [];     // 着水のしぶき {x,y,vx,vy,life,life0,rgb}
   const DROP_MAX = 240;
-  let fallDir = 1;      // その回の星が流れる向き。1 回の星降りでは揃える
   let fallT = 0;        // 星降りの残り時間（秒）
   let fallAcc = 0;      // 湧かせる数の端数
   let fallBell = 0;     // 次の一粒が鳴るまで
@@ -391,19 +409,54 @@
     vc.fillStyle = rg; vc.fillRect(0, 0, WD, HD);
     vignette = vg;
 
-    // 水面の奥行きフェード
+    bakeWater();
+    retarget();
+  }
+
+  /* 水面の奥行きフェード。背景色を使うので、景色が混ざるあいだも焼き直す。 */
+  function bakeWater() {
     const wgc = document.createElement('canvas');
     wgc.width = 1; wgc.height = Math.max(1, HD - Math.round(waterY * DPR));
     const wg = wgc.getContext('2d');
     const lg = wg.createLinearGradient(0, 0, 0, wgc.height);
-    const bgc = S.scene.bg;
-    lg.addColorStop(0, `rgba(${bgc[0]},${bgc[1]},${bgc[2]},0.06)`);
-    lg.addColorStop(0.5, `rgba(${bgc[0]},${bgc[1]},${bgc[2]},0.58)`);
-    lg.addColorStop(1, `rgba(${bgc[0]},${bgc[1]},${bgc[2]},0.96)`);
+    const b = S.scene.bg;
+    const c = `${b[0]},${b[1]},${b[2]}`;
+    lg.addColorStop(0, `rgba(${c},0.06)`);
+    lg.addColorStop(0.5, `rgba(${c},0.58)`);
+    lg.addColorStop(1, `rgba(${c},0.96)`);
     wg.fillStyle = lg; wg.fillRect(0, 0, 1, wgc.height);
     waterGrad = wgc;
+  }
 
-    retarget();
+  /* 景色を 1 フレームぶん混ぜる。
+     焼き直し（魚のスプライト・鳥居・水面）は毎フレームやると重いので間引く。
+     軌跡の層が前の色を持っているので、多少とびとびでも段には見えない。 */
+  function stepScene(dt) {
+    if (sceneMix >= 1) return;
+    sceneMix = Math.min(1, sceneMix + dt / SCENE_FADE);
+    const k = smoothstep(sceneMix);
+    const a = sceneFrom, b = sceneTo, sc = S.scene;
+    const mix = (p, q) => p + (q - p) * k;
+    // 色は整数に丸めておく。そのまま rgba() に入る値にしておきたい。
+    const mixc = (p, q) => Math.round(p + (q - p) * k);
+    for (let i = 0; i < 3; i++) {
+      sc.bg[i] = mixc(a.bg[i], b.bg[i]);
+      sc.torii[i] = mixc(a.torii[i], b.torii[i]);
+    }
+    for (let c = 0; c < sc.colors.length; c++)
+      for (let i = 0; i < 3; i++) sc.colors[c][i] = mixc(a.colors[c][i], b.colors[c][i]);
+    sc.fade = mix(a.fade, b.fade);
+    sc.fishScale = mix(a.fishScale, b.fishScale);
+    sc.density = mix(a.density, b.density);
+    sc.swirl = mix(a.swirl, b.swirl);
+    sc.glow = mix(a.glow, b.glow);
+    sc.speed = mix(a.speed, b.speed);
+
+    bakeSprT -= dt; bakeToriiT -= dt;
+    if (bakeSprT <= 0 || sceneMix >= 1) {
+      bakeSprT = 0.1; buildSprites(); bakeWater(); retarget();
+    }
+    if (bakeToriiT <= 0 || sceneMix >= 1) { bakeToriiT = 0.3; bakeTorii(); }
   }
 
   /* 群れの数を決める（画面サイズ × 景色 × スライダー × 実測性能） */
@@ -499,7 +552,14 @@
       pbl[i] = clamp((3.5 + 7 * p.charge) * dt, 0, 1); // 速度場へ寄せる速さ
     }
 
+    stepScene(dt);
     stepShow(dt);
+    // 螺旋のあいだは魚を暗く・尾を短くする。曲線に全員が乗るので、
+    // そのままだと加算で白く飛ぶ。ただし切り替えると、螺旋が始まった
+    // 瞬間に画面がガクッと暗くなる。始まって 1 秒おいてから、
+    // 1 秒かけて落とす。
+    helixT = SH.hr > 1 ? helixT + dt : 0;
+    S.hdim = clamp(S.hdim + (helixT > 1 ? dt : -dt * 1.6), 0, 1);
     const shOn = SH.on;
     const shBl = shOn ? clamp(5.5 * dt, 0, 1) : 0;
     const depGrab = Math.min(1, dt * 6), depRelax = Math.min(1, dt * 3);
@@ -579,8 +639,10 @@
           // 曲線を先に決めて、そこへ番号順に一様に配る。こうすると魚が
           // どこに居ても、螺旋はいつでも端から端まで描かれる。
           const q = (i * 0.5698402910) % 1;
-          // 進むほど先端寄りに詰める（頂点に溜まってから弾けさせたい）
-          const hRel = Math.pow(q, SH.hpow);
+          // 曲線上のどこに居るか。時間とともに裾から頂点へ送られていく。
+          const raw = q + SH.hflow;
+          const lap = Math.floor(raw);
+          const hRel = raw - lap;
           // 絞りはほぼ一次（少しだけ裾側を張らせた二次）。指数を上げすぎると
           // 上端でしか細らず、見えている範囲では幅が一定に見えてしまう。
           const hp = hRel * (0.55 + 0.45 * hRel);
@@ -605,6 +667,17 @@
 
           // 引く強さと上限を落とす。ここが強いと、遠くの魚が一直線に
           // 飛んできて「吸い寄せられた」ように見える。
+          // 頂点まで行った魚は、裾まで泳いで戻すのではなく位置ごと移す。
+          // 泳がせると、螺旋を逆走する筋がずっと見えてしまう。
+          // 大きさを絞ってから戻すので、水際で湧いたように見える。
+          if (lap_[i] !== lap) {
+            lap_[i] = lap;
+            x = tgx; y = tgy;
+            vx = 0; vy = 0;
+            dep_[i] = 0.12;
+            px_[i] = x; py_[i] = y;
+          }
+
           const ddx = tgx - x, ddy = tgy - y;
           let dxT = ddx * 1.3, dyT = ddy * 1.3;
           // 寄せる速さはここで頭打ちにする。強いと一直線に飛んでくる。
@@ -775,22 +848,27 @@
 
   function dropStar() {
     const cols = S.scene.colors;
-    // 角度は「真下から何度傾いているか」で持つ。以前は x 軸からの角度に
-    // 横方向だけ 0.55 を掛けていたので、実際の傾きが 5〜19 度にしかならず、
-    // ほとんど真下に落ちていた。
-    const tilt = rnd(0.52, 0.70);       // 30〜40 度
+    // 角度は「真下からの傾き」で持つ。50〜60 度、右上から左下へ。
+    const tilt = rnd(0.87, 1.05);
     const sp = rnd(520, 1120);
-    const vx = Math.sin(tilt) * sp * fallDir;
+    const vx = -Math.sin(tilt) * sp;    // 左へ
     const vy = Math.cos(tilt) * sp;
-    // 斜めに流れるぶん、風上側から湧かせないと片側だけ空く。
-    // 画面の上端に届くまでに 0.35H * tan(40°) ほど横へ流れる。
-    const x = fallDir > 0 ? rnd(-W * 0.95, W * 0.85) : rnd(W * 0.15, W * 1.95);
+
+    // これだけ寝かせると、水面へ落ちるまでに画面幅の 2〜3 倍を横切る。
+    // 上端からだけ湧かせると、ほとんどが画面の外を通ってしまう。
+    // 進む向きから見た「風上の辺」＝上辺と右辺の両方から湧かせ、
+    // それぞれを進行方向へ投影した長さで振り分ける。
+    const topLen = W * Math.cos(tilt);
+    const rightLen = waterY * Math.sin(tilt);
+    let x, y;
+    if (Math.random() * (topLen + rightLen) < topLen) {
+      x = rnd(-W * 0.05, W * 1.4); y = rnd(-H * 0.12, -20);
+    } else {
+      x = W + rnd(20, W * 0.35); y = rnd(-H * 0.05, waterY * 0.85);
+    }
     streaks.push({
-      x, y: rnd(-H * 0.35, -20), vx, vy,
-      // 寿命は水面へ届くだけ持たせる。以前は 0.9〜1.9 秒で、水面まで
-      // 1.0〜2.2 秒かかるので途中で消えるものが多かった。ふつうは寿命では
-      // なく着水で消える。
-      life: rnd(1.9, 3.2), len: rnd(40, 150),
+      x, y, vx, vy,
+      life: rnd(1.9, 3.2), len: rnd(70, 200),   // 寝ているぶん尾は長めに
       rgb: cols[(Math.random() * cols.length) | 0],
     });
   }
@@ -822,9 +900,6 @@
   /* 一気に湧かせず、sec 秒かけて降らせ続ける。
      一度に出すと 1.5 秒で終わってしまい、「星が降っている」時間にならない。 */
   function starfall(sec) {
-    // 降っていないところから始めるときだけ向きを決める。1 回の星降りのあいだ
-    // 揃っていないと、交差してただの散らかった線に見える。
-    if (fallT <= 0) fallDir = Math.random() < 0.5 ? -1 : 1;
     fallT = Math.max(fallT, sec);
     for (let i = 0; i < 6; i++) dropStar();   // 出だしだけ少し多めに
   }
@@ -885,13 +960,16 @@
     return SHOWS[0];
   }
 
-  function startShow() {
-    let d = pickShow();
-    for (let i = 0; i < 3 && d.id === lastShow; i++) d = pickShow();  // 続けて同じは避ける
+  function startShow(force) {
+    let d = force || pickShow();
+    // 手で選んだときは、続けて同じでも言われたとおりに出す
+    if (!force) for (let i = 0; i < 3 && d.id === lastShow; i++) d = pickShow();
     lastShow = d.id;
     show = { def: d, t: 0, x: W * 0.5, y: H * 0.42, dir: Math.random() < 0.5 ? -1 : 1, phase: -1 };
 
-    if (d.id === 'rasen')  { show.x = W * 0.5; SH.hph = 0; }  // 軸は画面の中央に固定する
+    // 軸は画面の中央に固定する。周回カウンタも揃えておかないと、
+    // 前回の残りが効いて初回に全員がいっせいに飛ぶ。
+    if (d.id === 'rasen')  { show.x = W * 0.5; SH.hph = 0; SH.hflow = 0; lap_.fill(0); }
     if (d.id === 'hiraku') { show.x = rnd(W * 0.35, W * 0.65); show.y = H * rnd(0.16, 0.26); }
     if (d.id === 'suikomi'){ show.x = W * 0.5; show.y = waterY - (toriiBox ? toriiBox.th * 0.55 : H * 0.2); }
     if (d.id === 'hoshi')  starfall(d.dur);
@@ -926,7 +1004,7 @@
       if (!S.shows) return;
       if (sceneIdle <= 0) {
         sceneIdle = rnd(48, 74);
-        const other = SCENES.filter((sc) => sc !== S.scene);
+        const other = SCENES.filter((sc) => sc.id !== S.scene.id);
         setScene(other[(Math.random() * other.length) | 0], true);
       }
       showIdle -= dt;
@@ -1021,11 +1099,12 @@
         // 13 秒の終わりには 6 周を超えて模様が潰れる＝螺旋が壊れる。
         // 総ひねりは 3.5 周で頭打ちにして、形を保ったまま回す。
         SH.hturns = TAU * (0.6 + 2.9 * grow) * show.dir;
-        // 魚を螺旋のどこに詰めるか。1 = 全長に一様、小さいほど先端寄り。
-        // 前半は一様に配って円錐の形（裾が広く頂点が細い）を見せ、後半の
-        // 3 秒でほぼ全員を頂点へ吸い上げてから弾けさせる。早くから先端へ
-        // 詰めると、裾が空になって円錐に見えず、細い帯になってしまう。
-        SH.hpow = 1 - 0.88 * smoothstep(clamp((hu - 0.55) / 0.31, 0, 1));
+        // 魚は螺旋に沿って登る。以前は「終盤に分布を頂点へ寄せる」形にして
+        // いたが、それだと裾が空になって円錐が細い帯に潰れ、螺旋の形その
+        // ものが終盤に崩れていた。軸も裾も動かさないまま、魚の居場所だけを
+        // 曲線に沿って進める。一周ぶん進んだ魚は裾へ戻す。
+        // 終わりぎわだけ速くして、弾ける前に駆け上がる感じを出す。
+        SH.hflow += dt * 0.075 * (1 + 3.2 * smoothstep(clamp((hu - 0.72) / 0.14, 0, 1)));
         // 締まるにつれて全体の回りも速くなる（渦が細くなると速くなる）
         SH.hw = (0.85 + 1.00 * hu) * show.dir;
         SH.hph += SH.hw * dt;
@@ -1085,7 +1164,7 @@
       const d = Math.sqrt(dx * dx + dy * dy) + 0.001;
       if (d > R) continue;
       const q = Math.random();
-      const f = (1 - d / R) ** 0.7 * (320 + 2000 * p) * q * q;
+      const f = (1 - d / R) ** 0.7 * (320 + 2000 * p) * q * q * S.burst;
       // 向きも少しばらす。きれいな放射は機械的に見える
       const j = (Math.random() - 0.5) * 0.5;
       const cj = 1 - j * j * 0.5, sj = j;          // 小角近似
@@ -1096,7 +1175,7 @@
 
     S.warm = Math.min(1.25, S.warm + 0.55 + p * 0.75);
     S.flash = Math.min(1, 0.30 + p * 0.62);
-    S.shake = 0.35 + p * 0.65;
+    S.shake = (0.35 + p * 0.65) * S.burst;
     S.boost = Math.min(1, 0.5 + p * 0.6);
 
     if (!quiet) { S.lanterns++; hudLantern(); }
@@ -1149,7 +1228,7 @@
     tctx.globalAlpha = 1;
     // 60fps 基準の残り具合を dt に合わせて換算する。
     // これをやらないと重い端末ほど尾が伸びて別物になる。
-    const f60 = clamp(sc.fade * (1 + S.dim * 2.2) * (SH.hr > 1 ? 2.1 : 1), 0.02, 0.9);
+    const f60 = clamp(sc.fade * (1 + S.dim * 2.2) * (1 + 1.1 * S.hdim), 0.02, 0.9);
     const fa = clamp(1 - Math.pow(1 - f60, dtNow * 60), 0.02, 1);
     tctx.fillStyle = `rgba(${sc.bg[0]},${sc.bg[1]},${sc.bg[2]},${fa})`;
     tctx.fillRect(0, 0, WD, HD);
@@ -1199,7 +1278,7 @@
     // 加算合成なので、数を増やすほど一匹あたりを暗くしないと
     // 重なったところが白く潰れて色が消える。螺旋は 1 本の帯に集まるので
     // さらに落とす。
-    tctx.globalAlpha = clamp(1150 / Math.max(N, 1), 0.40, 1) * (SH.hr > 1 ? 0.30 : 1);
+    tctx.globalAlpha = clamp(1150 / Math.max(N, 1), 0.40, 1) * (1 - 0.70 * S.hdim);
     const half = spriteS / 2;
     for (let i = 0; i < N; i++) {
       const vx = vx_[i], vy = vy_[i];
@@ -1662,30 +1741,34 @@
   SCENES.forEach((sc) => {
     const b = document.createElement('button');
     b.type = 'button';
-    b.className = 'chip' + (sc === S.scene ? ' on' : '');
+    b.className = 'chip' + (sc.id === S.scene.id ? ' on' : '');
     b.dataset.id = sc.id;
     b.innerHTML = `${sc.name}<small>${sc.sub}</small>`;
     b.addEventListener('click', () => setScene(sc));
     elScenes.appendChild(b);
   });
 
-  function setScene(sc, quiet) {
-    if (S.scene === sc) return;
-    S.scene = sc;
-    elHudScene.textContent = sc.name;
-    for (const b of elScenes.children) b.classList.toggle('on', b.dataset.id === sc.id);
-    resize();                       // スプライト・鳥居・水面をすべて焼き直す
-    // ひとりでに変わるときは光らせない。軌跡の層に前の色が残っているので、
-    // それだけで勝手に混ざって切り替わる。
+  function setScene(def, quiet) {
+    if (S.scene.id === def.id && sceneMix >= 1) return;
+    // いま出ている中間値を出発点にする。混ざっている途中で切り替えても跳ねない。
+    sceneFrom = sceneSnap(S.scene);
+    sceneTo = sceneSnap(def);
+    sceneMix = 0;
+    bakeSprT = 0; bakeToriiT = 0;
+    // 名前と印だけは先に変える。1.5 秒待たされると押しても反応が無く見える。
+    S.scene.id = def.id; S.scene.name = def.name; S.scene.sub = def.sub;
+    elHudScene.textContent = def.name;
+    for (const b of elScenes.children) b.classList.toggle('on', b.dataset.id === def.id);
     S.warm = Math.max(S.warm, quiet ? 0.3 : 0.5);
     if (!quiet) S.flash = 0.18;
     Audio.bell(0.72, quiet ? 0.2 : 0.34);
-    showHint(`景色：${sc.name}`, quiet ? 2000 : 2100);
+    showHint(`景色：${def.name}`, quiet ? 2000 : 2100);
   }
 
   /* スライダー */
   const WORDS = [[0.55, 'まばら'], [0.85, 'すこし'], [1.2, 'ふつう'], [1.55, 'たっぷり'], [9, 'あふれる']];
   const WORDS2 = [[0.55, 'ゆるい'], [0.85, 'おだやか'], [1.3, 'ふつう'], [1.75, 'つよい'], [9, '呑まれる']];
+  const WORDS3 = [[0.5, 'そっと'], [0.9, 'おだやか'], [1.2, 'つよい'], [9, '弾ける']];
   const word = (tbl, v) => (tbl.find(([k]) => v <= k) || tbl[tbl.length - 1])[1];
 
   const elDensity = $('density'), elSwirl = $('swirl');
@@ -1697,6 +1780,12 @@
   elSwirl.addEventListener('input', () => {
     S.swirl = +elSwirl.value;
     $('valSwirl').textContent = word(WORDS2, S.swirl);
+  });
+
+  const elBurst = $('burst');
+  elBurst.addEventListener('input', () => {
+    S.burst = +elBurst.value;
+    $('valBurst').textContent = word(WORDS3, S.burst);
   });
 
   /* トグル */
@@ -1863,6 +1952,30 @@
   }
   elGrip.addEventListener('pointerup', endDrag);
   elGrip.addEventListener('pointercancel', endDrag);
+
+  /* 演目を手で出す（折りたたみの中） */
+  const elAcc = $('accShows');
+  // 開くと下の段が板の外へはみ出して見切れる。開いた側を見せる。
+  elAcc.addEventListener('toggle', () => {
+    if (elAcc.open) elAcc.scrollIntoView({ block: 'end', behavior: 'smooth' });
+  });
+  const elShowBtns = $('showBtns');
+  SHOWS.forEach((d) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'show-btn';
+    b.textContent = d.name;
+    b.addEventListener('click', () => {
+      if (!S.started) return;
+      if (show) endShow();
+      // 指が触れていると stepShow が即やめてしまう
+      pointers.clear();
+      startShow(d);
+      // 板が下半分を覆っているので、出したら引っ込める
+      setSheet(false);
+    });
+    elShowBtns.appendChild(b);
+  });
 
   /* About */
   $('btnAbout').addEventListener('click', () => { elAbout.hidden = false; });
