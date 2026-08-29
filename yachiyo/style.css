@@ -242,9 +242,9 @@ html, body {
 }
 
 /* トグル */
-.row-toggles { display: flex; gap: 8px; }
+.row-toggles { display: flex; gap: 8px; flex-wrap: wrap; }
 .toggle {
-  flex: 1;
+  flex: 1 1 calc(50% - 4px);
   border: 1px solid var(--line);
   background: rgba(14, 22, 42, .6);
   color: var(--dim);
