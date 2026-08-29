@@ -1,4 +1,4 @@
-/* 宵の海 — スマホ前提のフルスクリーン UI
+/* Starlit Sea — スマホ前提のフルスクリーン UI
    画面はすべて canvas。UI は上に薄く浮かせるだけにして、絵を邪魔しない。 */
 
 :root {
@@ -64,9 +64,9 @@ html, body {
 .hud-left, .hud-right { display: flex; align-items: center; gap: 10px; }
 
 .hud-title {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 600;
-  letter-spacing: .22em;
+  letter-spacing: .13em;
   text-shadow: 0 0 14px rgba(120, 200, 255, .5);
 }
 .hud-scene {
@@ -328,22 +328,16 @@ html, body {
 
 .splash-title {
   margin: 0;
-  font-size: 42px;
+  font-size: 46px;
+  line-height: 1.06;
   font-weight: 300;
-  letter-spacing: .18em;
-  text-indent: .18em;
+  letter-spacing: .10em;
+  text-indent: .10em;
   background: linear-gradient(170deg, #ffffff, #b6e6ff 45%, #ffd28f);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
   filter: drop-shadow(0 0 26px rgba(140, 210, 255, .45));
-}
-.splash-title span {
-  font-size: 24px;
-  /* 親の background-clip: text は親自身の背景しか切り抜かないので、
-     color: transparent だけを継いだ子は何も描かれない。自前で色を持たせる。 */
-  color: #9fc8e6;
-  -webkit-text-fill-color: #9fc8e6;
 }
 
 .splash-sub {

@@ -1,4 +1,4 @@
-/* 宵の海 — 光の魚をあやつる
+/* Starlit Sea — 光の魚をあやつる
  *
  * 全部このファイル内で生成する。外部アセットも通信もない。
  *
@@ -339,9 +339,9 @@
     const wg = wgc.getContext('2d');
     const lg = wg.createLinearGradient(0, 0, 0, wgc.height);
     const bgc = S.scene.bg;
-    lg.addColorStop(0, `rgba(${bgc[0]},${bgc[1]},${bgc[2]},0.12)`);
-    lg.addColorStop(0.45, `rgba(${bgc[0]},${bgc[1]},${bgc[2]},0.66)`);
-    lg.addColorStop(1, `rgba(${bgc[0]},${bgc[1]},${bgc[2]},0.97)`);
+    lg.addColorStop(0, `rgba(${bgc[0]},${bgc[1]},${bgc[2]},0.06)`);
+    lg.addColorStop(0.5, `rgba(${bgc[0]},${bgc[1]},${bgc[2]},0.58)`);
+    lg.addColorStop(1, `rgba(${bgc[0]},${bgc[1]},${bgc[2]},0.96)`);
     wg.fillStyle = lg; wg.fillRect(0, 0, 1, wgc.height);
     waterGrad = wgc;
 
@@ -726,9 +726,20 @@
     if (S.reflect && wyD > 8 && HD > wyD + 4) {
       const srcTop = Math.max(0, 2 * wyD - HD);
       const srcH = wyD - srcTop;
+
+      // 先に水中を沈めておく。ここを暗くしておかないと、水中を泳いでいる
+      // 魚の明るさが反射の下から残って、水面が「ただの鏡像」に見える。
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = 1;
+      ctx.fillStyle = `rgba(${sc.bg[0]},${sc.bg[1]},${sc.bg[2]},0.62)`;
+      ctx.fillRect(0, wyD, WD, HD - wyD);
       const BANDS = 16;
       const bh = srcH / BANDS;
-      ctx.globalCompositeOperation = 'lighter';
+      // 加算ではなく source-over で重ねる。加算だと鳥居の暗い部分が
+      // 「何も足さない」だけになり、水中に描かれている魚を隠せない。
+      // ブレンドなら暗い所は暗く沈むので、鳥居の映り込みがちゃんと影になる。
+      ctx.globalCompositeOperation = 'source-over';
       ctx.setTransform(1, 0, 0, -1, 0, 2 * wyD);
       for (let b = 0; b < BANDS; b++) {
         const sy = wyD - (b + 1) * bh;
@@ -736,7 +747,7 @@
         const off = Math.sin(t * 1.7 + b * 0.7) * amp;
         // 端に隙間ができないよう、ずらした幅ぶんだけ横に食い込ませて描く
         const pad = amp + 1;
-        ctx.globalAlpha = 0.15 * (1 - (b / BANDS) * 0.85);
+        ctx.globalAlpha = 0.50 * (1 - (b / BANDS) * 0.9);
         ctx.drawImage(cv, 0, sy, WD, bh, off - pad, sy, WD + pad * 2, bh);
       }
       ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -1148,10 +1159,10 @@
   $('btnShot').addEventListener('click', () => {
     cv.toBlob(async (blob) => {
       if (!blob) { showHint('保存できなかった'); return; }
-      const file = new File([blob], `yoi-no-umi-${Date.now()}.png`, { type: 'image/png' });
+      const file = new File([blob], `starlit-sea-${Date.now()}.png`, { type: 'image/png' });
       try {
         if (navigator.canShare && navigator.canShare({ files: [file] })) {
-          await navigator.share({ files: [file], title: '宵の海' });
+          await navigator.share({ files: [file], title: 'Starlit Sea' });
           return;
         }
       } catch (_) { /* キャンセルされただけかもしれないので落とさない */ }
