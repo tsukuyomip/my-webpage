@@ -671,12 +671,10 @@
           // 飛んできて「吸い寄せられた」ように見える。
           // 頂点まで行った魚は、裾まで泳いで戻すのではなく位置ごと移す。
           // 泳がせると、螺旋を逆走する筋がずっと見えてしまう。
-          // 大きさを絞ってから戻すので、水際で湧いたように見える。
           if (lap_[i] !== lap) {
             lap_[i] = lap;
             x = tgx; y = tgy;
             vx = 0; vy = 0;
-            dep_[i] = 0.12;
             px_[i] = x; py_[i] = y;
           }
 
@@ -703,8 +701,12 @@
           vx += (dxT - vx) * shBl * jw;
           vy += (dyT - vy) * shBl * jw;
 
-          // sin が正 = 画面で中心より下 = 手前。手前を大きく描く
-          dep_[i] += (1 + 0.4 * sn - dep_[i]) * depGrab;
+          // sin が正 = 画面で中心より下 = 手前。手前を大きく描く。
+          // 曲線の両端では大きさを 0 まで絞る。絞らずに位置だけ移すと、
+          // 頂点で魚がぱっと消えるのがそのまま見えてしまう。
+          // 細って消え、裾で湧いて育つ、という往復にする。
+          const env = Math.min(1, Math.min(hRel, 1 - hRel) / 0.07);
+          dep_[i] += ((1 + 0.4 * sn) * env - dep_[i]) * depGrab;
         }
         if (SH.lat) vx += SH.lat * dt;
         if (SH.rise) vy -= SH.rise * dt;
@@ -1132,10 +1134,17 @@
           if (show.phase < 1) {
             show.phase = 1;
             bloom(SH.hx, SH.hapex, 0.9, true);
-            starfall(10);                          // 先端で弾けたら必ず星が降る
           }
           SH.hr = 0;                               // 以降は掴まず、散らせる
           SH.gath = 0;
+        }
+        // 星は弾けてすぐではなく 1 秒おいて降らせる。重ねると、弾けたのか
+        // 星が降ったのか分からない一塊になる。hu は演目の長さで伸び縮み
+        // するので、1 秒ぶんを毎回そこから出す。
+        const huPerSec = 1 / (d.dur * (1 - GU * 0.82));
+        if (hu > 0.86 + huPerSec && show.phase < 2) {
+          show.phase = 2;
+          starfall(10);                            // 先端で弾けたら必ず星が降る
         }
       }
     } else if (d.id === 'shio') {
