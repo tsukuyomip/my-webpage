@@ -971,15 +971,17 @@
     // 手で選んだときは、続けて同じでも言われたとおりに出す
     if (!force) for (let i = 0; i < 3 && d.id === lastShow; i++) d = pickShow();
     lastShow = d.id;
-    show = { def: d, t: 0, x: W * 0.5, y: H * 0.42, dir: Math.random() < 0.5 ? -1 : 1, phase: -1 };
+    show = { def: d, t: 0, dur: d.dur, x: W * 0.5, y: H * 0.42,
+             dir: Math.random() < 0.5 ? -1 : 1, phase: -1 };
 
     // 軸は画面の中央に固定する。周回カウンタも揃えておかないと、
     // 前回の残りが効いて初回に全員がいっせいに飛ぶ。
     if (d.id === 'rasen')  { show.x = W * 0.5; SH.hph = 0; SH.hflow = 0; lap_.fill(0); }
     if (d.id === 'hiraku') { show.x = rnd(W * 0.35, W * 0.65); show.y = H * rnd(0.16, 0.26); }
     if (d.id === 'suikomi'){ show.x = W * 0.5; show.y = waterY - (toriiBox ? toriiBox.th * 0.55 : H * 0.2); }
-    if (d.id === 'hoshi')  starfall(d.dur);
-    if (d.id === 'shio')   Audio.swell(0.5);
+    // 潮は毎回ちがう長さにする。同じ尺で繰り返すと型が読めてしまう。
+    if (d.id === 'shio')   { show.dur = rnd(10, 15); Audio.swell(0.5); }
+    if (d.id === 'hoshi')  starfall(show.dur);
 
     if (!seen[d.id]) { seen[d.id] = 1; showHint(d.name, 2600); }
   }
@@ -1019,7 +1021,7 @@
     }
 
     show.t += dt;
-    const d = show.def, u = clamp(show.t / d.dur, 0, 1);
+    const d = show.def, u = clamp(show.t / show.dur, 0, 1);
     // 出入りをなだらかにする窓（両端で 0）
     const ease = Math.sin(Math.PI * clamp(u, 0, 1)) ** 0.7;
 
@@ -1141,7 +1143,7 @@
         // 星は弾けてすぐではなく 1 秒おいて降らせる。重ねると、弾けたのか
         // 星が降ったのか分からない一塊になる。hu は演目の長さで伸び縮み
         // するので、1 秒ぶんを毎回そこから出す。
-        const huPerSec = 1 / (d.dur * (1 - GU * 0.82));
+        const huPerSec = 1 / (show.dur * (1 - GU * 0.82));
         if (hu > 0.86 + huPerSec && show.phase < 2) {
           show.phase = 2;
           starfall(10);                            // 先端で弾けたら必ず星が降る
@@ -1149,14 +1151,24 @@
       }
     } else if (d.id === 'shio') {
       // 31〜34s の横流れ。画面ぜんぶが片側へ流れる。
-      SH.lat = 235 * ease * show.dir;
+      // 10〜15 秒つづけるので、一定の強さで流しっぱなしにすると途中から
+      // 「ただ横に動いている」だけになって飽きる。潮なので、寄せては緩めるを
+      // ゆっくり繰り返す。向きは変えず、強さだけを 0.10〜1.00 で揺らす。
+      // 山の数は u で数えるので、その回の長さによらず 1 山 5〜7.5 秒になる。
+      // 2 山にして、山（u = 0.25 と 0.75）が出入りの窓の内側に来るようにする。
+      // 2.5 山にすると最後の山がちょうど窓の外（u = 1）で立ち上がって届かない。
+      const swell = 0.55 - 0.45 * Math.cos(TAU * 2 * u);
+      SH.lat = 235 * ease * swell * show.dir;
+      // 山ごとに潮騒を重ねる。長くなったぶん、音が頭だけだと途中で切れて聞こえる。
+      const surge = Math.round(2 * u);
+      if (surge >= 1 && surge > show.phase) { show.phase = surge; Audio.swell(0.30); }
     } else if (d.id === 'nagi') {
       // 36〜38s。動きが 1/8 まで落ちる。次の演目が効くようになる。
       SH.calm = ease;
     }
     // hoshi は starfall がやる
 
-    if (show.t >= d.dur) { endShow(); showIdle = QSHOW ? 1.2 : rnd(9, 19); }
+    if (show.t >= show.dur) { endShow(); showIdle = QSHOW ? 1.2 : rnd(9, 19); }
   }
 
   function tap(x, y) {
