@@ -131,7 +131,7 @@
   const SHOWS = [
     { id: 'suikomi', name: '吸い込み',   dur: 7.5, w: 3 },
     { id: 'hiraku',  name: '天がひらく', dur: 4.2, w: 3 },
-    { id: 'rasen',   name: '昇り螺旋',   dur: 9.0, w: 3 },
+    { id: 'rasen',   name: '昇り螺旋',   dur: 11.0, w: 3 },
     { id: 'shio',    name: '潮',        dur: 6.5, w: 2 },
     { id: 'hoshi',   name: '星降り',     dur: 10.0, w: 2 },
     { id: 'nagi',    name: '凪',        dur: 5.0, w: 1 },
@@ -494,7 +494,7 @@
     const depGrab = Math.min(1, dt * 6), depRelax = Math.min(1, dt * 3);
 
     const damp = Math.exp(-(1.15 + SH.calm * 7) * dt);
-    const vmax = (240 + 520 * S.boost) * speedK * (1 - SH.calm * 0.8) * (SH.hr > 1 ? 1.5 : 1);
+    const vmax = (240 + 520 * S.boost) * speedK * (1 - SH.calm * 0.8) * (SH.hr > 1 ? 1.25 : 1);
     const vmax2 = vmax * vmax;
     const ig = 1 / CELL;
     const ih = 1 / H;
@@ -525,8 +525,11 @@
         if (SH.hr > 1) {
           // 裾からの高さ。0 = 裾（広い）、1 = 頂点（細い）
           const hRel = clamp((SH.hbase - y) / SH.hlen, 0, 1);
-          const R = SH.hr * coreF * (1 - 0.80 * hRel);      // 昇るほど細く
-          const th = SH.hph + hRel * SH.hturns + by_[i] * 0.006;
+          const R = SH.hr * coreF * (1 - 0.86 * hRel);      // 昇るほど細く
+          // 角速度も高さで変える。裾は広くてゆっくり一周し、頂点は細くて速い。
+          // 実際の渦がそうなる（径が縮むと角速度が上がる）。
+          const spin = 1 + 2.6 * hRel;
+          const th = SH.hph * spin + hRel * SH.hturns + by_[i] * 0.006;
           const cs = Math.cos(th), sn = Math.sin(th);
 
           // 厳密な曲線に乗せると 1 本の細い帯に潰れて白飛びする。かといって
@@ -539,9 +542,11 @@
           // 頂点に近いほど昇るのが遅い。先端に溜まってから弾けさせたい
           const rise = SH.hrise * (1 - 0.8 * hRel);
 
-          let dxT = (tgx - x) * 2.6, dyT = (tgy - y) * 2.6 - rise;
+          // 引く強さと上限を落とす。ここが強いと、遠くの魚が一直線に
+          // 飛んできて「吸い寄せられた」ように見える。
+          let dxT = (tgx - x) * 1.2, dyT = (tgy - y) * 1.2 - rise;
           const sp2 = dxT * dxT + dyT * dyT;
-          if (sp2 > 176400) { const q = 420 / Math.sqrt(sp2); dxT *= q; dyT *= q; }
+          if (sp2 > 44100) { const q = 210 / Math.sqrt(sp2); dxT *= q; dyT *= q; }
           vx += (dxT - vx) * shBl;
           vy += (dyT - vy) * shBl;
 
@@ -723,7 +728,7 @@
     lastShow = d.id;
     show = { def: d, t: 0, x: W * 0.5, y: H * 0.42, dir: Math.random() < 0.5 ? -1 : 1, phase: -1 };
 
-    if (d.id === 'rasen')  { show.x = rnd(W * 0.3, W * 0.7); }
+    if (d.id === 'rasen')  { show.x = rnd(W * 0.3, W * 0.7); SH.hph = 0; }
     if (d.id === 'hiraku') { show.x = rnd(W * 0.35, W * 0.65); show.y = H * rnd(0.16, 0.26); }
     if (d.id === 'suikomi'){ show.x = W * 0.5; show.y = waterY - (toriiBox ? toriiBox.th * 0.55 : H * 0.2); }
     if (d.id === 'hoshi')  starfall(d.dur);
@@ -808,22 +813,23 @@
       // 裾が広く頂点が細い円錐にして、昇るほど径が縮むようにしている。
       // 頂点に近いほど昇る速さも落とすので、魚が先端に溜まっていき、
       // 最後にそこで弾ける。
-      const ramp = Math.min(1, u / 0.12);
+      // 立ち上がりは急がない。強さを一気に上げると、魚が一点へ吸い寄せられる
+      // ように見えてしまう。ふだんの泳ぐ速さのまま、少しずつ集まってほしい。
+      let ramp = Math.min(1, u / 0.42);
+      ramp = ramp * ramp * (3 - 2 * ramp);       // 出だしをなだらかに
       SH.hx = show.x;
-      SH.hbase = H * (1.10 - 0.30 * u);        // 裾（広いほう）
-      SH.hapex = H * (0.34 - 0.26 * u);        // 頂点（細いほう）
+      // 裾を下げすぎると、いちばん広いところが画面の外（水面より下）に落ちて
+      // 円錐に見えない。裾が水際、頂点が画面上端あたりに来るようにする。
+      SH.hbase = H * (0.92 - 0.16 * u);          // 裾（広いほう）
+      SH.hapex = H * (0.30 - 0.22 * u);          // 頂点（細いほう）
       SH.hlen = Math.max(60, SH.hbase - SH.hapex);
-      SH.hr = Math.min(W, H) * 0.32 * ramp;
+      SH.hr = Math.min(W, H) * 0.42 * ramp;      // 裾はかなり広い
       SH.hk = 0.30;
-      SH.hw = 2.0 * show.dir;
       SH.hrise = 92 * ramp;
-      // 高さと位相を結びつける。位相をばらばらにしたまま高さだけ散らすと、
-      // 巻きが重なってただの渦の靄になる。裾から頂点までで 2.4 回ひねる。
-      SH.hturns = TAU * 2.4 * show.dir;
+      SH.hturns = TAU * 1.0 * show.dir;          // 裾から頂点までの初期のひねり
+      SH.hw = 1.0 * show.dir;                    // 裾の角速度 rad/s（一周 6 秒）
       SH.hph += SH.hw * dt;
-      show.y = SH.hapex;
-
-      if (u > 0.80) {                          // 先端で弾ける
+      if (u > 0.84) {                          // 先端で弾ける
         if (show.phase < 1) {
           show.phase = 1;
           bloom(SH.hx, SH.hapex, 0.85, true);
@@ -1637,12 +1643,10 @@
     elHud.hidden = false;
     elSheet.hidden = false;
 
-    // 最初の一発は勝手にひらいてみせる
-    setTimeout(() => {
-      bloom(W / 2, H * 0.46, 0.55);
-      S.lanterns = 0; hudLantern();
-    }, 420);
-    setTimeout(() => showHint('押さえて溜める → 離す', 3400), 1500);
+    // 起動直後に bloom を出していたが、あれは「離したときの報酬」なので、
+    // 触ってもいないのに鳴ると誤タップに見える。演目が代わりに間を持たせる。
+    showIdle = QSHOW ? 1.5 : rnd(4, 7);
+    setTimeout(() => showHint('押さえて溜める → 離す', 3400), 1200);
     setTimeout(() => { if (S.lanterns === 0) showHint('2本の指で押さえると双子の渦', 3200); }, 12000);
 
     last = 0;
