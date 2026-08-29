@@ -210,28 +210,31 @@
 
     x.globalCompositeOperation = 'lighter';
 
+    // 元の映像の魚は、ふっくらではなく細長い。連結成分の長軸／短軸で測ると
+    // 中央値 3.2（四分位 2.7〜3.8）。胴を長く細くして、そこへ寄せてある。
     const bl = px * 1.25;   // 体長
-    const bw = px * 0.42;   // 体幅
+    const bw = px * 0.36;   // 体幅（半分）
 
-    // 尾（後方 = -x）
+    // 尾（後方 = -x）。胴が細くなったぶん、尾の又は相対的に大きくする
     x.beginPath();
     x.moveTo(cx - bl * 0.30, cy);
-    x.lineTo(cx - bl * 0.98, cy - bw * 1.25);
-    x.quadraticCurveTo(cx - bl * 0.62, cy, cx - bl * 0.98, cy + bw * 1.25);
+    x.lineTo(cx - bl * 0.98, cy - bw * 1.55);
+    x.quadraticCurveTo(cx - bl * 0.62, cy, cx - bl * 0.98, cy + bw * 1.55);
     x.closePath();
-    x.fillStyle = `rgba(${r},${g},${b},0.42)`;
+    x.fillStyle = `rgba(${r},${g},${b},0.44)`;
     x.fill();
 
     // 胴
     x.beginPath();
-    x.ellipse(cx + px * 0.10, cy, bl * 0.52, bw, 0, 0, TAU);
-    x.fillStyle = `rgba(${r},${g},${b},0.74)`;
+    x.ellipse(cx + px * 0.10, cy, bl * 0.58, bw, 0, 0, TAU);
+    // 面積が減るぶん、濃さを少し上げて群れの明るさを保つ
+    x.fillStyle = `rgba(${r},${g},${b},0.80)`;
     x.fill();
 
     // 芯（白く飛ばす）
     x.beginPath();
-    x.ellipse(cx + px * 0.22, cy, bl * 0.26, bw * 0.52, 0, 0, TAU);
-    x.fillStyle = `rgba(255,255,255,${0.26 + 0.16 * ((r + g + b) / 765)})`;
+    x.ellipse(cx + px * 0.22, cy, bl * 0.32, bw * 0.55, 0, 0, TAU);
+    x.fillStyle = `rgba(255,255,255,${0.28 + 0.16 * ((r + g + b) / 765)})`;
     x.fill();
 
     return c;
