@@ -95,6 +95,7 @@
   let W = 0, H = 0, DPR = 1, WD = 0, HD = 0;
   let waterY = 0, toriiBox = null, sprites = [], spriteS = 0, baseFish = 12;
   let vignette = null, waterGrad = null;
+  let moonCv = null, moonX = 0, moonY = 0;
   /* 尾を引かせる層。ここだけ消し残しを溜め、鳥居やブルームなどの
      オーバーレイは毎フレーム描き直す表の層に出す。混ぜると加算が
      際限なく溜まって画面が白く飽和する。 */
@@ -374,8 +375,9 @@
 
     buildSprites();
     bakeTorii();
+    bakeMoon();
 
-    // 手前を締めるビネット
+    // 手前を締めるビネット（つづきは resize の中）
     const vg = document.createElement('canvas');
     vg.width = WD; vg.height = HD;
     const vc = vg.getContext('2d');
@@ -782,6 +784,43 @@
     if (fallBell <= 0) { fallBell = rnd(0.34, 0.8); Audio.shimmer(); }
   }
 
+  /* 月。
+     元になった映像では、これは月に見えているだけで実際はミラーボールなので、
+     兎も海も無い。ただの白い丸にする。
+     明るさはかなり控えめ。ここが強いと、空に丸を貼ったように浮いてしまう。
+     加算で乗せて、円のふちから外へ長く薄い暈を伸ばすと、背景に馴染む。 */
+  function bakeMoon() {
+    const R = Math.max(6, Math.round(Math.min(W, H) * 0.038 * DPR));
+    const pad = R * 7;                       // 暈のぶんの余白
+    const s = Math.ceil(pad * 2);
+    const c = document.createElement('canvas');
+    c.width = s; c.height = s;
+    const g = c.getContext('2d');
+    const cx = s / 2;
+
+    const halo = g.createRadialGradient(cx, cx, R * 0.9, cx, cx, pad);
+    halo.addColorStop(0, 'rgba(198,220,255,0.34)');
+    halo.addColorStop(0.18, 'rgba(180,205,250,0.13)');
+    halo.addColorStop(0.5, 'rgba(150,185,240,0.028)');
+    halo.addColorStop(1, 'rgba(140,175,235,0)');
+    g.fillStyle = halo;
+    g.fillRect(0, 0, s, s);
+
+    // ふちだけ 1px ぶんぼかす。硬いままだと切り抜きに見える。
+    const disc = g.createRadialGradient(cx, cx, 0, cx, cx, R);
+    disc.addColorStop(0, 'rgba(255,255,255,1)');
+    disc.addColorStop(0.92, 'rgba(255,255,255,1)');
+    disc.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = disc;
+    g.beginPath(); g.arc(cx, cx, R, 0, TAU); g.fill();
+
+    moonCv = c;
+    // 中央からずらす。螺旋も鳥居も画面の中央にあるので、真上に置くと重なる。
+    // 横向きのときに HUD の下へ潜らないよう、上端からの余白は最低 76px 取る。
+    moonX = W * 0.62;
+    moonY = Math.max(H * 0.15, 76);
+  }
+
   /* ============================================================
    * 演目の進行
    * ============================================================ */
@@ -1109,6 +1148,18 @@
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = 1;
     ctx.drawImage(trailCv, 0, 0);
+
+    /* --- 月 --- */
+    // 鳥居より先に描く。あとに描くと、重なったときに鳥居の上に乗ってしまう。
+    // 溜めているあいだは画面全体が沈むので、月もいっしょに引く。
+    if (moonCv) {
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.globalAlpha = clamp(0.40 * (1 - S.dim * 0.75), 0, 1);
+      ctx.drawImage(moonCv, Math.round(moonX * DPR - moonCv.width / 2),
+                            Math.round(moonY * DPR - moonCv.height / 2));
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+    }
 
     /* --- 鳥居 --- */
     if (toriiBox) {
