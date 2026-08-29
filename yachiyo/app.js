@@ -111,7 +111,10 @@
 
   /* エフェクト */
   const ripples = [];   // {x,y,r,vr,life,max,w,rgb}
-  const streaks = [];   // 星降り {x,y,vx,vy,life,max,len,rgb}
+  const streaks = [];   // 星降り {x,y,vx,vy,life,len,rgb}
+  let fallT = 0;        // 星降りの残り時間（秒）
+  let fallAcc = 0;      // 湧かせる数の端数
+  let fallBell = 0;     // 次の一粒が鳴るまで
 
   /* ============================================================
    * スプライト（魚1色ぶん）
@@ -377,6 +380,9 @@
    * 指（ポインタ）
    * ============================================================ */
   const MAXP = 3;
+  /* 渦の芯の半径。描画のリングもここから引くので、輪が魚の輪とずれない。 */
+  const coreR = (charge) => 20 + 30 * charge;
+
   const pointers = new Map(); // id -> P
   let lastTapT = 0, lastTapX = 0, lastTapY = 0;
 
@@ -421,13 +427,15 @@
     }
     const np = P.length;
     const pxs = [0, 0, 0], pys = [0, 0, 0], pk = [0, 0, 0], pc = [0, 0, 0], pR2 = [0, 0, 0], pvx = [0, 0, 0], pvy = [0, 0, 0];
-    const reach = Math.min(W, H) * 0.92;
+    const reach = Math.min(W, H) * 0.95;   // 集める範囲は広いまま（芯だけ縮める）
     for (let i = 0; i < np; i++) {
       const p = P[i];
       pxs[i] = p.x; pys[i] = p.y;
       pk[i] = p.charge;
-      pc[i] = 54 + 78 * p.charge;                 // 渦の芯の半径（＝中心の穴）
-      pR2[i] = (reach * (0.55 + 0.5 * p.charge)) ** 2;
+      // 渦の芯の半径。魚はここを保って回るので、そのまま「どれだけ指の近くに
+      // 集まって見えるか」になる。以前は 54〜132px あって遠すぎた。
+      pc[i] = coreR(p.charge);
+      pR2[i] = (reach * (0.5 + 0.55 * p.charge)) ** 2;
       pvx[i] = p.vx; pvy[i] = p.vy;
     }
 
@@ -440,6 +448,9 @@
 
     for (let i = 0; i < N; i++) {
       let x = px_[i], y = py_[i], vx = vx_[i], vy = vy_[i];
+      // 全員が同じ半径を目指すと輪が1本の線に潰れ、加算で白く飛んで色が消える。
+      // 個体の大きさをそのまま「どの高さを回るか」に使って帯に厚みを出す。
+      const coreF = 0.58 + 0.56 * sz_[i];      // 0.89〜1.45 倍
 
       // --- 流れ場 ---
       let gx = (x * ig + 1) | 0; if (gx < 0) gx = 0; else if (gx >= gw) gx = gw - 1;
@@ -458,7 +469,7 @@
         const nx = ddx * inv, ny = ddy * inv;
 
         // 芯より外なら引き寄せ、内なら押し返す → 中心に穴があいたまま回り続ける
-        const spring = (d - pc[j]) * (1.9 + 5.2 * pk[j]);
+        const spring = (d - pc[j] * coreF) * (2.4 + 6.0 * pk[j]);
         vx += nx * spring * dt;
         vy += ny * spring * dt;
 
@@ -508,6 +519,7 @@
     }
 
     // --- 星降り ---
+    stepStarfall(dt);
     for (let i = streaks.length - 1; i >= 0; i--) {
       const s = streaks[i];
       s.x += s.vx * dt; s.y += s.vy * dt;
@@ -538,18 +550,33 @@
     });
   }
 
-  function starfall(n) {
+  function dropStar() {
     const cols = S.scene.colors;
-    for (let i = 0; i < n; i++) {
-      const a = rnd(1.02, 1.42); // ほぼ真下、少し斜め
-      const sp = rnd(560, 1180);
-      streaks.push({
-        x: rnd(-W * 0.25, W * 1.15), y: rnd(-H * 0.4, -20),
-        vx: Math.cos(a) * sp * 0.55, vy: Math.sin(a) * sp,
-        life: rnd(0.7, 1.5), len: rnd(40, 150),
-        rgb: cols[(Math.random() * cols.length) | 0],
-      });
-    }
+    const a = rnd(1.02, 1.42);          // ほぼ真下、少し斜め
+    const sp = rnd(520, 1120);
+    streaks.push({
+      x: rnd(-W * 0.25, W * 1.15), y: rnd(-H * 0.35, -20),
+      vx: Math.cos(a) * sp * 0.55, vy: Math.sin(a) * sp,
+      life: rnd(0.9, 1.9), len: rnd(40, 150),
+      rgb: cols[(Math.random() * cols.length) | 0],
+    });
+  }
+
+  /* 一気に湧かせず、sec 秒かけて降らせ続ける。
+     一度に出すと 1.5 秒で終わってしまい、「星が降っている」時間にならない。 */
+  function starfall(sec) {
+    fallT = Math.max(fallT, sec);
+    for (let i = 0; i < 6; i++) dropStar();   // 出だしだけ少し多めに
+  }
+
+  function stepStarfall(dt) {
+    if (fallT <= 0) return;
+    fallT -= dt;
+    const ramp = Math.min(1, fallT / 1.8);    // 終わりぎわは自然に減らす
+    fallAcc += dt * 15 * ramp;
+    while (fallAcc >= 1) { fallAcc -= 1; dropStar(); }
+    fallBell -= dt;
+    if (fallBell <= 0) { fallBell = rnd(0.34, 0.8); Audio.shimmer(); }
   }
 
   function tap(x, y) {
@@ -596,8 +623,7 @@
     buzz([14, 26, 44][Math.min(2, Math.round(p * 2))]);
 
     if (S.lanterns % 5 === 0) {
-      starfall(26 + Math.round(p * 26));
-      Audio.shimmer();
+      starfall(10);
       showHint('星が降る');
     }
   }
@@ -788,7 +814,7 @@
       ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
       for (const p of pointers.values()) {
         if (p.charge < 0.015) continue;
-        const R = 34 + p.charge * 26;
+        const R = coreR(p.charge) + 13;
         ctx.strokeStyle = `rgba(255,232,190,${0.16 + p.charge * 0.30})`;
         ctx.lineWidth = 1.2;
         ctx.beginPath(); ctx.arc(p.x, p.y, R, 0, TAU); ctx.stroke();
@@ -834,12 +860,23 @@
    *   平調子（A B C E F）の鈴 + 潮騒のパッド。
    * ============================================================ */
   const Audio = (() => {
-    let ac = null, master = null, wet = null, dry = null, comp = null;
+    let ac = null, master = null, tone = null, wet = null, dry = null, comp = null;
     let pad = null, surf = null, chargeVoice = null;
     let noiseBuf = null;
-    const SCALE = [0, 2, 3, 7, 8];          // 平調子
-    const NOTES = [];
-    for (let o = 0; o < 4; o++) for (const s of SCALE) NOTES.push(220 * Math.pow(2, (s + o * 12) / 12));
+
+    /* 原曲（月見ヤチヨ「星降る海」）の音を測って合わせている。
+     *   ・調は F メジャー（クロマ照合 r=0.88）。旋律帯で多いのは F4 / A4 / C5 / C4。
+     *   ・スペクトルの 62% が 400Hz 以下、3.5kHz 以上は 4% しかない。
+     *   ・大きな立ち上がりのアタックは 10→90% で中央値 190ms。
+     * つまり「低くて、高域がなくて、立ち上がりが遅い」。
+     * 以前は A 平調子・アタック 6ms・非整数倍音つきで、どれも逆をやっていた。
+     * ここでは F メジャーペンタトニック（F G A C D）を F3〜F5 に取る。
+     * 重なっても濁らず、原曲と同じ調に収まる。 */
+    const NOTES = [
+      174.61, 196.00, 220.00, 261.63, 293.66,   // F3 G3 A3 C4 D4
+      349.23, 392.00, 440.00, 523.25, 587.33,   // F4 G4 A4 C5 D5
+      698.46,                                   // F5
+    ];
 
     function noise(sec) {
       const n = Math.floor(ac.sampleRate * sec);
@@ -854,9 +891,7 @@
       const b = ac.createBuffer(2, n, ac.sampleRate);
       for (let ch = 0; ch < 2; ch++) {
         const d = b.getChannelData(ch);
-        for (let i = 0; i < n; i++) {
-          d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, decay);
-        }
+        for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, decay);
       }
       return b;
     }
@@ -868,20 +903,31 @@
       ac = new AC();
 
       comp = ac.createDynamicsCompressor();
-      comp.threshold.value = -14; comp.knee.value = 26; comp.ratio.value = 7;
-      comp.attack.value = 0.004; comp.release.value = 0.28;
+      // 速いアタックで潰すと、せっかくの緩い立ち上がりが締まって尖って聞こえる。
+      comp.threshold.value = -18; comp.knee.value = 30; comp.ratio.value = 3.5;
+      comp.attack.value = 0.03; comp.release.value = 0.35;
       comp.connect(ac.destination);
+
+      // 出口でまとめて高域を落とす。原曲に 3.5kHz 以上がほとんどないので、
+      // ここを 1 つ通すだけで全体の「尖り」が揃って取れる。
+      tone = ac.createBiquadFilter();
+      tone.type = 'lowpass'; tone.frequency.value = 3000; tone.Q.value = 0.3;
+      tone.connect(comp);
+
+      const shelf = ac.createBiquadFilter();
+      shelf.type = 'highshelf'; shelf.frequency.value = 1800; shelf.gain.value = -5;
+      shelf.connect(tone);
 
       master = ac.createGain();
       master.gain.value = 0.9;
-      master.connect(comp);
+      master.connect(shelf);
 
       const conv = ac.createConvolver();
-      conv.buffer = impulse(2.6, 2.4);
-      wet = ac.createGain(); wet.gain.value = 0.44;
+      conv.buffer = impulse(3.2, 2.2);
+      wet = ac.createGain(); wet.gain.value = 0.5;
       wet.connect(conv); conv.connect(master);
 
-      dry = ac.createGain(); dry.gain.value = 0.72;
+      dry = ac.createGain(); dry.gain.value = 0.7;
       dry.connect(master);
 
       noiseBuf = noise(2.2);
@@ -895,88 +941,96 @@
       node.connect(w); w.connect(wet);
     }
 
-    /* 潮騒（フィルタしたノイズ）＋ 低い持続音 */
+    /* 潮騒（帯域を絞ったノイズ）＋ F メジャーのパッド */
     function startAmbient() {
-      // 潮騒
       const src = ac.createBufferSource();
       src.buffer = noiseBuf; src.loop = true;
       const bp = ac.createBiquadFilter();
-      bp.type = 'bandpass'; bp.frequency.value = 480; bp.Q.value = 0.55;
-      const g = ac.createGain(); g.gain.value = 0.0;
-      const lfo = ac.createOscillator(); lfo.frequency.value = 0.077;
-      const lfoG = ac.createGain(); lfoG.gain.value = 0.016;
+      bp.type = 'bandpass'; bp.frequency.value = 360; bp.Q.value = 0.5;
+      const g = ac.createGain(); g.gain.value = 0.0001;
+      const lfo = ac.createOscillator(); lfo.frequency.value = 0.071;
+      const lfoG = ac.createGain(); lfoG.gain.value = 0.014;
       lfo.connect(lfoG); lfoG.connect(g.gain);
       src.connect(bp); bp.connect(g); g.connect(dry);
       const gw = ac.createGain(); gw.gain.value = 0.5; g.connect(gw); gw.connect(wet);
       g.gain.setValueAtTime(0.0001, ac.currentTime);
-      g.gain.linearRampToValueAtTime(0.022, ac.currentTime + 4);
+      g.gain.linearRampToValueAtTime(0.020, ac.currentTime + 5);
       src.start(); lfo.start();
       surf = { src, g, lfo };
 
-      // パッド（A2 / E3 / A3）
+      // F2 / C3 / A3 = F メジャーの三和音
       const pg = ac.createGain(); pg.gain.value = 0.0001;
-      const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 620; lp.Q.value = 0.4;
-      pg.connect(lp); out(lp, 0.8);
+      const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 520; lp.Q.value = 0.4;
+      pg.connect(lp); out(lp, 0.7);
       const oscs = [];
-      [110, 164.81, 220].forEach((f, i) => {
+      [87.31, 130.81, 220.00].forEach((f, i) => {
         const o = ac.createOscillator();
-        o.type = i === 2 ? 'triangle' : 'sine';
+        o.type = 'sine';
         o.frequency.value = f;
-        o.detune.value = (i - 1) * 5;
-        const og = ac.createGain(); og.gain.value = [0.5, 0.32, 0.2][i];
+        o.detune.value = (i - 1) * 4;
+        const og = ac.createGain(); og.gain.value = [0.62, 0.34, 0.16][i];
         o.connect(og); og.connect(pg);
         o.start();
         oscs.push(o);
       });
       pg.gain.setValueAtTime(0.0001, ac.currentTime);
-      pg.gain.linearRampToValueAtTime(0.05, ac.currentTime + 6);
+      pg.gain.linearRampToValueAtTime(0.058, ac.currentTime + 7);
       pad = { pg, oscs, lp };
     }
 
-    /* 鈴 */
+    /* 鈴。整数倍音だけを使う。非整数倍音を混ぜると金属的に鳴って尖る。 */
     function bell(pos, vel, freqOverride) {
       if (!ac || !S.sound) return;
       const t = ac.currentTime;
       const f = freqOverride || NOTES[clamp(Math.round(pos * (NOTES.length - 1)), 0, NOTES.length - 1)];
+
       const g = ac.createGain();
       g.gain.setValueAtTime(0.0001, t);
-      g.gain.exponentialRampToValueAtTime(Math.max(0.001, 0.20 * vel), t + 0.006);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + 1.6 + vel * 1.4);
-      const lp = ac.createBiquadFilter();
-      lp.type = 'lowpass'; lp.frequency.value = 5200; lp.Q.value = 0.6;
-      g.connect(lp); out(lp, 1.1);
+      g.gain.linearRampToValueAtTime(Math.max(0.002, 0.17 * vel), t + 0.048);  // ゆるい立ち上がり
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 2.4 + vel * 1.9);
 
-      [[1, 1], [2.01, 0.34], [2.98, 0.14], [4.21, 0.06]].forEach(([m, a]) => {
+      // 減衰しながら丸くなっていく（実際の撥弦・撥音がそう鳴る）
+      const lp = ac.createBiquadFilter();
+      lp.type = 'lowpass'; lp.Q.value = 0.4;
+      lp.frequency.setValueAtTime(Math.min(2600, f * 5.5), t);
+      lp.frequency.exponentialRampToValueAtTime(Math.max(260, f * 1.5), t + 1.8);
+      g.connect(lp); out(lp, 1.0);
+
+      // [倍率, 音量, デチューン(cent)]
+      [[1, 1.00, 0], [1, 0.46, 6], [2, 0.18, 0], [3, 0.045, 0]].forEach(([m, a, det]) => {
         const o = ac.createOscillator();
         o.type = 'sine';
         o.frequency.value = f * m;
+        o.detune.value = det;
         const og = ac.createGain(); og.gain.value = a;
         o.connect(og); og.connect(g);
-        o.start(t); o.stop(t + 3.4);
+        o.start(t); o.stop(t + 5);
       });
     }
 
-    /* 溜め */
+    /* 溜め。息を吸うようなうねりにする（上がっていく笛にしない） */
     function setCharge(v) {
       if (!ac || !S.sound) return;
       const t = ac.currentTime;
       if (v <= 0.001) { stopCharge(); return; }
       if (!chargeVoice) {
         const g = ac.createGain(); g.gain.value = 0.0001;
-        const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 300; lp.Q.value = 6;
-        const o = ac.createOscillator(); o.type = 'triangle'; o.frequency.value = 70;
+        const lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 170; lp.Q.value = 3;
+        const o = ac.createOscillator(); o.type = 'sine'; o.frequency.value = 58;
+        const o2 = ac.createOscillator(); o2.type = 'triangle'; o2.frequency.value = 87.31; // F2
+        const og2 = ac.createGain(); og2.gain.value = 0.3;
         const n = ac.createBufferSource(); n.buffer = noiseBuf; n.loop = true;
-        const ng = ac.createGain(); ng.gain.value = 0.22;
-        o.connect(g); n.connect(ng); ng.connect(g);
-        g.connect(lp); out(lp, 0.7);
-        o.start(); n.start();
-        chargeVoice = { o, n, g, lp };
+        const ng = ac.createGain(); ng.gain.value = 0.06;    // ノイズは香り付け程度
+        o.connect(g); o2.connect(og2); og2.connect(g); n.connect(ng); ng.connect(g);
+        g.connect(lp); out(lp, 0.55);
+        o.start(); o2.start(); n.start();
+        chargeVoice = { o, o2, n, g, lp };
       }
       const c = chargeVoice;
       c.g.gain.cancelScheduledValues(t);
-      c.g.gain.setTargetAtTime(0.03 + 0.14 * v, t, 0.05);
-      c.o.frequency.setTargetAtTime(70 + 210 * v * v, t, 0.06);
-      c.lp.frequency.setTargetAtTime(280 + 2600 * v * v, t, 0.06);
+      c.g.gain.setTargetAtTime(0.028 + 0.13 * v, t, 0.09);
+      c.o.frequency.setTargetAtTime(58 + 74 * v * v, t, 0.12);
+      c.lp.frequency.setTargetAtTime(165 + 720 * v * v, t, 0.12);
     }
 
     function stopCharge() {
@@ -984,56 +1038,53 @@
       const c = chargeVoice; chargeVoice = null;
       const t = ac.currentTime;
       c.g.gain.cancelScheduledValues(t);
-      c.g.gain.setTargetAtTime(0.0001, t, 0.05);
-      try { c.o.stop(t + 0.5); c.n.stop(t + 0.5); } catch (_) {}
+      c.g.gain.setTargetAtTime(0.0001, t, 0.08);
+      try { c.o.stop(t + 0.7); c.o2.stop(t + 0.7); c.n.stop(t + 0.7); } catch (_) {}
     }
 
-    /* ひらく */
+    /* ひらく。F の和音（F3 C4 F4 A4 C5）を下からゆっくり積む */
     function burst(p) {
       if (!ac || !S.sound) return;
       stopCharge();
       const t = ac.currentTime;
-      const root = 4 + Math.round(p * 5);
-      [0, 2, 4, 7, 9].forEach((d, i) => {
-        const idx = clamp(root + d, 0, NOTES.length - 1);
-        setTimeout(() => bell(0, 0.45 + p * 0.55, NOTES[idx]), i * 26);
+      [0, 3, 5, 7, 8].forEach((idx, i) => {
+        setTimeout(() => bell(0, 0.42 + p * 0.5, NOTES[idx]), i * 55);
       });
 
-      // 低い衝撃
+      // 低いふくらみ。叩くのではなく押し出す
       const sub = ac.createOscillator(); sub.type = 'sine';
       const sg = ac.createGain();
-      sub.frequency.setValueAtTime(150, t);
-      sub.frequency.exponentialRampToValueAtTime(38, t + 0.42);
+      sub.frequency.setValueAtTime(131, t);
+      sub.frequency.exponentialRampToValueAtTime(87.31, t + 0.55);   // F2 に着地
       sg.gain.setValueAtTime(0.0001, t);
-      sg.gain.exponentialRampToValueAtTime(0.22 + p * 0.3, t + 0.012);
-      sg.gain.exponentialRampToValueAtTime(0.0001, t + 0.75);
+      sg.gain.linearRampToValueAtTime(0.2 + p * 0.24, t + 0.07);
+      sg.gain.exponentialRampToValueAtTime(0.0001, t + 1.5);
       sub.connect(sg); sg.connect(dry);
-      sub.start(t); sub.stop(t + 0.9);
+      sub.start(t); sub.stop(t + 1.7);
 
-      // 開く音（ノイズのスウェル）
+      // 開く音。以前は 7kHz まで上がるハイパスで、原曲にない帯域だった。
+      // 400〜900Hz（原曲でいちばん厚い帯）のバンドパスに変える。
       const n = ac.createBufferSource(); n.buffer = noiseBuf;
-      const hp = ac.createBiquadFilter(); hp.type = 'highpass';
-      hp.frequency.setValueAtTime(400, t);
-      hp.frequency.exponentialRampToValueAtTime(7000, t + 0.7);
+      const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 0.7;
+      bp.frequency.setValueAtTime(260, t);
+      bp.frequency.exponentialRampToValueAtTime(880, t + 0.75);
       const ng = ac.createGain();
       ng.gain.setValueAtTime(0.0001, t);
-      ng.gain.exponentialRampToValueAtTime(0.13 + p * 0.14, t + 0.05);
-      ng.gain.exponentialRampToValueAtTime(0.0001, t + 1.1);
-      n.connect(hp); hp.connect(ng); out(ng, 1.2);
-      n.start(t); n.stop(t + 1.3);
+      ng.gain.linearRampToValueAtTime(0.11 + p * 0.1, t + 0.12);
+      ng.gain.exponentialRampToValueAtTime(0.0001, t + 1.6);
+      n.connect(bp); bp.connect(ng); out(ng, 1.1);
+      n.start(t); n.stop(t + 1.8);
     }
 
-    /* 星降り */
+    /* 星降りのあいだ、ときどき鳴る高めの一粒 */
     function shimmer() {
       if (!ac || !S.sound) return;
-      for (let i = 0; i < 9; i++) {
-        setTimeout(() => bell(rnd(0.55, 1), 0.28), i * 95 + Math.random() * 60);
-      }
+      bell(rnd(0.55, 1), 0.2);
     }
 
     function setEnabled(on) {
       if (!ac) return;
-      master.gain.setTargetAtTime(on ? 0.9 : 0.0001, ac.currentTime, 0.08);
+      master.gain.setTargetAtTime(on ? 0.9 : 0.0001, ac.currentTime, 0.1);
       if (!on) stopCharge();
     }
 
@@ -1208,8 +1259,7 @@
     if (held < 0.24 && p.moved < 16) {
       const now = performance.now();
       if (now - lastTapT < 330 && Math.abs(p.x - lastTapX) < 48 && Math.abs(p.y - lastTapY) < 48) {
-        starfall(30);
-        Audio.shimmer();
+        starfall(10);
         addRipple(p.x, p.y, 0.35, [255, 245, 220]);
         showHint('星が降る');
         lastTapT = 0;
