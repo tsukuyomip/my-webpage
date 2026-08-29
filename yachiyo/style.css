@@ -226,6 +226,10 @@ html, body {
   overscroll-behavior: contain;
   touch-action: pan-y;
 }
+/* 縦の flex なので、中身がはみ出すと既定で子が縮む。行は縮ませない。
+   とくに details は overflow:hidden と相まって高さ数 px まで潰れ、丸ごと
+   消えたように見えていた（画面 750px で 7px、667px で 2px）。 */
+.sheet-body > * { flex: 0 0 auto; }
 
 .row-label {
   font-size: 11.5px;
