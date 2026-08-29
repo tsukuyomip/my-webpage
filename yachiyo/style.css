@@ -108,6 +108,39 @@ html, body {
 .icon-btn svg { width: 20px; height: 20px; fill: currentColor; }
 .icon-btn:active { transform: scale(.92); }
 
+/* 入/切のあるアイコンボタン（無音・スリープ無効）。
+   状態は色と絵柄の両方で出す。色だけだと、暗い背景では入と切が見分けにくい。 */
+.icon-btn.tgl .i-off { display: none; }
+.icon-btn.tgl:not(.is-on) .i-on { display: none; }
+.icon-btn.tgl:not(.is-on) .i-off { display: block; }
+.icon-btn.tgl:not(.is-on) {
+  color: var(--dim);
+  border-color: rgba(150, 175, 215, .16);
+  background: rgba(8, 14, 28, .34);
+}
+.icon-btn.tgl.is-on { color: #cfe6ff; border-color: rgba(150, 200, 255, .45); }
+.icon-btn.tgl.is-on::after {
+  content: "";
+  position: absolute;
+  inset: -1px;
+  border-radius: 50%;
+  box-shadow: 0 0 12px rgba(120, 190, 255, .35);
+  pointer-events: none;
+}
+.icon-btn { position: relative; }
+
+/* 端末が狭いときは詰める。ボタンが 3 つ並ぶので、そのままだと
+   題字が 2 行に折り返して HUD が背が高くなる。 */
+@media (max-width: 360px) {
+  .hud { gap: 8px; padding-left: calc(var(--safe-l) + 12px); padding-right: calc(var(--safe-r) + 12px); }
+  .hud-left { gap: 7px; }
+  .hud-right { gap: 6px; }
+  .hud-title { font-size: 12px; letter-spacing: .08em; white-space: nowrap; }
+  .hud-scene { padding: 2px 6px; }
+  .icon-btn { width: 32px; height: 32px; }
+  .icon-btn svg { width: 18px; height: 18px; }
+}
+
 /* ============ ヒント ============ */
 .hint {
   position: fixed;
@@ -149,6 +182,8 @@ html, body {
   overflow: hidden;
 }
 .sheet.open { transform: translateY(0); }
+/* 指で掴んでいるあいだは、指の位置にそのまま追従させたい */
+.sheet.dragging { transition: none; }
 
 .sheet-grip {
   height: 30px;
@@ -161,6 +196,11 @@ html, body {
   width: 40px; height: 4px;
   border-radius: 4px;
   background: rgba(190, 215, 255, .34);
+  transition: width .18s ease, background .18s ease;
+}
+.sheet-grip:active span, .sheet.dragging .sheet-grip span {
+  width: 54px;
+  background: rgba(210, 232, 255, .6);
 }
 
 .sheet-body {

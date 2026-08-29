@@ -70,6 +70,7 @@
     density: 1,          // スライダー
     swirl: 1,            // スライダー
     sound: true,
+    awake: false,                          // スリープ無効（Screen Wake Lock）
     reflect: true,
     shows: true,          // ひとりでに動く演目
     tilt: false,
@@ -1583,12 +1584,71 @@
       el.classList.toggle('is-on', get());
     });
   }
-  toggle($('tSound'), () => S.sound, (v) => { S.sound = v; Audio.setEnabled(v); });
   toggle($('tReflect'), () => S.reflect, (v) => { S.reflect = v; });
   toggle($('tShows'), () => S.shows, (v) => {
     S.shows = v;
     if (!v) endShow(); else showIdle = rnd(3, 8);
   });
+
+  /* 無音。HUD のボタンとシートのトグルは同じ状態を指すので、
+     どちらから触っても両方の見た目が変わるように 1 か所で更新する。 */
+  const elMute = $('btnMute'), elTSound = $('tSound');
+  function setSound(v, quiet) {
+    S.sound = v;
+    Audio.setEnabled(v);
+    elTSound.classList.toggle('is-on', v);
+    elMute.classList.toggle('is-on', v);
+    elMute.setAttribute('aria-pressed', v ? 'true' : 'false');
+    elMute.setAttribute('aria-label', v ? '音を消す' : '音を出す');
+    if (!quiet) showHint(v ? '音が出る' : '無音', 1500);
+  }
+  elMute.addEventListener('click', () => setSound(!S.sound));
+  elTSound.addEventListener('click', () => setSound(!S.sound));
+
+  /* スリープ無効。Screen Wake Lock は
+     - 画面が隠れると勝手に解放される（戻ったら取り直す）
+     - 対応していない端末がある（黙って効かないのがいちばん困るので言う）
+     という 2 点があるので、要求と状態表示を分けて持つ。 */
+  const elWake = $('btnWake'), elTWake = $('tWake');
+  let wakeLock = null;
+  const wakeOK = 'wakeLock' in navigator;
+
+  function paintWake() {
+    elWake.classList.toggle('is-on', S.awake);
+    elTWake.classList.toggle('is-on', S.awake);
+    elWake.setAttribute('aria-pressed', S.awake ? 'true' : 'false');
+    elWake.setAttribute('aria-label', S.awake ? 'スリープを許可' : 'スリープ無効');
+  }
+
+  async function acquireWake() {
+    if (!S.awake || wakeLock || document.hidden || !wakeOK) return;
+    try {
+      wakeLock = await navigator.wakeLock.request('screen');
+      // 端末側の都合で外れることがある。持っていないのに持っている顔をしない。
+      wakeLock.addEventListener('release', () => { wakeLock = null; });
+    } catch (_) {
+      wakeLock = null;
+      S.awake = false;
+      paintWake();
+      showHint('スリープを止められなかった', 2200);
+    }
+  }
+
+  function releaseWake() {
+    if (wakeLock) { try { wakeLock.release(); } catch (_) { /* すでに外れている */ } }
+    wakeLock = null;
+  }
+
+  async function setAwake(v) {
+    if (v && !wakeOK) { showHint('この端末はスリープを止められない', 2400); return; }
+    S.awake = v;
+    paintWake();
+    if (v) { await acquireWake(); if (S.awake) showHint('画面を消さない', 1800); }
+    else { releaseWake(); showHint('スリープを許可', 1500); }
+  }
+
+  elWake.addEventListener('click', () => setAwake(!S.awake));
+  elTWake.addEventListener('click', () => setAwake(!S.awake));
 
   const elTilt = $('tTilt');
   elTilt.addEventListener('click', async () => {
@@ -1615,11 +1675,72 @@
     S.tiltY += (b * 0.55 - S.tiltY) * 0.08;
   }
 
-  /* シート */
+  /* シート。
+     ハンドルはタップで開閉できるだけでなく、掴んで動かせるようにする。
+     途中まで開けて中身を覗く、という操作ができないと、下から出てくる板が
+     ただのボタンになってしまう。 */
   const elGrip = $('sheetGrip');
+  const GRIP_H = 30;                        // 閉じたときに残す高さ（CSS と合わせる）
+  const isOpen = () => elSheet.classList.contains('open');
   const setSheet = (open) => elSheet.classList.toggle('open', open);
-  elGrip.addEventListener('click', () => setSheet(!elSheet.classList.contains('open')));
-  $('btnSheet').addEventListener('click', () => setSheet(!elSheet.classList.contains('open')));
+  $('btnSheet').addEventListener('click', () => setSheet(!isOpen()));
+
+  let drag = null;
+  const hiddenH = () => Math.max(1, elSheet.offsetHeight - GRIP_H);   // 閉じたときの下げ幅
+
+  elGrip.addEventListener('pointerdown', (e) => {
+    // ここで既定の動作を止めないと、掴んで動かしたときに
+    // 背後のページごとスクロール／リロードの引っぱりが起きる端末がある。
+    e.preventDefault();
+    // 捕捉は「できたら嬉しい」程度のもの。端末によっては 2 本目の指で
+    // 例外を投げるので、ここで落ちて掴めなくなるほうが困る。
+    try { elGrip.setPointerCapture(e.pointerId); } catch (_) { /* 無くても動く */ }
+    const t0 = performance.now();
+    drag = { id: e.pointerId, y0: e.clientY, y: e.clientY, max: hiddenH(),
+             base: isOpen() ? 0 : hiddenH(), moved: 0, t0,
+             hist: [{ t: t0, y: e.clientY }] };
+    elSheet.classList.add('dragging');
+  });
+
+  elGrip.addEventListener('pointermove', (e) => {
+    if (!drag || e.pointerId !== drag.id) return;
+    drag.moved = Math.max(drag.moved, Math.abs(e.clientY - drag.y0));
+    // 速度は直前の 1 点との差では測らない。指を離すのは最後の move の直後
+    // なので、その差だと経過時間がほぼ 0 になり、ゆっくり動かしただけでも
+    // 巨大な速度が出て逆側へ弾かれる。直近 140ms ぶんを覚えておいて、
+    // その幅で測る。
+    const now = performance.now();
+    drag.y = e.clientY;
+    drag.hist.push({ t: now, y: e.clientY });
+    while (drag.hist.length > 2 && now - drag.hist[0].t > 140) drag.hist.shift();
+    const off = clamp(drag.base + (e.clientY - drag.y0), 0, drag.max);
+    elSheet.style.transform = `translateY(${off}px)`;
+  });
+
+  function endDrag(e) {
+    if (!drag || (e && e.pointerId !== drag.id)) return;
+    const d = drag; drag = null;
+    elSheet.classList.remove('dragging');
+    elSheet.style.transform = '';
+
+    // ほとんど動いていなければタップ扱い（今までどおり開閉するだけ）
+    if (d.moved < 8 && performance.now() - d.t0 < 400) { setSheet(!isOpen()); return; }
+
+    const off = clamp(d.base + (d.y - d.y0), 0, d.max);
+    const s0 = d.hist[0];
+    const dt = performance.now() - s0.t;
+    // 測る幅が短すぎるときは速度を信じない（近いほうへ寄せる）
+    const v = dt >= 30 ? (d.y - s0.y) / dt : 0;        // px/ms、下向きが正
+    // 勢いがあればその向きへ。無ければ「動かした量」で決める。
+    // 真ん中で分けると、開いた板を閉じるのに画面の半分ぶん引く必要があって重い。
+    // どちら向きでも travel の 3 割動かしたら乗り換える、という形にする。
+    const line = d.base === 0 ? d.max * 0.30 : d.max * 0.70;
+    if (v > 0.35) setSheet(false);
+    else if (v < -0.35) setSheet(true);
+    else setSheet(off < line);
+  }
+  elGrip.addEventListener('pointerup', endDrag);
+  elGrip.addEventListener('pointercancel', endDrag);
 
   /* About */
   $('btnAbout').addEventListener('click', () => { elAbout.hidden = false; });
@@ -1795,6 +1916,10 @@
     } else if (S.started) {
       S.running = true;
       Audio.resume();
+      // Wake Lock は画面が隠れた時点で端末側が勝手に解放する。戻ってきたら
+      // 取り直さないと、入れたつもりのまま効かなくなる。
+      wakeLock = null;
+      acquireWake();
       last = 0;
       requestAnimationFrame(frame);
     }
