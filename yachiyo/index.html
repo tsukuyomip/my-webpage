@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+<meta name="theme-color" content="#05070f">
+<meta name="description" content="指でなぞると光の魚が渦を巻く、夜の海のインタラクティブ。押さえて溜めて、離すと開く。">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="宵の海">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="apple-touch-icon" href="./icon-180.png">
+<link rel="icon" href="./icon-180.png">
+<title>宵の海 — 光の魚をあやつる</title>
+<link rel="stylesheet" href="./style.css">
+</head>
+<body>
+
+<canvas id="stage"></canvas>
+
+<!-- ===== 上部ステータス ===== -->
+<div id="hud" class="hud" hidden>
+  <div class="hud-left">
+    <span class="hud-title">宵の海</span>
+    <span class="hud-scene" id="hudScene">宵</span>
+  </div>
+  <div class="hud-right">
+    <span class="lantern" id="lantern"><span class="lantern-mark">灯</span><span id="lanternN">0</span></span>
+    <button id="btnSheet" class="icon-btn" type="button" aria-label="設定">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z"/><path d="M19.4 13a7.6 7.6 0 0 0 0-2l2-1.5-2-3.4-2.3 1a7.6 7.6 0 0 0-1.7-1l-.4-2.5h-4l-.4 2.5a7.6 7.6 0 0 0-1.7 1l-2.3-1-2 3.4L4.6 11a7.6 7.6 0 0 0 0 2l-2 1.5 2 3.4 2.3-1a7.6 7.6 0 0 0 1.7 1l.4 2.5h4l.4-2.5a7.6 7.6 0 0 0 1.7-1l2.3 1 2-3.4Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/></svg>
+    </button>
+  </div>
+</div>
+
+<!-- ===== 操作ヒント ===== -->
+<div id="hint" class="hint" hidden></div>
+
+<!-- ===== 下部シート ===== -->
+<div id="sheet" class="sheet" hidden>
+  <div class="sheet-grip" id="sheetGrip"><span></span></div>
+  <div class="sheet-body">
+
+    <div class="row row-scenes">
+      <div class="row-label">景色</div>
+      <div class="chips" id="scenes"></div>
+    </div>
+
+    <div class="row">
+      <div class="row-label">群れ<span class="val" id="valDensity">ふつう</span></div>
+      <input id="density" class="slider" type="range" min="0.35" max="1.8" step="0.05" value="1">
+    </div>
+
+    <div class="row">
+      <div class="row-label">渦の強さ<span class="val" id="valSwirl">ふつう</span></div>
+      <input id="swirl" class="slider" type="range" min="0.3" max="2.2" step="0.05" value="1">
+    </div>
+
+    <div class="row row-toggles">
+      <button class="toggle is-on" id="tSound" type="button"><b>音</b><i>鈴と潮騒</i></button>
+      <button class="toggle is-on" id="tReflect" type="button"><b>水鏡</b><i>水面の映り込み</i></button>
+      <button class="toggle" id="tTilt" type="button"><b>傾き</b><i>端末を傾けて流す</i></button>
+    </div>
+
+    <div class="row row-actions">
+      <button class="action" id="btnShot" type="button">この一枚を保存</button>
+      <button class="action ghost" id="btnAbout" type="button">これは何？</button>
+    </div>
+
+    <p class="fps" id="fps"></p>
+  </div>
+</div>
+
+<!-- ===== スプラッシュ ===== -->
+<div id="splash" class="splash">
+  <div class="splash-inner">
+    <div class="splash-torii" aria-hidden="true">
+      <svg viewBox="0 0 120 100"><path d="M4 20h112M10 30h100M58 30h4v10h-4zM22 20v72M30 20v72M90 20v72M98 20v72M10 38h100" stroke="currentColor" stroke-width="4.5" stroke-linecap="round" fill="none"/></svg>
+    </div>
+    <h1 class="splash-title">宵<span>の</span>海</h1>
+    <p class="splash-sub">押さえて溜める。<br>離すと、ひらく。</p>
+    <button id="btnStart" class="start" type="button">灯をともす</button>
+    <p class="splash-note">音が出ます。イヤホン推奨。</p>
+  </div>
+</div>
+
+<!-- ===== About ===== -->
+<div id="about" class="modal" hidden>
+  <div class="modal-card">
+    <h2>宵の海</h2>
+    <p>指を置くと、そこに<b>渦</b>が生まれます。光の魚は渦のまわりを回り、中心には穴があきます。</p>
+    <ul class="ops">
+      <li><b>タップ</b><span>波紋がひろがる</span></li>
+      <li><b>長押し</b><span>渦がそだつ。画面が暗くなり、音が上がっていく</span></li>
+      <li><b>離す</b><span>ひらく。魚が一斉に散り、灯の色が満ちる</span></li>
+      <li><b>なぞる</b><span>渦がついてくる。魚が尾を引く</span></li>
+      <li><b>2本指</b><span>双子の渦。ふたつの渦のあいだで魚がねじれる</span></li>
+      <li><b>ダブルタップ</b><span>星が降る</span></li>
+    </ul>
+    <p class="credit">月見ヤチヨ「星降る海」のMVに出てくる、<em>暗い間のあとに光がひらく</em>感じと、寒色から灯色へ転ぶ色の運びに触発された、非公式のファンメイド作品です。楽曲・映像とは関係がなく、音も映像もすべてこのページ内で生成しています。</p>
+    <button id="btnAboutClose" class="action" type="button">とじる</button>
+  </div>
+</div>
+
+<script src="./app.js"></script>
+</body>
+</html>
