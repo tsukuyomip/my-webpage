@@ -132,7 +132,7 @@
   const SHOWS = [
     { id: 'suikomi', name: '吸い込み',   dur: 7.5, w: 3 },
     { id: 'hiraku',  name: '天がひらく', dur: 4.2, w: 3 },
-    { id: 'rasen',   name: '昇り螺旋',   dur: 11.0, w: 3 },
+    { id: 'rasen',   name: '昇り螺旋',   dur: 13.0, w: 3 },
     { id: 'shio',    name: '潮',        dur: 6.5, w: 2 },
     { id: 'hoshi',   name: '星降り',     dur: 10.0, w: 2 },
     { id: 'nagi',    name: '凪',        dur: 5.0, w: 1 },
@@ -142,13 +142,14 @@
   let show = null;                    // { def, t, x, y, dir, phase }
   let showIdle = QSHOW ? 1.5 : rnd(7, 13);   // 次の演目まで（秒）
   let lastShow = '';
+  let sceneIdle = rnd(150, 260);            // 景色がひとりでに変わるまで（秒）
 
   /* 演目が毎フレーム作る値。内側のループを軽くするため先に出しておく。 */
   const SH = { on: 0, x: 0, y: 0, r2: 0, w: 0, pull: 0, rise: 0, lat: 0,
                ringR: 0, ringW: 0, ringF: 0, calm: 0,
                // 昇り螺旋（垂直な軸のまわりを回りながら昇る）
                hr: 0, hx: 0, hk: 0.3, hw: 0, hrise: 0, hph: 0,
-               hbase: 0, hapex: 0, hlen: 1, hturns: 0 };
+               hbase: 0, hapex: 0, hlen: 1, hturns: 0, hu: 0 };
 
   /* 奥行き。螺旋のとき、手前を回っている魚を少し大きく描くのに使う。
      これが無いと、横から見た螺旋がただの横波にしか見えない。 */
@@ -495,7 +496,7 @@
     const depGrab = Math.min(1, dt * 6), depRelax = Math.min(1, dt * 3);
 
     const damp = Math.exp(-(1.15 + SH.calm * 7) * dt);
-    const vmax = (240 + 520 * S.boost) * speedK * (1 - SH.calm * 0.8) * (SH.hr > 1 ? 1.25 : 1);
+    const vmax = (240 + 520 * S.boost) * speedK * (1 - SH.calm * 0.8) * (SH.hr > 1 ? 1.6 : 1);
     const vmax2 = vmax * vmax;
     const ig = 1 / CELL;
     const ih = 1 / H;
@@ -528,7 +529,11 @@
         if (dep_[i] > 0.999 && dep_[i] < 1.001) dep_[i] = 1;
       }
       if (shOn) {
-        if (SH.hr > 1) {
+        // 個体ごとに参加する時刻をずらす。全員が同時に寄ると、一瞬で
+        // 1 本の帯になって機械的に見える。参加してからも 2 秒ほどかけて効かせる。
+        const join = 0.02 + (i % 89) * (0.18 / 89);
+        const jw = SH.hu > join ? Math.min(1, (SH.hu - join) / 0.16) : 0;
+        if (SH.hr > 1 && jw > 0) {
           // 裾からの高さ。0 = 裾（広い）、1 = 頂点（細い）
           const hRel = clamp((SH.hbase - y) / SH.hlen, 0, 1);
           // 一次で絞ると下のほうから細り始めてしまう。指数を上げると、
@@ -554,11 +559,26 @@
 
           // 引く強さと上限を落とす。ここが強いと、遠くの魚が一直線に
           // 飛んできて「吸い寄せられた」ように見える。
-          let dxT = (tgx - x) * 1.2, dyT = (tgy - y) * 1.2 - rise;
+          const ddx = tgx - x, ddy = tgy - y;
+          let dxT = ddx * 1.2, dyT = ddy * 1.2 - rise * jw;
+          // 寄せる速さはここで頭打ちにする。強いと一直線に飛んでくる。
           const sp2 = dxT * dxT + dyT * dyT;
           if (sp2 > 44100) { const q = 210 / Math.sqrt(sp2); dxT *= q; dyT *= q; }
-          vx += (dxT - vx) * shBl;
-          vy += (dyT - vy) * shBl;
+
+          // 目標そのものも回っているので、その速度を引き継がせる。足さないと
+          // 目標へ最短距離で滑り込むだけで、曲がって合流してくれない。
+          // ただし遠くの魚まで一緒に回すと、速さの上限に張りついて寄ってこなく
+          // なる（実際そうなって螺旋が消えた）。近い魚にだけ、上の頭打ちとは
+          // 別枠で足す。
+          const dd = Math.sqrt(ddx * ddx + ddy * ddy);
+          const near = dd < 70 ? 1 : dd < 280 ? (280 - dd) / 210 : 0;
+          if (near > 0) {
+            const wv = SH.hw * spin * near;
+            dxT += -sn * R * wv;
+            dyT += cs * R * SH.hk * wv;
+          }
+          vx += (dxT - vx) * shBl * jw;
+          vy += (dyT - vy) * shBl * jw;
 
           // sin が正 = 画面で中心より下 = 手前。手前を大きく描く
           dep_[i] += (1 + 0.4 * sn - dep_[i]) * depGrab;
@@ -765,6 +785,14 @@
     }
     if (!show) {
       if (!S.shows) return;
+      // 景色もときどき変える。演目より長い周期にして、
+      // 「気づいたら景色が変わっていた」くらいにする。
+      sceneIdle -= dt;
+      if (sceneIdle <= 0) {
+        sceneIdle = rnd(150, 260);
+        const other = SCENES.filter((sc) => sc !== S.scene);
+        setScene(other[(Math.random() * other.length) | 0], true);
+      }
       showIdle -= dt;
       if (showIdle <= 0) startShow();
       return;
@@ -824,13 +852,19 @@
       // 最後にそこで弾ける。
       // 立ち上がりは急がない。強さを一気に上げると、魚が一点へ吸い寄せられる
       // ように見えてしまう。ふだんの泳ぐ速さのまま、少しずつ集まってほしい。
-      let ramp = Math.min(1, u / 0.42);
+      let ramp = Math.min(1, u / 0.26);
       ramp = ramp * ramp * (3 - 2 * ramp);       // 出だしをなだらかに
       SH.hx = show.x;
       // 裾を下げすぎると、いちばん広いところが画面の外（水面より下）に落ちて
       // 円錐に見えない。裾が水際、頂点が画面上端あたりに来るようにする。
-      SH.hbase = H * (0.88 - 0.12 * u);          // 裾（水際あたり）
-      SH.hapex = H * (0.16 - 0.14 * u);          // 頂点（画面の上端あたり）
+      // 頂点は下から伸び上がる。はじめは水際に平たく広い渦が
+      // できて、それが上へ伸びながら細くなっていく。いきなり画面いっぱいの
+      // 円錐を出すと、魚が真横から一斉に吸い寄せられて機械的に見える。
+      let grow = clamp((u - 0.03) / 0.34, 0, 1);
+      grow = grow * grow * (3 - 2 * grow);
+      SH.hbase = H * (0.90 - 0.14 * u);          // 裾（水際あたり）
+      SH.hapex = H * (0.80 - 0.78 * grow);       // 頂点（下から上へ伸びる）
+      SH.hu = u;
       SH.hlen = Math.max(60, SH.hbase - SH.hapex);
       SH.hr = W * 0.58 * ramp;                   // 裾は画面幅より広い
       SH.hk = 0.30;
@@ -838,7 +872,7 @@
       SH.hturns = TAU * 1.0 * show.dir;          // 裾から頂点までの初期のひねり
       SH.hw = 1.0 * show.dir;                    // 裾の角速度 rad/s（一周 6 秒）
       SH.hph += SH.hw * dt;
-      if (u > 0.84) {                          // 先端で弾ける
+      if (u > 0.86) {                          // 先端で弾ける
         if (show.phase < 1) {
           show.phase = 1;
           bloom(SH.hx, SH.hapex, 0.9, true);
@@ -880,14 +914,23 @@
 
     addRipple(x, y, 0.5 + p * 0.9, [255, 236, 200]);
 
+    // 距離だけで速さを決めると、中心の魚がいちばん速く飛び出してまん中に
+    // 穴があく。花火に穴が無いのは「同じ場所から色々な速さで飛び散る」ため。
+    // 個体ごとに速さをばらし、遅いものを多めにする（q*q）。遅い個体が
+    // まん中に残るので穴があかない。
     const R = Math.min(W, H) * (0.5 + p * 0.85);
     for (let i = 0; i < N; i++) {
       const dx = px_[i] - x, dy = py_[i] - y;
       const d = Math.sqrt(dx * dx + dy * dy) + 0.001;
       if (d > R) continue;
-      const f = (1 - d / R) ** 1.4 * (900 + 1500 * p);
-      vx_[i] += (dx / d) * f;
-      vy_[i] += (dy / d) * f;
+      const q = Math.random();
+      const f = (1 - d / R) ** 0.7 * (320 + 2000 * p) * q * q;
+      // 向きも少しばらす。きれいな放射は機械的に見える
+      const j = (Math.random() - 0.5) * 0.5;
+      const cj = 1 - j * j * 0.5, sj = j;          // 小角近似
+      const nx = dx / d, ny = dy / d;
+      vx_[i] += (nx * cj - ny * sj) * f;
+      vy_[i] += (nx * sj + ny * cj) * f;
     }
 
     S.warm = Math.min(1.25, S.warm + 0.55 + p * 0.75);
@@ -1438,16 +1481,18 @@
     elScenes.appendChild(b);
   });
 
-  function setScene(sc) {
+  function setScene(sc, quiet) {
     if (S.scene === sc) return;
     S.scene = sc;
     elHudScene.textContent = sc.name;
     for (const b of elScenes.children) b.classList.toggle('on', b.dataset.id === sc.id);
     resize();                       // スプライト・鳥居・水面をすべて焼き直す
-    S.warm = Math.max(S.warm, 0.5);
-    S.flash = 0.18;
-    Audio.bell(0.72, 0.34);
-    showHint(`景色：${sc.name}`);
+    // ひとりでに変わるときは光らせない。軌跡の層に前の色が残っているので、
+    // それだけで勝手に混ざって切り替わる。
+    S.warm = Math.max(S.warm, quiet ? 0.3 : 0.5);
+    if (!quiet) S.flash = 0.18;
+    Audio.bell(0.72, quiet ? 0.2 : 0.34);
+    showHint(`景色：${sc.name}`, quiet ? 2000 : 2100);
   }
 
   /* スライダー */
