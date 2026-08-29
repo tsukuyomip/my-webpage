@@ -163,6 +163,9 @@
   /* エフェクト */
   const ripples = [];   // {x,y,r,vr,life,max,w,rgb}
   const streaks = [];   // 星降り {x,y,vx,vy,life,len,rgb}
+  const drops = [];     // 着水のしぶき {x,y,vx,vy,life,life0,rgb}
+  const DROP_MAX = 240;
+  let fallDir = 1;      // その回の星が流れる向き。1 回の星降りでは揃える
   let fallT = 0;        // 星降りの残り時間（秒）
   let fallAcc = 0;      // 湧かせる数の端数
   let fallBell = 0;     // 次の一粒が鳴るまで
@@ -727,9 +730,24 @@
     stepStarfall(dt);
     for (let i = streaks.length - 1; i >= 0; i--) {
       const s = streaks[i];
+      const above = s.y < waterY;
       s.x += s.vx * dt; s.y += s.vy * dt;
       s.life -= dt;
+      // 水面に届いたら消えて、そこで跳ねる。画面の外での着水は数えない。
+      if (above && s.y >= waterY) {
+        if (s.x > -40 && s.x < W + 40) splash(s.x, s.rgb, s.vx);
+        streaks.splice(i, 1);
+        continue;
+      }
       if (s.life <= 0 || s.y > H + 80) streaks.splice(i, 1);
+    }
+
+    for (let i = drops.length - 1; i >= 0; i--) {
+      const d = drops[i];
+      d.vy += 900 * dt;                       // 落ちてくる
+      d.x += d.vx * dt; d.y += d.vy * dt;
+      d.life -= dt;
+      if (d.life <= 0) drops.splice(i, 1);
     }
 
     // --- 減衰する全体パラメータ ---
@@ -757,19 +775,56 @@
 
   function dropStar() {
     const cols = S.scene.colors;
-    const a = rnd(1.02, 1.42);          // ほぼ真下、少し斜め
+    // 角度は「真下から何度傾いているか」で持つ。以前は x 軸からの角度に
+    // 横方向だけ 0.55 を掛けていたので、実際の傾きが 5〜19 度にしかならず、
+    // ほとんど真下に落ちていた。
+    const tilt = rnd(0.52, 0.70);       // 30〜40 度
     const sp = rnd(520, 1120);
+    const vx = Math.sin(tilt) * sp * fallDir;
+    const vy = Math.cos(tilt) * sp;
+    // 斜めに流れるぶん、風上側から湧かせないと片側だけ空く。
+    // 画面の上端に届くまでに 0.35H * tan(40°) ほど横へ流れる。
+    const x = fallDir > 0 ? rnd(-W * 0.95, W * 0.85) : rnd(W * 0.15, W * 1.95);
     streaks.push({
-      x: rnd(-W * 0.25, W * 1.15), y: rnd(-H * 0.35, -20),
-      vx: Math.cos(a) * sp * 0.55, vy: Math.sin(a) * sp,
-      life: rnd(0.9, 1.9), len: rnd(40, 150),
+      x, y: rnd(-H * 0.35, -20), vx, vy,
+      // 寿命は水面へ届くだけ持たせる。以前は 0.9〜1.9 秒で、水面まで
+      // 1.0〜2.2 秒かかるので途中で消えるものが多かった。ふつうは寿命では
+      // なく着水で消える。
+      life: rnd(1.9, 3.2), len: rnd(40, 150),
       rgb: cols[(Math.random() * cols.length) | 0],
     });
+  }
+
+  /* 着水。波紋ひとつと、前へ跳ねるしぶき。 */
+  function splash(x, rgb, vxIn) {
+    // 指の波紋と同じ配列を使うが、大きさと寿命は別に持つ。
+    // addRipple の power をいくら小さくしても輪が画面規模に広がってしまう。
+    ripples.push({
+      x, y: waterY, r: 2, vr: rnd(80, 120), max: rnd(34, 62),
+      life: 0.52, life0: 0.52, w: 2.6, rgb,
+    });
+    if (drops.length > DROP_MAX) return;
+    const n = 4 + ((Math.random() * 4) | 0);
+    for (let k = 0; k < n; k++) {
+      // 上向きを中心に散らし、入ってきた勢いのぶんだけ前へ流す
+      const a = -Math.PI / 2 + rnd(-0.95, 0.95);
+      const sp = rnd(90, 320);           // 重力 900 に対して、跳ねの高さが 5〜57px
+      const life = rnd(0.3, 0.7);
+      drops.push({
+        x, y: waterY,
+        vx: Math.cos(a) * sp + vxIn * 0.12,
+        vy: Math.sin(a) * sp,
+        life, life0: life, rgb,
+      });
+    }
   }
 
   /* 一気に湧かせず、sec 秒かけて降らせ続ける。
      一度に出すと 1.5 秒で終わってしまい、「星が降っている」時間にならない。 */
   function starfall(sec) {
+    // 降っていないところから始めるときだけ向きを決める。1 回の星降りのあいだ
+    // 揃っていないと、交差してただの散らかった線に見える。
+    if (fallT <= 0) fallDir = Math.random() < 0.5 ? -1 : 1;
     fallT = Math.max(fallT, sec);
     for (let i = 0; i < 6; i++) dropStar();   // 出だしだけ少し多めに
   }
@@ -815,9 +870,8 @@
     g.beginPath(); g.arc(cx, cx, R, 0, TAU); g.fill();
 
     moonCv = c;
-    // 中央からずらす。螺旋も鳥居も画面の中央にあるので、真上に置くと重なる。
     // 横向きのときに HUD の下へ潜らないよう、上端からの余白は最低 76px 取る。
-    moonX = W * 0.62;
+    moonX = W * 0.5;
     moonY = Math.max(H * 0.15, 76);
   }
 
@@ -1120,6 +1174,21 @@
         tctx.moveTo(s.x, s.y);
         tctx.lineTo(s.x - ux * s.len, s.y - uy * s.len);
         tctx.stroke();
+      }
+      tctx.setTransform(1, 0, 0, 1, 0, 0);
+    }
+
+    /* --- 着水のしぶき --- */
+    // 軌跡の層に描くので、短い尾を引いて飛沫らしくなる。
+    if (drops.length) {
+      tctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+      for (const d of drops) {
+        const a = clamp(d.life / d.life0, 0, 1);
+        tctx.fillStyle = `rgba(${d.rgb[0]},${d.rgb[1]},${d.rgb[2]},${a * 0.85})`;
+        const r = 1.0 + a * 1.8;
+        tctx.beginPath();
+        tctx.arc(d.x, d.y, r, 0, TAU);
+        tctx.fill();
       }
       tctx.setTransform(1, 0, 0, 1, 0, 0);
     }
