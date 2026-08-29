@@ -171,48 +171,67 @@
   /* ============================================================
    * 鳥居（1回だけ焼いて、あとは drawImage）
    * ============================================================ */
-  function toriiPath(x, w, h, topY) {
-    // 正規化した明神鳥居もどき。w = 全幅, h = 全高, topY = 笠木の上端。
-    const p = new Path2D();
-    const X = (u) => x + u * w;
-    const Y = (v) => topY + v * h;
+  /* 明神鳥居。u = 幅方向 0..1、v = 高さ方向 0..1（0 = 笠木の上端、1 = 根元）。
+     笠木を別パスにしているのは、そこだけ黒いまま残して島木から下を灯らせるため
+     （厳島の鳥居の見え方。上が黒く、下ほど白熱する）。 */
+  const PILLAR_U = [0.245, 0.755];      // 柱の中心
+  const P_TOP = 0.098, P_BOT = 0.118;   // 柱の太さ（上／下。下がわずかに太い）
 
-    // 笠木（両端が反り上がる）
-    p.moveTo(X(-0.055), Y(0.052));
-    p.quadraticCurveTo(X(0.5), Y(-0.012), X(1.055), Y(0.052));
-    p.lineTo(X(1.055), Y(0.010));
-    p.quadraticCurveTo(X(0.5), Y(-0.056), X(-0.055), Y(0.010));
-    p.closePath();
+  function toriiPaths(x0, w, h, y0) {
+    const X = (u) => x0 + u * w;
+    const Y = (v) => y0 + v * h;
 
-    // 島木
-    p.rect(X(0.01), Y(0.055), w * 0.98, h * 0.032);
+    /* ---- 笠木。両端が反り上がる ---- */
+    const kasagi = new Path2D();
+    kasagi.moveTo(X(0.000), Y(-0.026));
+    kasagi.quadraticCurveTo(X(0.5), Y(0.074), X(1.000), Y(-0.026));
+    kasagi.lineTo(X(1.000), Y(0.042));
+    kasagi.quadraticCurveTo(X(0.5), Y(0.142), X(0.000), Y(0.042));
+    kasagi.closePath();
 
-    // 額束
-    p.rect(X(0.468), Y(0.087), w * 0.064, h * 0.075);
+    const body = new Path2D();
 
-    // 貫（左右に少し出る）
-    p.rect(X(-0.018), Y(0.148), w * 1.036, h * 0.036);
+    /* ---- 島木。笠木と同じ反りで、少し厚い ---- */
+    body.moveTo(X(0.021), Y(0.038));
+    body.quadraticCurveTo(X(0.5), Y(0.138), X(0.979), Y(0.038));
+    body.lineTo(X(0.979), Y(0.130));
+    body.quadraticCurveTo(X(0.5), Y(0.230), X(0.021), Y(0.130));
+    body.closePath();
 
-    // 柱（下にいくほどわずかに広がる）
-    const ptop = 0.062, pbot = 0.082;
-    for (const side of [0, 1]) {
-      const cU = side ? 0.895 : 0.105;
-      p.moveTo(X(cU - ptop / 2), Y(0.026));
-      p.lineTo(X(cU + ptop / 2), Y(0.026));
-      p.lineTo(X(cU + pbot / 2), Y(1.0));
-      p.lineTo(X(cU - pbot / 2), Y(1.0));
-      p.closePath();
+    /* ---- 台輪。柱の頭にはまる輪 ---- */
+    for (const cu of PILLAR_U) {
+      const dw = P_TOP * 1.28;
+      body.rect(X(cu - dw / 2), Y(0.188), w * dw, h * 0.046);
     }
-    return p;
+
+    /* ---- 額束と額 ---- */
+    body.rect(X(0.482), Y(0.190), w * 0.036, h * 0.215);
+    body.rect(X(0.446), Y(0.208), w * 0.108, h * 0.125);
+
+    /* ---- 貫。柱の外へ大きく出る ---- */
+    body.rect(X(0.098), Y(0.374), w * 0.804, h * 0.078);
+
+    /* ---- 柱 ---- */
+    for (const cu of PILLAR_U) {
+      body.moveTo(X(cu - P_TOP / 2), Y(0.100));
+      body.lineTo(X(cu + P_TOP / 2), Y(0.100));
+      body.lineTo(X(cu + P_BOT / 2), Y(1.0));
+      body.lineTo(X(cu - P_BOT / 2), Y(1.0));
+      body.closePath();
+    }
+
+    return { kasagi, body };
   }
 
   function bakeTorii() {
-    const tw = Math.min(W * 0.74, H * 0.42);
-    const th = tw * 1.02;
+    // 実物は縦より横に広い。以前は縦長にしていたので鳥居に見えていなかった。
+    const tw = Math.min(W * 0.88, H * 0.56);
+    const th = tw * 0.80;
     const topY = waterY - th;
-    const pad = Math.max(40, tw * 0.22);
+    const x0 = (W - tw) / 2;
+    const pad = Math.max(46, tw * 0.20);
 
-    const bx = (W - tw) / 2 - pad, by = topY - pad;
+    const bx = x0 - pad, by = topY - pad;
     const bw = tw + pad * 2, bh = th + pad * 2;
 
     const mk = () => {
@@ -224,44 +243,55 @@
       return { c, g };
     };
 
-    // 影絵（黒くて縁だけ薄く見える）
-    const sil = mk();
-    const pathA = toriiPath((W - tw) / 2, tw, th, topY);
-    const sgrd = sil.g.createLinearGradient(0, topY, 0, waterY);
-    sgrd.addColorStop(0, 'rgba(6,8,18,1)');
-    sgrd.addColorStop(1, 'rgba(14,10,14,1)');
-    sil.g.fillStyle = sgrd;
-    sil.g.fill(pathA);
-    sil.g.strokeStyle = 'rgba(120,150,200,0.20)';
-    sil.g.lineWidth = 1.1;
-    sil.g.stroke(pathA);
+    const { kasagi, body } = toriiPaths(x0, tw, th, topY);
 
-    // 灯（下から照らされて飴色に光る）
+    /* --- 影絵。灯っていないときはこれだけが見える --- */
+    const sil = mk();
+    const sgrd = sil.g.createLinearGradient(0, topY, 0, waterY);
+    sgrd.addColorStop(0, 'rgba(5,7,16,1)');
+    sgrd.addColorStop(1, 'rgba(11,8,13,1)');
+    sil.g.fillStyle = sgrd;
+    sil.g.fill(body);
+    sil.g.fillStyle = 'rgba(4,6,14,1)';       // 笠木はいちばん黒い
+    sil.g.fill(kasagi);
+    // 縁取りは輪郭を拾うためだけ。濃くすると、台輪や額束が他の部材と
+    // 重なっている所で「内側の矩形」が白い枠になって浮いてしまう。
+    sil.g.strokeStyle = 'rgba(120,150,200,0.10)';
+    sil.g.lineWidth = 1;
+    sil.g.stroke(body);
+    sil.g.stroke(kasagi);
+
+    /* --- 灯。島木から下だけが下から照らされる --- */
     const lit = mk();
     const [r, g0, b] = S.scene.torii;
     const grd = lit.g.createLinearGradient(0, topY, 0, waterY);
-    grd.addColorStop(0.00, `rgba(${r},${Math.round(g0 * 0.7)},${Math.round(b * 0.7)},0.12)`);
-    grd.addColorStop(0.40, `rgba(${r},${g0},${b},0.46)`);
-    grd.addColorStop(0.82, `rgba(${r},${Math.min(255, g0 + 30)},${Math.min(255, b + 40)},0.86)`);
-    grd.addColorStop(1.00, `rgba(255,${Math.min(255, g0 + 60)},${Math.min(255, b + 90)},1)`);
+    grd.addColorStop(0.00, `rgba(${r},${Math.round(g0 * 0.62)},${Math.round(b * 0.62)},0.16)`);
+    grd.addColorStop(0.34, `rgba(${r},${g0},${b},0.52)`);
+    grd.addColorStop(0.76, `rgba(${r},${Math.min(255, g0 + 34)},${Math.min(255, b + 48)},0.88)`);
+    grd.addColorStop(1.00, `rgba(255,${Math.min(255, g0 + 66)},${Math.min(255, b + 104)},1)`);
 
-    // まわりへにじむ光（これがないと板を貼ったように見える）
+    // まわりへにじむ光。これがないと板を貼ったように見える
     lit.g.shadowColor = `rgba(${r},${g0},${b},0.95)`;
-    lit.g.shadowBlur = Math.max(22, tw * 0.14);
+    lit.g.shadowBlur = Math.max(24, tw * 0.13);
     lit.g.fillStyle = `rgba(${r},${g0},${b},0.5)`;
-    lit.g.fill(pathA);
-    lit.g.shadowBlur = Math.max(10, tw * 0.05);
-    lit.g.fill(pathA);
+    lit.g.fill(body);
+    lit.g.shadowBlur = Math.max(10, tw * 0.045);
+    lit.g.fill(body);
     lit.g.shadowBlur = 0;
 
-    // 本体
     lit.g.fillStyle = grd;
-    lit.g.fill(pathA);
+    lit.g.fill(body);
 
-    // 縁のハイライト
-    lit.g.strokeStyle = `rgba(255,${Math.min(255, g0 + 80)},${Math.min(255, b + 120)},0.55)`;
-    lit.g.lineWidth = Math.max(1, tw * 0.004);
-    lit.g.stroke(pathA);
+    // 同上。ここも薄く。部材の継ぎ目として見える程度に留める。
+    lit.g.strokeStyle = `rgba(255,${Math.min(255, g0 + 84)},${Math.min(255, b + 126)},0.16)`;
+    lit.g.lineWidth = Math.max(1, tw * 0.003);
+    lit.g.stroke(body);
+
+    // 笠木は塗らない（加算なので塗らなければ影絵の黒がそのまま残る）。
+    // 縁だけ拾わせて、下からの照り返しを受けているように見せる。
+    lit.g.strokeStyle = `rgba(${r},${Math.round(g0 * 0.8)},${Math.round(b * 0.8)},0.34)`;
+    lit.g.lineWidth = Math.max(1, tw * 0.0035);
+    lit.g.stroke(kasagi);
 
     toriiBox = { sil: sil.c, lit: lit.c, x: bx, y: by, w: bw, h: bh, tw, th, topY };
   }

@@ -338,7 +338,13 @@ html, body {
   color: transparent;
   filter: drop-shadow(0 0 26px rgba(140, 210, 255, .45));
 }
-.splash-title span { font-size: 24px; opacity: .95; }
+.splash-title span {
+  font-size: 24px;
+  /* 親の background-clip: text は親自身の背景しか切り抜かないので、
+     color: transparent だけを継いだ子は何も描かれない。自前で色を持たせる。 */
+  color: #9fc8e6;
+  -webkit-text-fill-color: #9fc8e6;
+}
 
 .splash-sub {
   margin: 0;
