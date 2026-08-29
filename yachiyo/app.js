@@ -380,8 +380,12 @@
    * 指（ポインタ）
    * ============================================================ */
   const MAXP = 3;
-  /* 渦の芯の半径。描画のリングもここから引くので、輪が魚の輪とずれない。 */
-  const coreR = (charge) => 20 + 30 * charge;
+  /* 溜めリングの半径（見た目）と、魚が回る芯の半径。
+     魚の輪はリングの内側に収まってほしいので、芯はリングから逆算して決める。
+     個体ごとに 0.87〜1.55 倍ばらけるので、いちばん外を回る魚でもリングを
+     はみ出さないところに置く。 */
+  const ringR = (charge) => 34 + 30 * charge;
+  const coreR = (charge) => ringR(charge) * 0.56;
 
   const pointers = new Map(); // id -> P
   let lastTapT = 0, lastTapX = 0, lastTapY = 0;
@@ -450,7 +454,7 @@
       let x = px_[i], y = py_[i], vx = vx_[i], vy = vy_[i];
       // 全員が同じ半径を目指すと輪が1本の線に潰れ、加算で白く飛んで色が消える。
       // 個体の大きさをそのまま「どの高さを回るか」に使って帯に厚みを出す。
-      const coreF = 0.58 + 0.56 * sz_[i];      // 0.89〜1.45 倍
+      const coreF = 0.50 + 0.68 * sz_[i];      // 0.87〜1.55 倍
 
       // --- 流れ場 ---
       let gx = (x * ig + 1) | 0; if (gx < 0) gx = 0; else if (gx >= gw) gx = gw - 1;
@@ -469,7 +473,7 @@
         const nx = ddx * inv, ny = ddy * inv;
 
         // 芯より外なら引き寄せ、内なら押し返す → 中心に穴があいたまま回り続ける
-        const spring = (d - pc[j] * coreF) * (2.4 + 6.0 * pk[j]);
+        const spring = (d - pc[j] * coreF) * (4.5 + 13 * pk[j]);
         vx += nx * spring * dt;
         vy += ny * spring * dt;
 
@@ -478,6 +482,27 @@
         const tang = (620 + 1500 * pk[j]) * swirlK * fall * fall;
         vx += -ny * tang * dt;
         vy += nx * tang * dt;
+
+        // 半径方向の速度だけを強く抜く。これがないと、接線力で速度が上限まで
+        // 上がった魚の円運動に必要な向心力をバネが賄えず、輪がどんどん外へ
+        // 膨らむ（実測で、リング 64px に対して魚は 62〜122px にいた）。
+        // 半径方向を減衰させると、バネがゼロになる芯の半径へ収束する。
+        const rd = clamp((7 + 26 * pk[j]) * dt, 0, 0.85);
+        const vr = vx * nx + vy * ny;
+        vx -= nx * vr * rd;
+        vy -= ny * vr * rd;
+
+        // 芯の近くまで来たら、半径そのものを目標へ寄せる。
+        // 力の釣り合い k(r-core) = v²/r に任せると輪の半径が速度で決まって
+        // しまい、狙った所に来ない（実測でリング 64px に対し魚は 80〜120px）。
+        // 位置を直接寄せれば、接線方向の速い動きは残したまま半径だけ決まる。
+        const target = pc[j] * coreF;
+        if (d < target * 2.6) {
+          const kk = clamp((3 + 10 * pk[j]) * dt, 0, 0.5);
+          const nr = d + (target - d) * kk;
+          x = pxs[j] - nx * nr;
+          y = pys[j] - ny * nr;
+        }
 
         // 指を速く動かしたときの引きずり
         if (fall > 0.45) {
@@ -814,7 +839,7 @@
       ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
       for (const p of pointers.values()) {
         if (p.charge < 0.015) continue;
-        const R = coreR(p.charge) + 13;
+        const R = ringR(p.charge);
         ctx.strokeStyle = `rgba(255,232,190,${0.16 + p.charge * 0.30})`;
         ctx.lineWidth = 1.2;
         ctx.beginPath(); ctx.arc(p.x, p.y, R, 0, TAU); ctx.stroke();
