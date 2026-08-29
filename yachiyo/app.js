@@ -19,6 +19,7 @@
 
   const TAU = Math.PI * 2;
   const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+  const smoothstep = (t) => t * t * (3 - 2 * t);            // 0..1 の出入りをなだらかに
   const lerp = (a, b, t) => a + (b - a) * t;
   const rnd = (a, b) => a + Math.random() * (b - a);
 
@@ -148,8 +149,10 @@
   const SH = { on: 0, x: 0, y: 0, r2: 0, w: 0, pull: 0, rise: 0, lat: 0,
                ringR: 0, ringW: 0, ringF: 0, calm: 0,
                // 昇り螺旋（垂直な軸のまわりを回りながら昇る）
-               hr: 0, hx: 0, hk: 0.3, hw: 0, hrise: 0, hph: 0,
-               hbase: 0, hapex: 0, hlen: 1, hturns: 0, hu: 0 };
+               hr: 0, hx: 0, hk: 0.3, hw: 0, hph: 0,
+               hbase: 0, hapex: 0, hlen: 1, hturns: 0, hu: 0,
+               // 螺旋の前段。まず水際の帯に一様に集まる
+               gath: 0, gw: 0, gy0: 0, gy1: 0 };
 
   /* 奥行き。螺旋のとき、手前を回っている魚を少し大きく描くのに使う。
      これが無いと、横から見た螺旋がただの横波にしか見えない。 */
@@ -533,37 +536,72 @@
         // 1 本の帯になって機械的に見える。参加してからも 2 秒ほどかけて効かせる。
         const join = 0.02 + (i % 89) * (0.18 / 89);
         const jw = SH.hu > join ? Math.min(1, (SH.hu - join) / 0.16) : 0;
+
+        // --- 螺旋の 1 段目：水際の帯へ一様に集まる ---
+        // 乱数で配ると粗密ができて「一様」に見えないので、低不一致列
+        // （黄金比・可塑数の小数部）で並べる。i だけで決まるので配列も要らない。
+        if (SH.gath > 0) {
+          const gu = (i * 0.6180339887) % 1;
+          const gv = (i * 0.7548776662) % 1;
+          const gxT = W * (0.06 + 0.88 * gu) + bx_[i] * 0.20;
+          const gyT = SH.gy0 + (SH.gy1 - SH.gy0) * gv;
+          let dxT = (gxT - x) * 0.9;
+          let dyT = (gyT - y) * 1.1;
+          // 集まりながら軸のまわりを回りはじめる。ここで回転を作っておくと
+          // 2 段目の螺旋が急に掴んだように見えない。ただし帯へ降りてきた魚
+          // だけを回す。遠くの魚まで回すと、下向きの分を横向きに食われて
+          // いつまでも降りてこない（実際そうなって帯にならなかった）。
+          const arr = clamp(1 - Math.abs(y - (SH.gy0 + SH.gy1) * 0.5) / (H * 0.16), 0, 1);
+          const rx = x - SH.hx, ry = y - (SH.gy0 + SH.gy1) * 0.5;
+          dxT += -ry * SH.gw * 0.7 * arr;
+          dyT +=  rx * SH.gw * 0.7 * SH.hk * arr;
+          // 寄る速さはふだんの泳ぎと同じくらいに抑える（吸い寄せに見せない）。
+          // 縦と横で別々に頭打ちにする。ひとつの上限にすると、横の分だけで
+          // 使い切って縦が伸びない。
+          if (dxT >  150) dxT =  150; else if (dxT < -150) dxT = -150;
+          if (dyT >  225) dyT =  225; else if (dyT < -225) dyT = -225;
+          vx += (dxT - vx) * shBl * SH.gath;
+          vy += (dyT - vy) * shBl * SH.gath;
+        }
+
         if (SH.hr > 1 && jw > 0) {
-          // 裾からの高さ。0 = 裾（広い）、1 = 頂点（細い）
-          const hRel = clamp((SH.hbase - y) / SH.hlen, 0, 1);
+          // ■ 螺旋上のどこに居るかは「その魚の番号」で決める
+          // 以前はいまの高さ y から位相を出していた。すると高さが偏った
+          // ときに巻きの一部にしか魚が居らず、螺旋が途切れる／片側に
+          // かたまって軸がずれて見えた。下 1/4 に集めた直後はさらに悪く、
+          // 全員が hRel≈0＝同じ角度になって 1 点に潰れる。
+          // 曲線を先に決めて、そこへ番号順に一様に配る。こうすると魚が
+          // どこに居ても、螺旋はいつでも端から端まで描かれる。
+          const q = (i * 0.5698402910) % 1;
+          // 進むほど先端寄りに詰める（頂点に溜まってから弾けさせたい）
+          const hRel = Math.pow(q, 1 - 0.32 * SH.hu);
           // 一次で絞ると下のほうから細り始めてしまう。指数を上げると、
           // 下は広いまま保って上のほうでだけ絞れる（三角形というより
           // 裾の張ったラッパの形）。
           const hp = hRel * hRel * Math.sqrt(hRel);        // hRel^2.5
           const R = SH.hr * coreF * (1 - 0.85 * hp);
-          // 角速度も高さで変える。裾は広くてゆっくり一周し、頂点は細くて速い。
-          // 実際の渦がそうなる（径が縮むと角速度が上がる）。
-          const spin = 1 + 2.6 * hRel;
-          const th = SH.hph * spin + hRel * SH.hturns + by_[i] * 0.006;
+          // 位相は「全体の回り（hph）＋ 高さぶんのひねり（hturns）」だけで
+          // 決める。高さごとに角速度を変えて位相を積むと、ひねりが時間とともに
+          // 際限なく増えて巻きが潰れる。ひねりの総量は hturns 側で頭打ちに
+          // してあるので、ここでは足すだけにする。
+          const th = SH.hph + hRel * SH.hturns + by_[i] * 0.004;
           const cs = Math.cos(th), sn = Math.sin(th);
 
           // 厳密な曲線に乗せると 1 本の細い帯に潰れて白飛びする。かといって
           // 乗せる数を減らすと巻きの形が読めなくなる。全部乗せたうえで、
           // 線ではなく太さのある管のまわりに散らすのがちょうどよかった。
-          const spread = 1 - 0.7 * hRel;                    // 頂点ほど絞る
-          const tgx = SH.hx + R * cs + by_[i] * 0.44 * spread;
-          const tgy = y + R * SH.hk * sn + (sz_[i] - 1.05) * 26 * spread;
-
-          // 頂点に近いほど昇るのが遅い。先端に溜まってから弾けさせたい
-          const rise = SH.hrise * (1 - 0.8 * hRel);
+          const spread = 1 - 0.6 * hRel;                    // 頂点ほど絞る
+          const tgx = SH.hx + R * cs + by_[i] * 0.34 * spread;
+          const tgy = SH.hbase - hRel * SH.hlen + R * SH.hk * sn
+                    + (sz_[i] - 1.05) * 30 * spread;
 
           // 引く強さと上限を落とす。ここが強いと、遠くの魚が一直線に
           // 飛んできて「吸い寄せられた」ように見える。
           const ddx = tgx - x, ddy = tgy - y;
-          let dxT = ddx * 1.2, dyT = ddy * 1.2 - rise * jw;
+          let dxT = ddx * 1.3, dyT = ddy * 1.3;
           // 寄せる速さはここで頭打ちにする。強いと一直線に飛んでくる。
           const sp2 = dxT * dxT + dyT * dyT;
-          if (sp2 > 44100) { const q = 210 / Math.sqrt(sp2); dxT *= q; dyT *= q; }
+          if (sp2 > 48400) { const qq = 220 / Math.sqrt(sp2); dxT *= qq; dyT *= qq; }
 
           // 目標そのものも回っているので、その速度を引き継がせる。足さないと
           // 目標へ最短距離で滑り込むだけで、曲がって合流してくれない。
@@ -573,7 +611,7 @@
           const dd = Math.sqrt(ddx * ddx + ddy * ddy);
           const near = dd < 70 ? 1 : dd < 280 ? (280 - dd) / 210 : 0;
           if (near > 0) {
-            const wv = SH.hw * spin * near;
+            const wv = SH.hw * near;
             dxT += -sn * R * wv;
             dyT += cs * R * SH.hk * wv;
           }
@@ -757,12 +795,11 @@
     lastShow = d.id;
     show = { def: d, t: 0, x: W * 0.5, y: H * 0.42, dir: Math.random() < 0.5 ? -1 : 1, phase: -1 };
 
-    if (d.id === 'rasen')  { show.x = W * 0.5 + rnd(-W * 0.08, W * 0.08); SH.hph = 0; }
+    if (d.id === 'rasen')  { show.x = W * 0.5; SH.hph = 0; }  // 軸は画面の中央に固定する
     if (d.id === 'hiraku') { show.x = rnd(W * 0.35, W * 0.65); show.y = H * rnd(0.16, 0.26); }
     if (d.id === 'suikomi'){ show.x = W * 0.5; show.y = waterY - (toriiBox ? toriiBox.th * 0.55 : H * 0.2); }
     if (d.id === 'hoshi')  starfall(d.dur);
     if (d.id === 'shio')   Audio.swell(0.5);
-    if (d.id === 'rasen')  Audio.rise();
 
     if (!seen[d.id]) { seen[d.id] = 1; showHint(d.name, 2600); }
   }
@@ -771,12 +808,13 @@
     show = null;
     SH.on = 0;
     SH.hr = 0;
+    SH.gath = 0;
   }
 
   /* 演目の値をつくる。ここで SH を埋めて、魚のループはそれを読むだけにする。 */
   function stepShow(dt) {
     SH.on = 0; SH.pull = 0; SH.rise = 0; SH.lat = 0; SH.w = 0;
-    SH.ringF = 0; SH.calm = 0; SH.hr = 0;
+    SH.ringF = 0; SH.calm = 0; SH.hr = 0; SH.gath = 0; SH.gw = 0;
 
     if (pointers.size) {                       // 指が触れたら演目は即やめる
       if (show) endShow();
@@ -813,10 +851,15 @@
         SH.pull = 210 * k;
         SH.w = 1.5 * k * show.dir;
         S.dim += (0.62 * k - S.dim) * Math.min(1, dt * 4);
-      } else if (u < 0.66) {                   // 息を止める
+      } else if (u < 0.60) {                   // 締める（止めない）
+        // ここは以前 calm = 0.75 を 1 秒あて、減衰・速度上限・流れ場を
+        // まとめて殺していた。暗転と重なるので「弾ける前に固まる」ように
+        // 見えていた。止めるのではなく、締まりながら回りを速くする。
+        const k = (u - 0.52) / 0.08;
         SH.r2 = (Math.max(W, H) * 1.2) ** 2;
-        SH.pull = 150;
-        SH.calm = 0.75;
+        SH.pull = 210 + 90 * k;
+        SH.w = (1.5 + 2.6 * k) * show.dir;    // 締まるほど速く回る
+        SH.calm = 0.12 * k;                   // 手ざわりを残す程度に留める
         S.dim += (0.78 - S.dim) * Math.min(1, dt * 5);
       } else {                                 // ひらく
         if (show.phase < 1) {
@@ -847,38 +890,53 @@
       // 垂直軸まわりの円は、画面では縦につぶれた楕円に投影される。
       // 正円にすると真上から見た渦になってしまう。hk = 縦/横 の比。
       //
-      // 裾が広く頂点が細い円錐にして、昇るほど径が縮むようにしている。
-      // 頂点に近いほど昇る速さも落とすので、魚が先端に溜まっていき、
-      // 最後にそこで弾ける。
-      // 立ち上がりは急がない。強さを一気に上げると、魚が一点へ吸い寄せられる
-      // ように見えてしまう。ふだんの泳ぐ速さのまま、少しずつ集まってほしい。
-      let ramp = Math.min(1, u / 0.26);
-      ramp = ramp * ramp * (3 - 2 * ramp);       // 出だしをなだらかに
+      // ■ 2 段構えにしている理由
+      // 魚の位相は「その魚のいる高さ」で決まる。上下にばらけたまま場を掛けると
+      // 高さごとの位相がそろわず、巻きが読めない＝螺旋が壊れて見える。
+      // また片側に寄ったまま始まると、それがそのまま軸のずれに見える。
+      // そこで 1 段目で全員を水際（画面下 1/4）の帯に一様に並べ、
+      // 2 段目でそこから昇らせる。
+      const GU = 0.30;                             // 1 段目にあてる割合（13s の約 4s）
       SH.hx = show.x;
-      // 裾を下げすぎると、いちばん広いところが画面の外（水面より下）に落ちて
-      // 円錐に見えない。裾が水際、頂点が画面上端あたりに来るようにする。
-      // 頂点は下から伸び上がる。はじめは水際に平たく広い渦が
-      // できて、それが上へ伸びながら細くなっていく。いきなり画面いっぱいの
-      // 円錐を出すと、魚が真横から一斉に吸い寄せられて機械的に見える。
-      let grow = clamp((u - 0.03) / 0.34, 0, 1);
-      grow = grow * grow * (3 - 2 * grow);
-      SH.hbase = H * (0.90 - 0.14 * u);          // 裾（水際あたり）
-      SH.hapex = H * (0.80 - 0.78 * grow);       // 頂点（下から上へ伸びる）
-      SH.hu = u;
-      SH.hlen = Math.max(60, SH.hbase - SH.hapex);
-      SH.hr = W * 0.58 * ramp;                   // 裾は画面幅より広い
       SH.hk = 0.30;
-      SH.hrise = 92 * ramp;
-      SH.hturns = TAU * 1.0 * show.dir;          // 裾から頂点までの初期のひねり
-      SH.hw = 1.0 * show.dir;                    // 裾の角速度 rad/s（一周 6 秒）
-      SH.hph += SH.hw * dt;
-      if (u > 0.86) {                          // 先端で弾ける
-        if (show.phase < 1) {
-          show.phase = 1;
-          bloom(SH.hx, SH.hapex, 0.9, true);
-          starfall(10);                          // 先端で弾けたら必ず星が降る
+      SH.gy0 = H * 0.775; SH.gy1 = H * 0.985;      // 水際の帯（waterY = H*0.76）
+      // 集まる強さ。立ち上げてから、螺旋へ渡す手前で抜く（重ねて渡す）
+      SH.gath = smoothstep(clamp(u / 0.09, 0, 1)) *
+                (1 - smoothstep(clamp((u - (GU - 0.06)) / 0.09, 0, 1)));
+      SH.gw = 0.5 * show.dir;                      // 集まりながらゆるく回り始める
+
+      const hu = clamp((u - GU * 0.82) / (1 - GU * 0.82), 0, 1);   // 螺旋の進み
+      SH.hu = hu;
+      if (hu > 0) {
+        // 昇る音は、実際に昇りはじめる 2 段目の頭で鳴らす
+        if (show.phase < 0) { show.phase = 0; Audio.rise(); }
+        let ramp = smoothstep(clamp(hu / 0.20, 0, 1));
+        // 頂点は下から伸び上がる。はじめは水際に平たく広い渦ができて、
+        // それが上へ伸びながら細くなっていく。
+        const grow = smoothstep(clamp((hu - 0.02) / 0.36, 0, 1));
+        SH.hbase = H * (0.94 - 0.10 * hu);         // 裾（水際あたり）
+        SH.hapex = H * (0.86 - 0.84 * grow);       // 頂点（下から上へ伸びる）
+        SH.hlen = Math.max(60, SH.hbase - SH.hapex);
+        SH.hr = W * 0.50 * ramp;                   // 裾は画面幅より広い
+        // 裾から頂点までの総ひねり。ここを時間で無限に増やすと（以前は
+        // 高さごとに角速度を変えて位相を積んでいた）巻き数が際限なく増え、
+        // 13 秒の終わりには 6 周を超えて模様が潰れる＝螺旋が壊れる。
+        // 総ひねりは 1.4 周で頭打ちにして、形を保ったまま回す。
+        SH.hturns = TAU * (0.30 + 1.10 * grow) * show.dir;
+        // 締まるにつれて全体の回りも速くなる（渦が細くなると速くなる）
+        SH.hw = (0.85 + 1.00 * hu) * show.dir;
+        SH.hph += SH.hw * dt;
+        show.y = SH.hapex;
+
+        if (hu > 0.86) {                           // 先端で弾ける
+          if (show.phase < 1) {
+            show.phase = 1;
+            bloom(SH.hx, SH.hapex, 0.9, true);
+            starfall(10);                          // 先端で弾けたら必ず星が降る
+          }
+          SH.hr = 0;                               // 以降は掴まず、散らせる
+          SH.gath = 0;
         }
-        SH.hr = 0;                             // 以降は掴まず、散らせる
       }
     } else if (d.id === 'shio') {
       // 31〜34s の横流れ。画面ぜんぶが片側へ流れる。
@@ -988,7 +1046,7 @@
     tctx.globalAlpha = 1;
     // 60fps 基準の残り具合を dt に合わせて換算する。
     // これをやらないと重い端末ほど尾が伸びて別物になる。
-    const f60 = clamp(sc.fade * (1 + S.dim * 2.2), 0.02, 0.9);
+    const f60 = clamp(sc.fade * (1 + S.dim * 2.2) * (SH.hr > 1 ? 2.1 : 1), 0.02, 0.9);
     const fa = clamp(1 - Math.pow(1 - f60, dtNow * 60), 0.02, 1);
     tctx.fillStyle = `rgba(${sc.bg[0]},${sc.bg[1]},${sc.bg[2]},${fa})`;
     tctx.fillRect(0, 0, WD, HD);
@@ -1023,7 +1081,7 @@
     // 加算合成なので、数を増やすほど一匹あたりを暗くしないと
     // 重なったところが白く潰れて色が消える。螺旋は 1 本の帯に集まるので
     // さらに落とす。
-    tctx.globalAlpha = clamp(1150 / Math.max(N, 1), 0.40, 1) * (SH.hr > 1 ? 0.5 : 1);
+    tctx.globalAlpha = clamp(1150 / Math.max(N, 1), 0.40, 1) * (SH.hr > 1 ? 0.30 : 1);
     const half = spriteS / 2;
     for (let i = 0; i < N; i++) {
       const vx = vx_[i], vy = vy_[i];
