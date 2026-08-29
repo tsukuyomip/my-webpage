@@ -27,6 +27,7 @@
    * ============================================================ */
   const QS = new URLSearchParams(location.search);   // ?q=1 で自動調整を止める（動作確認用）
   const QFIX = QS.has('q') ? clamp(parseFloat(QS.get('q')) || 1, 0.2, 1.6) : 0;
+  const QSHOW = QS.get('show') || '';                // ?show=rasen などで演目を固定（動作確認用）
 
   const SCENES = [
     {
@@ -69,6 +70,7 @@
     swirl: 1,            // スライダー
     sound: true,
     reflect: true,
+    shows: true,          // ひとりでに動く演目
     tilt: false,
     warm: 0,             // 灯色ブルーム 0..1（開いたときの報酬）
     flash: 0,            // 白フラッシュ
@@ -108,6 +110,41 @@
      一匹ずつ違う定常加速を足して散らす。 */
   const bx_ = new Float32Array(CAP), by_ = new Float32Array(CAP);
   let N = 0;
+
+  /* ============================================================
+   * 演目
+   *
+   * MV の各カットのフレーム間フローをブロックマッチングで取り、
+   * アフィン当てはめで 平行移動 / 発散 / 回転 に分解して出した動きの型。
+   * （数値は 192x108・8fps で測った値。1フレームあたりの画素）
+   *
+   *   渦        2s +24.8  23s +21.2  15s -17.4  27s +12.7   ← 指の渦で実装済み
+   *   広がる   13s +13.9   8s +13.8  23s +12.9
+   *   集まる   11s -19.8   5s -16.7   6s -13.9
+   *   昇る     22s 縦-2.1 かつ 回転+7.8            ← 上昇 + 回転 = 螺旋
+   *   横へ     32s -3.1   25s +3.0   34s +2.6
+   *   凪       36〜38s 動き量 0.9〜1.1（他は 7〜11）
+   *
+   * 5s 集まる → 7s 昇る → 8s 広がる の並びが、MV の「暗転してから
+   * ひらく」そのもの。これを「吸い込み」として 1 本の演目にしてある。
+   * ============================================================ */
+  const SHOWS = [
+    { id: 'suikomi', name: '吸い込み',   dur: 7.5, w: 3 },
+    { id: 'hiraku',  name: '天がひらく', dur: 4.2, w: 3 },
+    { id: 'rasen',   name: '昇り螺旋',   dur: 7.0, w: 3 },
+    { id: 'shio',    name: '潮',        dur: 6.5, w: 2 },
+    { id: 'hoshi',   name: '星降り',     dur: 10.0, w: 2 },
+    { id: 'nagi',    name: '凪',        dur: 5.0, w: 1 },
+  ];
+  const SHOW_W = SHOWS.reduce((a, s) => a + s.w, 0);
+  const seen = Object.create(null);   // 名前を出したことがあるか
+  let show = null;                    // { def, t, x, y, dir, phase }
+  let showIdle = QSHOW ? 1.5 : rnd(7, 13);   // 次の演目まで（秒）
+  let lastShow = '';
+
+  /* 演目が毎フレーム作る値。内側のループを軽くするため先に出しておく。 */
+  const SH = { on: 0, x: 0, y: 0, r2: 0, w: 0, pull: 0, rise: 0, lat: 0,
+               ringR: 0, ringW: 0, ringF: 0, calm: 0 };
 
   /* エフェクト */
   const ripples = [];   // {x,y,r,vr,life,max,w,rgb}
@@ -444,8 +481,12 @@
       pbl[i] = clamp((3.5 + 7 * p.charge) * dt, 0, 1); // 速度場へ寄せる速さ
     }
 
-    const damp = Math.exp(-1.15 * dt);
-    const vmax = (240 + 520 * S.boost) * speedK;
+    stepShow(dt);
+    const shOn = SH.on;
+    const shBl = shOn ? clamp(5.5 * dt, 0, 1) : 0;
+
+    const damp = Math.exp(-(1.15 + SH.calm * 7) * dt);
+    const vmax = (240 + 520 * S.boost) * speedK * (1 - SH.calm * 0.8);
     const vmax2 = vmax * vmax;
     const ig = 1 / CELL;
     const ih = 1 / H;
@@ -461,8 +502,45 @@
       let gx = (x * ig + 1) | 0; if (gx < 0) gx = 0; else if (gx >= gw) gx = gw - 1;
       let gy = (y * ig + 1) | 0; if (gy < 0) gy = 0; else if (gy >= gh) gy = gh - 1;
       const gi = gy * gw + gx;
-      vx += (gfx[gi] * FIELD + bx_[i]) * dt;
-      vy += (gfy[gi] * FIELD + by_[i]) * dt;
+      const fk = 1 - SH.calm * 0.85;
+      vx += (gfx[gi] * FIELD * fk + bx_[i]) * dt;
+      vy += (gfy[gi] * FIELD * fk + by_[i]) * dt;
+
+      // --- 演目 ---
+      if (shOn) {
+        if (SH.lat) vx += SH.lat * dt;
+        if (SH.rise) vy -= SH.rise * dt;
+        if (SH.pull || SH.w || SH.ringF) {
+          const ex = x - SH.x, ey = y - SH.y;
+          const e2 = ex * ex + ey * ey;
+          const ed = Math.sqrt(e2) + 0.001;
+          if (SH.ringF) {
+            // 広がる輪。通り過ぎる縁だけを外へ押す
+            const off = Math.abs(ed - SH.ringR);
+            if (off < SH.ringW) {
+              const k = (1 - off / SH.ringW) * SH.ringF;
+              vx += (ex / ed) * k * dt;
+              vy += (ey / ed) * k * dt;
+            }
+          }
+          if ((SH.pull || SH.w) && e2 < SH.r2) {
+            const oxx = ex / ed, oyy = ey / ed;
+            const fall = 1 - ed / Math.sqrt(SH.r2);
+            if (SH.pull) {
+              const vrT = -SH.pull * fall;
+              const vr = vx * oxx + vy * oyy;
+              vx += oxx * (vrT - vr) * shBl;
+              vy += oyy * (vrT - vr) * shBl;
+            }
+            if (SH.w) {
+              const vtT = SH.w * ed * fall;
+              const vt = -vx * oyy + vy * oxx;
+              vx += -oyy * (vtT - vt) * shBl;
+              vy += oxx * (vtT - vt) * shBl;
+            }
+          }
+        }
+      }
 
       // --- 渦 ---
       // 力を足し合わせるのではなく、渦の「速度場」を作ってそこへ寄せる。
@@ -589,6 +667,113 @@
     if (fallBell <= 0) { fallBell = rnd(0.34, 0.8); Audio.shimmer(); }
   }
 
+  /* ============================================================
+   * 演目の進行
+   * ============================================================ */
+  function pickShow() {
+    if (QSHOW) return SHOWS.find((d) => d.id === QSHOW) || SHOWS[0];
+    let r = Math.random() * SHOW_W;
+    for (const d of SHOWS) { r -= d.w; if (r <= 0) return d; }
+    return SHOWS[0];
+  }
+
+  function startShow() {
+    let d = pickShow();
+    for (let i = 0; i < 3 && d.id === lastShow; i++) d = pickShow();  // 続けて同じは避ける
+    lastShow = d.id;
+    show = { def: d, t: 0, x: W * 0.5, y: H * 0.42, dir: Math.random() < 0.5 ? -1 : 1, phase: -1 };
+
+    if (d.id === 'rasen')  { show.x = rnd(W * 0.3, W * 0.7); }
+    if (d.id === 'hiraku') { show.x = rnd(W * 0.35, W * 0.65); show.y = H * rnd(0.16, 0.26); }
+    if (d.id === 'suikomi'){ show.x = W * 0.5; show.y = waterY - (toriiBox ? toriiBox.th * 0.55 : H * 0.2); }
+    if (d.id === 'hoshi')  starfall(d.dur);
+    if (d.id === 'shio')   Audio.swell(0.5);
+    if (d.id === 'rasen')  Audio.rise();
+
+    if (!seen[d.id]) { seen[d.id] = 1; showHint(d.name, 2600); }
+  }
+
+  function endShow() {
+    show = null;
+    SH.on = 0;
+  }
+
+  /* 演目の値をつくる。ここで SH を埋めて、魚のループはそれを読むだけにする。 */
+  function stepShow(dt) {
+    SH.on = 0; SH.pull = 0; SH.rise = 0; SH.lat = 0; SH.w = 0;
+    SH.ringF = 0; SH.calm = 0;
+
+    if (pointers.size) {                       // 指が触れたら演目は即やめる
+      if (show) endShow();
+      showIdle = Math.max(showIdle, rnd(8, 15));
+      return;
+    }
+    if (!show) {
+      if (!S.shows) return;
+      showIdle -= dt;
+      if (showIdle <= 0) startShow();
+      return;
+    }
+
+    show.t += dt;
+    const d = show.def, u = clamp(show.t / d.dur, 0, 1);
+    // 出入りをなだらかにする窓（両端で 0）
+    const ease = Math.sin(Math.PI * clamp(u, 0, 1)) ** 0.7;
+
+    SH.on = 1; SH.x = show.x; SH.y = show.y;
+
+    if (d.id === 'suikomi') {
+      // 5s「集まる」→ 7s「昇る」→ 8s「広がる」。MV の暗転とひらきの並び。
+      if (u < 0.52) {                          // 集める
+        const k = u / 0.52;
+        SH.r2 = (Math.max(W, H) * 1.2) ** 2;
+        SH.pull = 210 * k;
+        SH.w = 1.5 * k * show.dir;
+        S.dim += (0.62 * k - S.dim) * Math.min(1, dt * 4);
+      } else if (u < 0.66) {                   // 息を止める
+        SH.r2 = (Math.max(W, H) * 1.2) ** 2;
+        SH.pull = 150;
+        SH.calm = 0.75;
+        S.dim += (0.78 - S.dim) * Math.min(1, dt * 5);
+      } else {                                 // ひらく
+        if (show.phase < 1) {
+          show.phase = 1;
+          bloom(show.x, show.y, 0.92, true);   // 演目のひらきは灯に数えない
+        }
+        S.dim += (0 - S.dim) * Math.min(1, dt * 6);
+      }
+    } else if (d.id === 'hiraku') {
+      // 8s / 13s / 23s の「広がる」。空の一点から光がひろがる。
+      if (show.phase < 0) {
+        show.phase = 0;
+        addRipple(show.x, show.y, 0.75, [255, 240, 210]);
+        S.warm = Math.min(1.25, S.warm + 0.7);
+        S.flash = 0.3;
+        Audio.burst(0.55);
+      }
+      SH.ringR = u * Math.max(W, H) * 1.15;
+      SH.ringW = 60 + u * 130;
+      SH.ringF = 900 * (1 - u) ** 1.3;
+    } else if (d.id === 'rasen') {
+      // 22s の「縦-2.1 かつ 回転+7.8」。回りながら昇る。
+      SH.y = H * (1.05 - 0.95 * u);            // 軸の中心が下から上へ抜ける
+      show.y = SH.y;
+      SH.r2 = (Math.min(W, H) * 0.85) ** 2;
+      SH.w = 2.4 * ease * show.dir;
+      SH.pull = 55 * ease;
+      SH.rise = 210 * ease;
+    } else if (d.id === 'shio') {
+      // 31〜34s の横流れ。画面ぜんぶが片側へ流れる。
+      SH.lat = 235 * ease * show.dir;
+    } else if (d.id === 'nagi') {
+      // 36〜38s。動きが 1/8 まで落ちる。次の演目が効くようになる。
+      SH.calm = ease;
+    }
+    // hoshi は starfall がやる
+
+    if (show.t >= d.dur) { endShow(); showIdle = QSHOW ? 1.2 : rnd(9, 19); }
+  }
+
   function tap(x, y) {
     addRipple(x, y, 0.18);
     // 波紋の縁の魚をすこし外へ
@@ -606,7 +791,7 @@
   }
 
   /* ひらく — このアプリの報酬 */
-  function bloom(x, y, power) {
+  function bloom(x, y, power, quiet) {
     const p = clamp(power, 0, 1);
 
     addRipple(x, y, 0.5 + p * 0.9, [255, 236, 200]);
@@ -626,13 +811,12 @@
     S.shake = 0.35 + p * 0.65;
     S.boost = Math.min(1, 0.5 + p * 0.6);
 
-    S.lanterns++;
-    hudLantern();
+    if (!quiet) { S.lanterns++; hudLantern(); }
 
     Audio.burst(p);
     buzz([14, 26, 44][Math.min(2, Math.round(p * 2))]);
 
-    if (S.lanterns % 5 === 0) {
+    if (!quiet && S.lanterns % 5 === 0) {
       starfall(10);
       showHint('星が降る');
     }
@@ -1086,6 +1270,31 @@
       n.start(t); n.stop(t + 1.8);
     }
 
+    /* 昇り螺旋。F のペンタトニックを下から順に積む */
+    function rise() {
+      if (!ac || !S.sound) return;
+      [0, 2, 3, 5, 7, 8, 10].forEach((idx, i) => {
+        setTimeout(() => bell(0, 0.16 + i * 0.022, NOTES[idx]), 220 + i * 640);
+      });
+    }
+
+    /* 潮。低いところが寄せて引く */
+    function swell(amt) {
+      if (!ac || !S.sound) return;
+      const t = ac.currentTime;
+      const n = ac.createBufferSource(); n.buffer = noiseBuf; n.loop = true;
+      const bp = ac.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 0.6;
+      bp.frequency.setValueAtTime(180, t);
+      bp.frequency.linearRampToValueAtTime(520, t + 2.6);
+      bp.frequency.linearRampToValueAtTime(180, t + 6);
+      const g = ac.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(0.055 * amt, t + 2.2);
+      g.gain.linearRampToValueAtTime(0.0001, t + 6.2);
+      n.connect(bp); bp.connect(g); out(g, 0.9);
+      n.start(t); n.stop(t + 6.4);
+    }
+
     /* 星降りのあいだ、ときどき鳴る高めの一粒 */
     function shimmer() {
       if (!ac || !S.sound) return;
@@ -1101,7 +1310,7 @@
     function suspend() { if (ac && ac.state === 'running') ac.suspend(); }
     function resume() { if (ac && ac.state !== 'running') ac.resume(); }
 
-    return { init, bell, setCharge, stopCharge, burst, shimmer, setEnabled, suspend, resume,
+    return { init, bell, setCharge, stopCharge, burst, shimmer, rise, swell, setEnabled, suspend, resume,
              get ready() { return !!ac; } };
   })();
 
@@ -1179,6 +1388,10 @@
   }
   toggle($('tSound'), () => S.sound, (v) => { S.sound = v; Audio.setEnabled(v); });
   toggle($('tReflect'), () => S.reflect, (v) => { S.reflect = v; });
+  toggle($('tShows'), () => S.shows, (v) => {
+    S.shows = v;
+    if (!v) endShow(); else showIdle = rnd(3, 8);
+  });
 
   const elTilt = $('tTilt');
   elTilt.addEventListener('click', async () => {
