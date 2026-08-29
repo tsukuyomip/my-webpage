@@ -173,7 +173,8 @@
                hr: 0, hx: 0, hk: 0.3, hw: 0, hph: 0,
                hbase: 0, hapex: 0, hlen: 1, hturns: 0, hu: 0, hflow: 0,
                // 螺旋の前段。まず水際の帯に一様に集まる
-               gath: 0, gw: 0, gy0: 0, gy1: 0 };
+               gath: 0, gw: 0, gy0: 0, gy1: 0,
+               hwet: 0 };   // 1 = 水面より上の魚をまだ見せない
 
   /* 奥行き。螺旋のとき、手前を回っている魚を少し大きく描くのに使う。
      これが無いと、横から見た螺旋がただの横波にしか見えない。 */
@@ -630,7 +631,9 @@
           // 縦と横で別々に頭打ちにする。ひとつの上限にすると、横の分だけで
           // 使い切って縦が伸びない。
           if (dxT >  150) dxT =  150; else if (dxT < -150) dxT = -150;
-          if (dyT >  225) dyT =  225; else if (dyT < -225) dyT = -225;
+          // 縦は 285px/s まで許す。いちばん遠い魚は 654px 降りる必要があるので、
+          // 225px/s だと最短 2.9 秒＝全力の窓とちょうど同じで、余裕が無かった。
+          if (dyT >  285) dyT =  285; else if (dyT < -285) dyT = -285;
           vx += (dxT - vx) * shBl * SH.gath;
           vy += (dyT - vy) * shBl * SH.gath;
         }
@@ -712,6 +715,15 @@
           // 細って消え、裾で湧いて育つ、という往復にする。
           const env = Math.min(1, Math.min(hRel, 1 - hRel) / 0.07);
           dep_[i] += ((1 + 0.4 * sn) * env - dep_[i]) * depGrab;
+        }
+        // 水面より上の魚を伏せる（上のコメント参照）。参加していない魚にも効かせたい
+        // ので、螺旋の枝の外に置く。水際から 90px かけてなだらかに戻す。
+        if (SH.hwet > 0) {
+          // 完全には消さない（0.22 まで）。消しきると、集まりに向かって
+          // 降りていく群れごと見えなくなって、ただ画面が空になる。
+          const wet = y > waterY ? 1 : clamp(1 - (waterY - y) / 160, 0, 1);
+          const cap = 1 - SH.hwet * (1 - wet) * 0.78;
+          if (dep_[i] > cap) dep_[i] += (cap - dep_[i]) * depGrab;
         }
         if (SH.lat) vx += SH.lat * dt;
         if (SH.rise) vy -= SH.rise * dt;
@@ -1001,7 +1013,7 @@
   /* 演目の値をつくる。ここで SH を埋めて、魚のループはそれを読むだけにする。 */
   function stepShow(dt) {
     SH.on = 0; SH.pull = 0; SH.rise = 0; SH.lat = 0; SH.w = 0;
-    SH.ringF = 0; SH.calm = 0; SH.hr = 0; SH.gath = 0; SH.gw = 0;
+    SH.ringF = 0; SH.calm = 0; SH.hr = 0; SH.gath = 0; SH.gw = 0; SH.hwet = 0;
 
     if (pointers.size) {                       // 指が触れたら演目は即やめる
       if (show) endShow();
@@ -1090,12 +1102,18 @@
       SH.hk = 0.30;
       SH.gy0 = H * 0.775; SH.gy1 = H * 0.985;      // 水際の帯（waterY = H*0.76）
       // 集まる強さ。立ち上げてから、螺旋へ渡す手前で抜く（重ねて渡す）
+      // 抜くのを遅らせて、全力の窓を 2.9 秒から 3.7 秒に伸ばす
       SH.gath = smoothstep(clamp(u / 0.09, 0, 1)) *
-                (1 - smoothstep(clamp((u - (GU - 0.06)) / 0.09, 0, 1)));
+                (1 - smoothstep(clamp((u - (GU - 0.02)) / 0.09, 0, 1)));
       SH.gw = 0.5 * show.dir;                      // 集まりながらゆるく回り始める
+      // 演目の頭は「水から立ち上がる」ように見せたい。集めきれずに空中へ
+      // 取り残された魚が先に光っていると、螺旋ができる前に鳥居のあたりで
+      // 湧いたように見える。円錐が水面より上へ伸びきるまでは、水面より上の
+      // 魚を見せない。
 
       const hu = clamp((u - GU * 0.82) / (1 - GU * 0.82), 0, 1);   // 螺旋の進み
       SH.hu = hu;
+      SH.hwet = 1 - smoothstep(clamp((hu - 0.10) / 0.25, 0, 1));
       if (hu > 0) {
         // 昇る音は、実際に昇りはじめる 2 段目の頭で鳴らす
         if (show.phase < 0) { show.phase = 0; Audio.rise(); }
