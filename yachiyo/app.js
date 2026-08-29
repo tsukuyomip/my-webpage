@@ -430,17 +430,18 @@
       P.push(p);
     }
     const np = P.length;
-    const pxs = [0, 0, 0], pys = [0, 0, 0], pk = [0, 0, 0], pc = [0, 0, 0], pR2 = [0, 0, 0], pvx = [0, 0, 0], pvy = [0, 0, 0];
-    const reach = Math.min(W, H) * 0.95;   // 集める範囲は広いまま（芯だけ縮める）
+    const pxs = [0, 0, 0], pys = [0, 0, 0], pk = [0, 0, 0], pc = [0, 0, 0], pR2 = [0, 0, 0];
+    const pw = [0, 0, 0], pin = [0, 0, 0], pbl = [0, 0, 0];
+    const reach = Math.min(W, H) * 0.95;
     for (let i = 0; i < np; i++) {
       const p = P[i];
       pxs[i] = p.x; pys[i] = p.y;
       pk[i] = p.charge;
-      // 渦の芯の半径。魚はここを保って回るので、そのまま「どれだけ指の近くに
-      // 集まって見えるか」になる。以前は 54〜132px あって遠すぎた。
-      pc[i] = coreR(p.charge);
+      pc[i] = coreR(p.charge);                       // 目標半径（＝渦の芯）
       pR2[i] = (reach * (0.5 + 0.55 * p.charge)) ** 2;
-      pvx[i] = p.vx; pvy[i] = p.vy;
+      pw[i] = (1.8 + 2.6 * p.charge) * swirlK;       // 芯の角速度 rad/s
+      pin[i] = 95 + 105 * p.charge;                  // 内へ落ちる速さの上限 px/s
+      pbl[i] = clamp((3.5 + 7 * p.charge) * dt, 0, 1); // 速度場へ寄せる速さ
     }
 
     const damp = Math.exp(-1.15 * dt);
@@ -464,57 +465,41 @@
       vy += (gfy[gi] * FIELD + by_[i]) * dt;
 
       // --- 渦 ---
+      // 力を足し合わせるのではなく、渦の「速度場」を作ってそこへ寄せる。
+      // 力でやると輪の半径が速度上限との釣り合いで決まってしまい、
+      // 位置で直接ねじ伏せると半径方向へまっすぐ滑って渦に見えなくなる。
       for (let j = 0; j < np; j++) {
-        const ddx = pxs[j] - x, ddy = pys[j] - y;
+        const ddx = x - pxs[j], ddy = y - pys[j];    // 中心 → 魚
         const d2 = ddx * ddx + ddy * ddy;
         if (d2 > pR2[j]) continue;
         const d = Math.sqrt(d2) + 0.001;
         const inv = 1 / d;
-        const nx = ddx * inv, ny = ddy * inv;
+        const ox = ddx * inv, oy = ddy * inv;        // 外向き
+        const tx = -oy, ty = ox;                     // 接線
 
-        // 芯より外なら引き寄せ、内なら押し返す → 中心に穴があいたまま回り続ける
-        const spring = (d - pc[j] * coreF) * (4.5 + 13 * pk[j]);
-        vx += nx * spring * dt;
-        vy += ny * spring * dt;
-
-        // 接線（回す）
-        const fall = 1 - d / Math.sqrt(pR2[j]);
-        const tang = (620 + 1500 * pk[j]) * swirlK * fall * fall;
-        vx += -ny * tang * dt;
-        vy += nx * tang * dt;
-
-        // 半径方向の速度だけを強く抜く。これがないと、接線力で速度が上限まで
-        // 上がった魚の円運動に必要な向心力をバネが賄えず、輪がどんどん外へ
-        // 膨らむ（実測で、リング 64px に対して魚は 62〜122px にいた）。
-        // 半径方向を減衰させると、バネがゼロになる芯の半径へ収束する。
-        const rd = clamp((7 + 26 * pk[j]) * dt, 0, 0.85);
-        const vr = vx * nx + vy * ny;
-        vx -= nx * vr * rd;
-        vy -= ny * vr * rd;
-
-        // 芯の近くまで来たら、半径そのものを目標へ寄せる。
-        // 力の釣り合い k(r-core) = v²/r に任せると輪の半径が速度で決まって
-        // しまい、狙った所に来ない（実測でリング 64px に対し魚は 80〜120px）。
-        // 位置を直接寄せれば、接線方向の速い動きは残したまま半径だけ決まる。
         const target = pc[j] * coreF;
-        if (d < target * 2.6) {
-          const kk = clamp((3 + 10 * pk[j]) * dt, 0, 0.5);
-          const nr = d + (target - d) * kk;
-          x = pxs[j] - nx * nr;
-          y = pys[j] - ny * nr;
-        }
 
-        // 指を速く動かしたときの引きずり
-        if (fall > 0.45) {
-          vx += pvx[j] * 1.5 * dt;
-          vy += pvy[j] * 1.5 * dt;
-        }
+        // 接線: 芯の内側は剛体回転（角速度が一定なので、並んだ魚の間隔が
+        // 保たれる＝指を動かしても一点に固まらず輪に戻る）。外側は緩やかに
+        // 落とす。1/r で落とすと遠くがほとんど回らず、まっすぐ滑り込む。
+        const vtT = d <= target ? pw[j] * d
+                                : pw[j] * target * Math.pow(target * inv, 0.4);
+
+        // 半径: 目標半径へ向かう「落ち込む速さ」を直接指定する。
+        // 1フレームのあいだ接線方向へ直進するので、円運動は毎回 (vt·dt)²/2r
+        // だけ外へずれる。その分をあらかじめ引いておくと、フレームレートが
+        // 落ちても輪が膨らまない。
+        let vrT = (target - d) * 3.0 - vtT * vtT * dt / (2 * d);
+        if (vrT < -pin[j]) vrT = -pin[j];
+        else if (vrT > pin[j]) vrT = pin[j];
+
+        // いまの速度を半径／接線に分解して、目標へブレンドする
+        const vr = vx * ox + vy * oy;
+        const vt = vx * tx + vy * ty;
+        const dvr = (vrT - vr) * pbl[j], dvt = (vtT - vt) * pbl[j];
+        vx += ox * dvr + tx * dvt;
+        vy += oy * dvr + ty * dvt;
       }
-
-      // --- 水面より下は押し戻す。魚は宙を泳ぎ、水面には映るだけにする ---
-      // 下にいくほど弱く浮き上がる。境界で押し返すと魚が水面際に
-      // 一列に貼りついてしまうので、段差ではなく勾配にする。
-      vy -= y * ih * 135 * dt;
 
       // --- 減衰・速度制限 ---
       vx *= damp; vy *= damp;
