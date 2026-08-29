@@ -33,10 +33,16 @@ html, body {
   -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
   -webkit-text-size-adjust: 100%;
-  touch-action: none;
   user-select: none;
   -webkit-user-select: none;
 }
+/* touch-action: none は html, body には置かない。
+   Chromium で測った限りでは、body の none が子孫のスクロールを殺すことは
+   なかった（素の div でも設定パネルでも指で動いた）。つまりこれは今回の
+   「スクロールできない」の原因ではない。それでも外してあるのは、
+   ここに置く必要がそもそも無いため。ページ自体が動かないようにするのは
+   overflow:hidden と overscroll-behavior の仕事で、指のなぞりを渦に使う
+   キャンバスにだけ none を掛ければ足りる。 */
 
 #stage {
   position: fixed;
@@ -178,7 +184,12 @@ html, body {
   transform: translateY(calc(100% - 30px));
   transition: transform .34s cubic-bezier(.22, .9, .28, 1);
   box-shadow: 0 -20px 50px rgba(0, 0, 0, .45);
+  /* iOS Safari の vh は「ツールバーが隠れているときの高さ」なので、
+     ツールバーが出ていると板の下端が画面の外に出る。中身は max-height に
+     収まっているのでスクロールもできず、下の行に手が届かなくなる。
+     dvh は「いま見えている高さ」なので、そちらを使う（非対応なら vh）。 */
   max-height: 86vh;
+  max-height: 86dvh;
   overflow: hidden;
 }
 .sheet.open { transform: translateY(0); }
@@ -209,9 +220,11 @@ html, body {
   flex-direction: column;
   gap: 13px;
   max-height: calc(86vh - 30px);
+  max-height: calc(86dvh - 30px);
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
   overscroll-behavior: contain;
+  touch-action: pan-y;
 }
 
 .row-label {
@@ -432,8 +445,11 @@ html, body {
   width: 100%;
   max-width: 420px;
   max-height: 84vh;
+  max-height: 84dvh;
   overflow-y: auto;
   -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
   background: linear-gradient(to bottom, #0e1630, #070c1c);
   border: 1px solid var(--line);
   border-radius: 20px;
