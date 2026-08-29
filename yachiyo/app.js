@@ -77,6 +77,7 @@
     shake: 0,
     dim: 0,              // 溜め中の暗転
     boost: 0,            // 開いた直後の速度上限ブースト
+    wrapM: 60,           // 画面外の折り返しまでの余白
     lanterns: 0,
     tiltX: 0, tiltY: 0,
     running: false,
@@ -498,6 +499,11 @@
     const vmax2 = vmax * vmax;
     const ig = 1 / CELL;
     const ih = 1 / H;
+    // 螺旋の裾は画面幅より広い。折り返しの余白もそのぶん広げないと、
+    // 画面外へ出た魚が反対側へワープしてしまう。急に戻すとまとめて飛ぶので、
+    // 終わったあとは 2 秒ほどかけてゆっくり戻す。
+    S.wrapM += ((SH.hr > 1 ? 210 : 60) - S.wrapM) * Math.min(1, dt * 0.5);
+    const m = S.wrapM;
     const FIELD = 205;
 
     for (let i = 0; i < N; i++) {
@@ -525,7 +531,11 @@
         if (SH.hr > 1) {
           // 裾からの高さ。0 = 裾（広い）、1 = 頂点（細い）
           const hRel = clamp((SH.hbase - y) / SH.hlen, 0, 1);
-          const R = SH.hr * coreF * (1 - 0.86 * hRel);      // 昇るほど細く
+          // 一次で絞ると下のほうから細り始めてしまう。指数を上げると、
+          // 下は広いまま保って上のほうでだけ絞れる（三角形というより
+          // 裾の張ったラッパの形）。
+          const hp = hRel * hRel * Math.sqrt(hRel);        // hRel^2.5
+          const R = SH.hr * coreF * (1 - 0.85 * hp);
           // 角速度も高さで変える。裾は広くてゆっくり一周し、頂点は細くて速い。
           // 実際の渦がそうなる（径が縮むと角速度が上がる）。
           const spin = 1 + 2.6 * hRel;
@@ -635,7 +645,6 @@
       x += vx * dt; y += vy * dt;
 
       // --- 画面外はラップ ---
-      const m = 60;
       if (x < -m) x += W + m * 2; else if (x > W + m) x -= W + m * 2;
       if (y < -m) y += H + m * 2; else if (y > H + m) y -= H + m * 2;
 
@@ -728,7 +737,7 @@
     lastShow = d.id;
     show = { def: d, t: 0, x: W * 0.5, y: H * 0.42, dir: Math.random() < 0.5 ? -1 : 1, phase: -1 };
 
-    if (d.id === 'rasen')  { show.x = rnd(W * 0.3, W * 0.7); SH.hph = 0; }
+    if (d.id === 'rasen')  { show.x = W * 0.5 + rnd(-W * 0.08, W * 0.08); SH.hph = 0; }
     if (d.id === 'hiraku') { show.x = rnd(W * 0.35, W * 0.65); show.y = H * rnd(0.16, 0.26); }
     if (d.id === 'suikomi'){ show.x = W * 0.5; show.y = waterY - (toriiBox ? toriiBox.th * 0.55 : H * 0.2); }
     if (d.id === 'hoshi')  starfall(d.dur);
@@ -820,10 +829,10 @@
       SH.hx = show.x;
       // 裾を下げすぎると、いちばん広いところが画面の外（水面より下）に落ちて
       // 円錐に見えない。裾が水際、頂点が画面上端あたりに来るようにする。
-      SH.hbase = H * (0.92 - 0.16 * u);          // 裾（広いほう）
-      SH.hapex = H * (0.30 - 0.22 * u);          // 頂点（細いほう）
+      SH.hbase = H * (0.88 - 0.12 * u);          // 裾（水際あたり）
+      SH.hapex = H * (0.16 - 0.14 * u);          // 頂点（画面の上端あたり）
       SH.hlen = Math.max(60, SH.hbase - SH.hapex);
-      SH.hr = Math.min(W, H) * 0.42 * ramp;      // 裾はかなり広い
+      SH.hr = W * 0.58 * ramp;                   // 裾は画面幅より広い
       SH.hk = 0.30;
       SH.hrise = 92 * ramp;
       SH.hturns = TAU * 1.0 * show.dir;          // 裾から頂点までの初期のひねり
@@ -832,8 +841,8 @@
       if (u > 0.84) {                          // 先端で弾ける
         if (show.phase < 1) {
           show.phase = 1;
-          bloom(SH.hx, SH.hapex, 0.85, true);
-          starfall(2.4);
+          bloom(SH.hx, SH.hapex, 0.9, true);
+          starfall(10);                          // 先端で弾けたら必ず星が降る
         }
         SH.hr = 0;                             // 以降は掴まず、散らせる
       }
