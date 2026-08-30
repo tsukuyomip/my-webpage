@@ -124,9 +124,12 @@
      *   onChange  鳴っている音が変わったときに呼ぶ (note|null) => void
      */
     constructor(opt) {
-      const o = Object.assign({ hold: 3, minMs: 80, onChange: null }, opt || {});
+      const o = Object.assign({ hold: 3, minMs: 80, loud: 0.3, onChange: null }, opt || {});
       this.hold = o.hold;
       this.minMs = o.minMs;
+      // 強さを上限に写すときの基準。マイクを増幅しているなら、その分を
+      // ここに上乗せしておかないと全部が最大音量になってしまう
+      this.loud = o.loud;
       this.onChange = o.onChange;
       this.log = [];         // {note, startMs, durMs, velocity}
       this.current = null;   // いま鳴っていることになっている音
@@ -178,8 +181,8 @@
           note: this.current,
           startMs: this._start,
           durMs,
-          // 大きさを MIDI の強さに写す。0.3 でだいたい上限になるくらい
-          velocity: Math.max(1, Math.min(127, Math.round(this._peak / 0.3 * 127))),
+          // 大きさを MIDI の強さに写す。loud でちょうど上限になる
+          velocity: Math.max(1, Math.min(127, Math.round(this._peak / this.loud * 127))),
         });
       }
       this.current = null;

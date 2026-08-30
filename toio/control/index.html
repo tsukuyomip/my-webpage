@@ -9,8 +9,8 @@
   <meta name="description" content="Web Bluetooth で toio コアキューブの BLE 機能をひととおり操作できるコントロールパネル。">
   <!-- ?v= はキャッシュ避け。HTML だけ更新されて CSS/JS が古いままだと
        レイアウトが崩れるので、これらを変更したら必ず上げること -->
-  <link rel="stylesheet" href="../shared/base.css?v=20260823q">
-  <link rel="stylesheet" href="style.css?v=20260823q">
+  <link rel="stylesheet" href="../shared/base.css?v=20260830a">
+  <link rel="stylesheet" href="style.css?v=20260830a">
 </head>
 <body>
 
@@ -365,13 +365,22 @@
       <label class="check"><input type="checkbox" id="humLive" checked> 拾った音をキューブで鳴らす</label>
     </div>
     <div class="row">
-      <label>拾う下限 <output id="outHumGate">0.02</output>
-        <input type="range" id="humGate" min="0.005" max="0.1" step="0.005" value="0.02">
+      <label>マイクを増幅 <output id="outHumBoost">×8</output>
+        <input type="range" id="humBoost" min="1" max="40" step="1" value="8">
+      </label>
+      <label>拾う下限 <output id="outHumGate">0.004</output>
+        <input type="range" id="humGate" min="0.001" max="0.05" step="0.001" value="0.004">
       </label>
       <label>まとまり <output id="outHumHold">3</output>
         <input type="range" id="humHold" min="1" max="8" step="1" value="3">
       </label>
     </div>
+    <p class="hint">
+      小さい声でも拾えないときは<b>増幅</b>を上げてください。下のメーターで、
+      自分の声が<b>下限の線</b>を越えているかを見られます。
+      増幅は拾いやすさだけを変えるもので、記録する強弱には影響しません。
+    </p>
+    <canvas id="humTuner"></canvas>
     <p class="hint" id="humState">マイクは止まっています</p>
     <div class="readout">
       <div><span>いまの音</span><b id="humNote">—</b></div>
@@ -587,9 +596,9 @@
 </div>
 
 <!-- BLE ラッパーは /toio/ 配下のページで共有している -->
-<script src="../shared/toio.js?v=20260823q"></script>
-<script src="../shared/midi.js?v=20260823q"></script>
-<script src="../shared/pitch.js?v=20260823q"></script>
-<script src="app.js?v=20260823q"></script>
+<script src="../shared/toio.js?v=20260830a"></script>
+<script src="../shared/midi.js?v=20260830a"></script>
+<script src="../shared/pitch.js?v=20260830a"></script>
+<script src="app.js?v=20260830a"></script>
 </body>
 </html>
