@@ -128,6 +128,13 @@
 .step-row .del { margin-left: auto; color: var(--muted); background: none; border: none; cursor: pointer; font-size: 1rem; }
 .step-row .del:hover { color: var(--danger); }
 
+/* チューナー。音名・ずれ・入力レベルをまとめて描く */
+#humTuner {
+  width: 100%; height: 190px; display: block;
+  background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+  margin-bottom: 0.6rem;
+}
+
 /* ハミングの記録。増えていくので高さを決めてスクロールさせる */
 .hum-log { max-height: 12rem; overflow-y: auto; margin-bottom: 0.6rem; }
 .hum-log:empty::after { content: 'まだ記録がありません'; color: var(--muted); font-size: 0.78rem; }
