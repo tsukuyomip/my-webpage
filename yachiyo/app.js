@@ -110,8 +110,8 @@
   let waterY = 0, toriiBox = null, sprites = [], spriteS = 0, baseFish = 12;
   let vignette = null, waterGrad = null;
   let moonCv = null, moonX = 0, moonY = 0;
-  /* 時計。月と同じ明るさで、月をはさんで左右対称に時と分を置く。 */
-  let clkH = null, clkM = null, clkS = null, clkKey = '';
+  /* 時計。月の下に置く。 */
+  let clkHM = null, clkS = null, clkKey = '';
   /* 尾を引かせる層。ここだけ消し残しを溜め、鳥居やブルームなどの
      オーバーレイは毎フレーム描き直す表の層に出す。混ぜると加算が
      際限なく溜まって画面が白く飽和する。 */
@@ -978,64 +978,75 @@
   }
 
   /* 時計。
-     月と同じ明るさ・同じ高さで、月をはさんで左右対称に時と分を置く。
-     秒だけは右端に小さく控えめに。
+     月の下に、元のロック画面くらいの大きさで置く（参照画像の実測で、
+     字の高さが画面高の 9.2%、「21:25」の幅が画面幅の 62%）。
+     秒は分の右隣に、小さく控えめに。
      毎フレーム fillText すると、にじみ（shadowBlur）ぶん高くつく。
      文字が変わったときだけ焼き直す（＝秒がくり上がる 1 秒に 1 回）。 */
+  const CLK_FONT = (px) =>
+    `300 ${px}px -apple-system, BlinkMacSystemFont, "Hiragino Sans", ` +
+    `"Noto Sans JP", "Segoe UI", system-ui, sans-serif`;
+
+  /* インクの箱をきちんと持って焼く。送り幅ではなくインクで位置を決めたい
+     （送り幅だと、字によってサイドベアリングのぶんだけ揃わない）。 */
   function bakeGlyph(text, px) {
-    const font = `300 ${px}px -apple-system, BlinkMacSystemFont, "Hiragino Sans", ` +
-                 `"Noto Sans JP", "Segoe UI", system-ui, sans-serif`;
     const m = document.createElement('canvas').getContext('2d');
-    m.font = font;
+    m.font = CLK_FONT(px);
     const tm = m.measureText(text);
-    const w = Math.ceil(tm.width);
-    const pad = Math.ceil(px * 0.55);
-    // 左右対称に置きたいので、送り幅ではなく「実際にインクが乗る範囲」で測る。
-    // 送り幅で揃えると、12 の 1 と 02 の 0 でサイドベアリングが違うぶん
-    // 3px ほどずれる（実測）。actualBoundingBox は原点からの距離。
+    const asc = tm.actualBoundingBoxAscent, desc = tm.actualBoundingBoxDescent;
     const bl = tm.actualBoundingBoxLeft, br = tm.actualBoundingBoxRight;
-    const hasInk = typeof bl === 'number' && typeof br === 'number';
-    const inkL = hasInk ? pad - bl : pad;          // 画布の左端からインク左端まで
-    const inkW = hasInk ? bl + br : w;             // インクの幅
-    const cw = w + pad * 2, ch = Math.ceil(px * 1.7) + pad * 2;
+    const ok = [asc, desc, bl, br].every((v) => typeof v === 'number');
+    const inkW = ok ? bl + br : Math.ceil(tm.width);
+    const inkH = ok ? asc + desc : px * 0.72;
+    const pad = Math.ceil(px * 0.5);
+    const cw = Math.ceil(inkW + pad * 2), ch = Math.ceil(inkH + pad * 2);
     const c = document.createElement('canvas');
-    c.width = Math.ceil(cw * DPR); c.height = Math.ceil(ch * DPR);
+    c.width = Math.max(1, Math.ceil(cw * DPR));
+    c.height = Math.max(1, Math.ceil(ch * DPR));
     const g = c.getContext('2d');
     g.setTransform(DPR, 0, 0, DPR, 0, 0);
-    g.font = font;
-    g.textAlign = 'left'; g.textBaseline = 'middle';
+    g.font = CLK_FONT(px);
+    g.textAlign = 'left'; g.textBaseline = 'alphabetic';
     g.fillStyle = '#fff';
-    // にじみを 1 枚重ねてから本体。月の暈と同じ気配にしたい。
+    const ox = pad + (ok ? bl : 0);          // インク左端が pad に来る描き出し
+    const base = pad + (ok ? asc : px * 0.72);
     g.shadowColor = 'rgba(198,220,255,0.85)';
-    g.shadowBlur = px * 0.5;
-    g.fillText(text, pad, ch / 2);
+    g.shadowBlur = px * 0.42;
+    g.fillText(text, ox, base);
     g.shadowBlur = 0;
-    g.fillText(text, pad, ch / 2);
-    return { cv: c, w, cw, ch, pad, inkL, inkW };
+    g.fillText(text, ox, base);
+    return { cv: c, cw, ch, pad, inkW, inkH, base };
+  }
+
+  /* 目標のインク高さになる字の大きさを、1 回測って割り出す */
+  function fontFor(text, inkH) {
+    const probe = 100;
+    const m = document.createElement('canvas').getContext('2d');
+    m.font = CLK_FONT(probe);
+    const tm = m.measureText(text);
+    const h = (tm.actualBoundingBoxAscent + tm.actualBoundingBoxDescent) || probe * 0.72;
+    return Math.max(14, Math.round(probe * inkH / h));
   }
 
   function bakeClock() {
-    const px = Math.max(16, Math.round(Math.min(W, H) * 0.105));
     const d = new Date();
-    const hh = String(d.getHours()).padStart(2, '0');
-    const mm = String(d.getMinutes()).padStart(2, '0');
+    const hm = `${String(d.getHours()).padStart(2, '0')}:` +
+               `${String(d.getMinutes()).padStart(2, '0')}`;
     const ss = String(d.getSeconds()).padStart(2, '0');
-    const key = `${px}|${hh}${mm}${ss}`;
+    const px = fontFor('21:25', H * 0.092);   // 参照画像と同じ字の高さ
+    const key = `${px}|${hm}|${ss}`;
     if (key === clkKey) return;
     clkKey = key;
-    clkH = bakeGlyph(hh, px);
-    clkM = bakeGlyph(mm, px);
-    clkS = bakeGlyph(ss, Math.max(11, Math.round(px * 0.46)));
+    clkHM = bakeGlyph(hm, px);
+    clkS = bakeGlyph(ss, Math.max(11, Math.round(px * 0.30)));
   }
 
-  /* インクの左端を x、中心の高さを y に置く */
-  function drawGlyphL(g, x, y) {
-    ctx.drawImage(g.cv, x - g.inkL, y - g.ch / 2, g.cw, g.ch);
+  /* インクの左端を x、ベースラインを by に置く */
+  function drawGlyphL(g, x, by) {
+    ctx.drawImage(g.cv, x - g.pad, by - g.base, g.cw, g.ch);
   }
-  /* インクの右端を x、中心の高さを y に置く */
-  function drawGlyphR(g, x, y) {
-    ctx.drawImage(g.cv, x - g.inkL - g.inkW, y - g.ch / 2, g.cw, g.ch);
-  }
+  /* インクの中心を x に置く */
+  function drawGlyphC(g, x, by) { drawGlyphL(g, x - g.inkW / 2, by); }
 
   /* ============================================================
    * 演目の進行
@@ -1456,13 +1467,14 @@
       ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
       ctx.globalCompositeOperation = 'lighter';
       const a = clamp(0.40 * (1 - S.dim * 0.75), 0, 1);
-      const cx = moonX;
-      const gap = Math.min(W, H) * 0.038 * 3.4;   // 月の半径の 3.4 倍あける
+      // 月の下。月の半径ぶんと、ひと呼吸ぶんの余白をあける。
+      const moonR = Math.min(W, H) * 0.038;
+      const baseY = moonY + moonR + Math.min(W, H) * 0.10 + clkHM.inkH;
       ctx.globalAlpha = a;
-      drawGlyphR(clkH, cx - gap, moonY);      // 時はインクの右端を中心から左へ
-      drawGlyphL(clkM, cx + gap, moonY);      // 分はインクの左端を中心から右へ
+      drawGlyphC(clkHM, moonX, baseY);        // 時刻は月の真下に中央そろえ
       ctx.globalAlpha = a * 0.55;
-      drawGlyphR(clkS, W - 14, moonY);        // 秒は右端に控えめに
+      // 秒は分の右隣。ベースラインは時刻とそろえる。
+      drawGlyphL(clkS, moonX + clkHM.inkW / 2 + clkHM.inkH * 0.22, baseY);
       ctx.globalAlpha = 1;
       ctx.globalCompositeOperation = 'source-over';
       ctx.setTransform(1, 0, 0, 1, 0, 0);
