@@ -135,9 +135,9 @@ html, body {
 }
 .icon-btn { position: relative; }
 
-/* 端末が狭いときは詰める。ボタンが 3 つ並ぶので、そのままだと
-   題字が 2 行に折り返して HUD が背が高くなる。 */
-@media (max-width: 360px) {
+/* 時計ボタンが増えてアイコンが 4 つになったぶん、詰める幅を広げた。
+   390px（iPhone の標準的な幅）だと、そのままでは題字が 2 行に折り返す。 */
+@media (max-width: 400px) {
   .hud { gap: 8px; padding-left: calc(var(--safe-l) + 12px); padding-right: calc(var(--safe-r) + 12px); }
   .hud-left { gap: 7px; }
   .hud-right { gap: 6px; }

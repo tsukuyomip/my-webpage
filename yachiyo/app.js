@@ -80,6 +80,7 @@
     quality: 1,          // 実測 FPS で自動調整 0.35..1（?q= で固定）
     density: 1,          // スライダー
     swirl: 1,            // スライダー
+    clock: false,        // 時計（既定は切）
     burst: 0.8,          // ひらく強さ（スライダー）
     sound: true,
     awake: false,                          // スリープ無効（Screen Wake Lock）
@@ -109,6 +110,8 @@
   let waterY = 0, toriiBox = null, sprites = [], spriteS = 0, baseFish = 12;
   let vignette = null, waterGrad = null;
   let moonCv = null, moonX = 0, moonY = 0;
+  /* 時計。月と同じ明るさで、月をはさんで左右対称に時と分を置く。 */
+  let clkH = null, clkM = null, clkS = null, clkKey = '';
   /* 尾を引かせる層。ここだけ消し残しを溜め、鳥居やブルームなどの
      オーバーレイは毎フレーム描き直す表の層に出す。混ぜると加算が
      際限なく溜まって画面が白く飽和する。 */
@@ -401,6 +404,7 @@
     buildSprites();
     bakeTorii();
     bakeMoon();
+    clkKey = '';                      // 文字の大きさが変わるので焼き直す
 
     // 手前を締めるビネット（つづきは resize の中）
     const vg = document.createElement('canvas');
@@ -973,6 +977,66 @@
     moonY = Math.max(H * 0.15, 76);
   }
 
+  /* 時計。
+     月と同じ明るさ・同じ高さで、月をはさんで左右対称に時と分を置く。
+     秒だけは右端に小さく控えめに。
+     毎フレーム fillText すると、にじみ（shadowBlur）ぶん高くつく。
+     文字が変わったときだけ焼き直す（＝秒がくり上がる 1 秒に 1 回）。 */
+  function bakeGlyph(text, px) {
+    const font = `300 ${px}px -apple-system, BlinkMacSystemFont, "Hiragino Sans", ` +
+                 `"Noto Sans JP", "Segoe UI", system-ui, sans-serif`;
+    const m = document.createElement('canvas').getContext('2d');
+    m.font = font;
+    const tm = m.measureText(text);
+    const w = Math.ceil(tm.width);
+    const pad = Math.ceil(px * 0.55);
+    // 左右対称に置きたいので、送り幅ではなく「実際にインクが乗る範囲」で測る。
+    // 送り幅で揃えると、12 の 1 と 02 の 0 でサイドベアリングが違うぶん
+    // 3px ほどずれる（実測）。actualBoundingBox は原点からの距離。
+    const bl = tm.actualBoundingBoxLeft, br = tm.actualBoundingBoxRight;
+    const hasInk = typeof bl === 'number' && typeof br === 'number';
+    const inkL = hasInk ? pad - bl : pad;          // 画布の左端からインク左端まで
+    const inkW = hasInk ? bl + br : w;             // インクの幅
+    const cw = w + pad * 2, ch = Math.ceil(px * 1.7) + pad * 2;
+    const c = document.createElement('canvas');
+    c.width = Math.ceil(cw * DPR); c.height = Math.ceil(ch * DPR);
+    const g = c.getContext('2d');
+    g.setTransform(DPR, 0, 0, DPR, 0, 0);
+    g.font = font;
+    g.textAlign = 'left'; g.textBaseline = 'middle';
+    g.fillStyle = '#fff';
+    // にじみを 1 枚重ねてから本体。月の暈と同じ気配にしたい。
+    g.shadowColor = 'rgba(198,220,255,0.85)';
+    g.shadowBlur = px * 0.5;
+    g.fillText(text, pad, ch / 2);
+    g.shadowBlur = 0;
+    g.fillText(text, pad, ch / 2);
+    return { cv: c, w, cw, ch, pad, inkL, inkW };
+  }
+
+  function bakeClock() {
+    const px = Math.max(16, Math.round(Math.min(W, H) * 0.105));
+    const d = new Date();
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    const ss = String(d.getSeconds()).padStart(2, '0');
+    const key = `${px}|${hh}${mm}${ss}`;
+    if (key === clkKey) return;
+    clkKey = key;
+    clkH = bakeGlyph(hh, px);
+    clkM = bakeGlyph(mm, px);
+    clkS = bakeGlyph(ss, Math.max(11, Math.round(px * 0.46)));
+  }
+
+  /* インクの左端を x、中心の高さを y に置く */
+  function drawGlyphL(g, x, y) {
+    ctx.drawImage(g.cv, x - g.inkL, y - g.ch / 2, g.cw, g.ch);
+  }
+  /* インクの右端を x、中心の高さを y に置く */
+  function drawGlyphR(g, x, y) {
+    ctx.drawImage(g.cv, x - g.inkL - g.inkW, y - g.ch / 2, g.cw, g.ch);
+  }
+
   /* ============================================================
    * 演目の進行
    * ============================================================ */
@@ -1382,6 +1446,26 @@
                             Math.round(moonY * DPR - moonCv.height / 2));
       ctx.globalAlpha = 1;
       ctx.globalCompositeOperation = 'source-over';
+    }
+
+    /* --- 時計 --- */
+    // 月と同じ高さ・同じ明るさ。月をはさんで、時は左・分は右へ左右対称に。
+    // 秒だけは右端に小さく、さらに控えめに。
+    if (S.clock) {
+      bakeClock();
+      ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+      ctx.globalCompositeOperation = 'lighter';
+      const a = clamp(0.40 * (1 - S.dim * 0.75), 0, 1);
+      const cx = moonX;
+      const gap = Math.min(W, H) * 0.038 * 3.4;   // 月の半径の 3.4 倍あける
+      ctx.globalAlpha = a;
+      drawGlyphR(clkH, cx - gap, moonY);      // 時はインクの右端を中心から左へ
+      drawGlyphL(clkM, cx + gap, moonY);      // 分はインクの左端を中心から右へ
+      ctx.globalAlpha = a * 0.55;
+      drawGlyphR(clkS, W - 14, moonY);        // 秒は右端に控えめに
+      ctx.globalAlpha = 1;
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.setTransform(1, 0, 0, 1, 0, 0);
     }
 
     /* --- 鳥居 --- */
@@ -1933,6 +2017,20 @@
 
   elWake.addEventListener('click', () => setAwake(!S.awake));
   elTWake.addEventListener('click', () => setAwake(!S.awake));
+
+  /* 時計。既定は切。 */
+  const elClock = $('btnClock'), elTClock = $('tClock');
+  function setClock(v, quiet) {
+    S.clock = v;
+    clkKey = '';                       // 次のフレームで焼き直す
+    elClock.classList.toggle('is-on', v);
+    elTClock.classList.toggle('is-on', v);
+    elClock.setAttribute('aria-pressed', v ? 'true' : 'false');
+    elClock.setAttribute('aria-label', v ? '時計を消す' : '時計を出す');
+    if (!quiet) showHint(v ? '時計を出す' : '時計を消す', 1500);
+  }
+  elClock.addEventListener('click', () => setClock(!S.clock));
+  elTClock.addEventListener('click', () => setClock(!S.clock));
 
   const elTilt = $('tTilt');
   elTilt.addEventListener('click', async () => {
