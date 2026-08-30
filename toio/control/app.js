@@ -5,6 +5,7 @@
   const $ = (id) => document.getElementById(id);
   const T = window.Toio;
   const MIDI = window.ToioMidi;   // MIDI ファイルの読み込みと変換
+  const P = window.ToioPitch;    // マイクからの音程検出
 
   // ---------------------------------------------------------------- 状態
   const cubes = [];
@@ -1323,6 +1324,152 @@
     if (!melody.length) { toast('音がありません'); return; }
     const repeat = Number($('sRepeat').value);
     send((c) => c.soundMidi(melody, repeat));
+  });
+
+  // ---------------------------------------------------------- ハミング
+  // マイクの波形から音の高さを拾い、いちばん近い半音をキューブで鳴らす。
+  // 拾った音は Tracker が音符の並びとして貯める。
+  let humCtx = null;        // AudioContext
+  let humStream = null;     // MediaStream（止めるときにトラックを閉じる）
+  let humAnalyser = null;
+  let humBuf = null;
+  let humTimer = 0;
+  let humTracker = null;
+  let humT0 = 0;
+  let humSounding = null;   // いまキューブに出している音
+
+  function humSetState(text) { $('humState').textContent = text; }
+
+  function renderHumLog() {
+    const wrap = $('humLog');
+    wrap.textContent = '';
+    const log = humTracker ? humTracker.log : [];
+    if (!log.length) return;
+    log.forEach((n, i) => {
+      const row = document.createElement('div');
+      row.className = 'hum-row';
+      const idx = document.createElement('span');
+      idx.className = 'idx';
+      idx.textContent = String(i + 1);
+      const nm = document.createElement('b');
+      nm.textContent = T.noteName(n.note);
+      const at = document.createElement('span');
+      at.className = 'idx';
+      at.textContent = `${(n.startMs / 1000).toFixed(2)}s`;
+      const dur = document.createElement('span');
+      dur.className = 'idx';
+      dur.textContent = `${Math.round(n.durMs)}ms`;
+      row.append(idx, nm, at, dur);
+      wrap.appendChild(row);
+    });
+    wrap.scrollTop = wrap.scrollHeight;
+  }
+
+  /** 拾った音をキューブに出す。押しっぱなしの鍵盤と同じやり方 */
+  function humPlay(note) {
+    if (!$('humLive').checked) return;
+    if (note === humSounding) return;
+    humSounding = note;
+    if (note === null) { send((c) => c.soundStop()); return; }
+    send((c) => c.soundMidi([{ note, durationMs: 2550, volume: Number($('sVolume').value) }], 255));
+  }
+
+  function humFrame() {
+    humAnalyser.getFloatTimeDomainData(humBuf);
+    const d = P.detect(humBuf, humCtx.sampleRate, { gate: Number($('humGate').value) });
+    const t = performance.now() - humT0;
+    humTracker.feed(d, t);
+
+    $('humNote').textContent = humTracker.current === null ? '—'
+      : `${T.noteName(humTracker.current)} (${humTracker.current})`;
+    $('humFreq').textContent = d.freq ? d.freq.toFixed(1) + ' Hz' : '—';
+    $('humCents').textContent = d.freq ? `${P.centsOff(d.freq) > 0 ? '+' : ''}${P.centsOff(d.freq)}` : '—';
+    $('humLevel').textContent = d.rms.toFixed(3);
+  }
+
+  async function humStart() {
+    if (humCtx) return;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      toast('このブラウザはマイクを使えません'); return;
+    }
+    try {
+      // 自動ゲインや雑音抑制は音程を歪めるので切る
+      humStream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+      });
+    } catch (e) {
+      humSetState('マイクを使えませんでした: ' + (e.message || e));
+      toast('マイクの許可が必要です');
+      return;
+    }
+    humCtx = new (window.AudioContext || window.webkitAudioContext)();
+    // iOS では操作をきっかけに resume しないと止まったままになる
+    if (humCtx.state === 'suspended') await humCtx.resume();
+    humAnalyser = humCtx.createAnalyser();
+    humAnalyser.fftSize = 2048;
+    humCtx.createMediaStreamSource(humStream).connect(humAnalyser);
+    humBuf = new Float32Array(humAnalyser.fftSize);
+
+    humT0 = performance.now();
+    humTracker = new P.Tracker({
+      hold: Number($('humHold').value),
+      minMs: 80,
+      onChange: (note) => { humPlay(note); renderHumLog(); },
+    });
+    // 20ms ごと。これより細かくしても検出窓（46ms）より短くて意味がない
+    humTimer = setInterval(humFrame, 20);
+    humSetState('マイクを聞いています。鼻歌をどうぞ');
+  }
+
+  function humStop() {
+    if (!humCtx) return;
+    clearInterval(humTimer);
+    humTimer = 0;
+    humTracker.stop(performance.now() - humT0);
+    humPlay(null);
+    renderHumLog();
+    if (humStream) humStream.getTracks().forEach((t) => t.stop());
+    humCtx.close();
+    humCtx = null; humStream = null; humAnalyser = null; humBuf = null;
+    $('humNote').textContent = '—';
+    $('humFreq').textContent = '—';
+    $('humCents').textContent = '—';
+    $('humLevel').textContent = '—';
+    humSetState(`マイクを止めました。${humTracker.log.length} 音を記録しています`);
+  }
+
+  $('btnHumStart').addEventListener('click', humStart);
+  $('btnHumStop').addEventListener('click', humStop);
+  $('humHold').addEventListener('input', () => {
+    $('outHumHold').textContent = $('humHold').value;
+    if (humTracker) humTracker.hold = Number($('humHold').value);
+  });
+  $('humGate').addEventListener('input', () => {
+    $('outHumGate').textContent = Number($('humGate').value).toFixed(3);
+  });
+
+  $('btnHumToSeq').addEventListener('click', () => {
+    if (!humTracker || !humTracker.log.length) { toast('記録がありません'); return; }
+    // 記録は {note, startMs, durMs, velocity} なので MIDI 側の変換をそのまま使える
+    const seq = MIDI.toSequence(humTracker.log, { volume: Number($('sVolume').value) });
+    if (!seq.length) { toast('鳴らせる音がありません'); return; }
+    melody.length = 0;
+    seq.slice(0, 59).forEach((s) => melody.push(s));
+    renderMelody();
+    toast(seq.length > 59 ? `先頭 59 音を入れました（全 ${seq.length} 音）` : `${melody.length} 音を入れました`);
+  });
+
+  $('btnHumReplay').addEventListener('click', () => {
+    if (!humTracker || !humTracker.log.length) { toast('記録がありません'); return; }
+    const seq = MIDI.toSequence(humTracker.log, { volume: Number($('sVolume').value) });
+    if (!seq.length) { toast('鳴らせる音がありません'); return; }
+    send((c) => c.soundMidi(seq.slice(0, 59), 1));
+  });
+
+  $('btnHumClear').addEventListener('click', () => {
+    if (humTracker) humTracker.clear();
+    renderHumLog();
+    humSetState(humCtx ? 'マイクを聞いています。鼻歌をどうぞ' : 'マイクは止まっています');
   });
 
   // ------------------------------------------------------ MIDI ファイル

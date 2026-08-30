@@ -9,8 +9,8 @@
   <meta name="description" content="Web Bluetooth で toio コアキューブの BLE 機能をひととおり操作できるコントロールパネル。">
   <!-- ?v= はキャッシュ避け。HTML だけ更新されて CSS/JS が古いままだと
        レイアウトが崩れるので、これらを変更したら必ず上げること -->
-  <link rel="stylesheet" href="../shared/base.css?v=20260823p">
-  <link rel="stylesheet" href="style.css?v=20260823p">
+  <link rel="stylesheet" href="../shared/base.css?v=20260823q">
+  <link rel="stylesheet" href="style.css?v=20260823q">
 </head>
 <body>
 
@@ -353,6 +353,39 @@
       <button class="btn primary" id="btnMelodyRun">シーケンス再生</button>
     </div>
 
+    <h3>ハミングから拾う</h3>
+    <p class="hint">
+      マイクで鼻歌の音の高さを拾い、いちばん近い半音をキューブで鳴らします。
+      拾った音は下に記録されるので、<b>あとでシーケンスに入れて弾き直せます</b>。
+      キューブは半音単位なので、少しずれた声も近い音に丸められます。
+    </p>
+    <div class="row">
+      <button class="btn primary" id="btnHumStart">マイクを使う</button>
+      <button class="btn danger" id="btnHumStop">やめる</button>
+      <label class="check"><input type="checkbox" id="humLive" checked> 拾った音をキューブで鳴らす</label>
+    </div>
+    <div class="row">
+      <label>拾う下限 <output id="outHumGate">0.02</output>
+        <input type="range" id="humGate" min="0.005" max="0.1" step="0.005" value="0.02">
+      </label>
+      <label>まとまり <output id="outHumHold">3</output>
+        <input type="range" id="humHold" min="1" max="8" step="1" value="3">
+      </label>
+    </div>
+    <p class="hint" id="humState">マイクは止まっています</p>
+    <div class="readout">
+      <div><span>いまの音</span><b id="humNote">—</b></div>
+      <div><span>周波数</span><b id="humFreq">—</b></div>
+      <div><span>ずれ</span><b id="humCents">—</b></div>
+      <div><span>大きさ</span><b id="humLevel">—</b></div>
+    </div>
+    <div id="humLog" class="hum-log"></div>
+    <div class="row">
+      <button class="btn ghost" id="btnHumToSeq">記録をシーケンスへ</button>
+      <button class="btn ghost" id="btnHumReplay">記録を鳴らす</button>
+      <button class="btn ghost" id="btnHumClear">記録をクリア</button>
+    </div>
+
     <h3>MIDIファイルを読み込む</h3>
     <p class="hint">
       標準MIDIファイル（<code>.mid</code>）を選ぶと、キューブで鳴らせる形に変換します。
@@ -554,8 +587,9 @@
 </div>
 
 <!-- BLE ラッパーは /toio/ 配下のページで共有している -->
-<script src="../shared/toio.js?v=20260823p"></script>
-<script src="../shared/midi.js?v=20260823p"></script>
-<script src="app.js?v=20260823p"></script>
+<script src="../shared/toio.js?v=20260823q"></script>
+<script src="../shared/midi.js?v=20260823q"></script>
+<script src="../shared/pitch.js?v=20260823q"></script>
+<script src="app.js?v=20260823q"></script>
 </body>
 </html>
