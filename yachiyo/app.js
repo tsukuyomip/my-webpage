@@ -170,8 +170,11 @@
   let helixT = 0;                           // 螺旋が始まってからの秒数
 
   /* 演目が毎フレーム作る値。内側のループを軽くするため先に出しておく。 */
-  const SH = { on: 0, x: 0, y: 0, r2: 0, w: 0, pull: 0, rise: 0, lat: 0,
+  const SH = { on: 0, x: 0, y: 0, r2: 0, w: 0, pull: 0, rise: 0,
                ringR: 0, ringW: 0, ringF: 0, calm: 0,
+               // 潮。群れごと一方向へ流す。dv = 共通の速度、dq = そこまでに
+               // 流れた距離（一様に散らす格子をこのぶん平行移動させる）
+               drift: 0, dvx: 0, dvy: 0, dqx: 0, dqy: 0,
                // 昇り螺旋（垂直な軸のまわりを回りながら昇る）
                hr: 0, hx: 0, hk: 0.3, hw: 0, hph: 0,
                hbase: 0, hapex: 0, hlen: 1, hturns: 0, hu: 0, hflow: 0,
@@ -191,6 +194,7 @@
   let fallT = 0;        // 星降りの残り時間（秒）
   let fallAcc = 0;      // 湧かせる数の端数
   let fallBell = 0;     // 次の一粒が鳴るまで
+  let fallK = 1;        // 濃さ。1 = ふつう、0.25 = 凪に重ねる静かな星降り
 
   /* ============================================================
    * スプライト（魚1色ぶん）
@@ -584,6 +588,9 @@
     // 終わったあとは 2 秒ほどかけてゆっくり戻す。
     S.wrapM += ((SH.hr > 1 ? 210 : 60) - S.wrapM) * Math.min(1, dt * 0.5);
     const m = S.wrapM;
+    const PX = W + m * 2, PY = H + m * 2;    // 折り返しの周期
+    // 潮で一様に散らすときの目安の間隔（魚 1 匹あたりの升目の一辺）
+    const CELLS = Math.sqrt(PX * PY / Math.max(N, 1));
     const FIELD = 205;
 
     for (let i = 0; i < N; i++) {
@@ -596,9 +603,13 @@
       let gx = (x * ig + 1) | 0; if (gx < 0) gx = 0; else if (gx >= gw) gx = gw - 1;
       let gy = (y * ig + 1) | 0; if (gy < 0) gy = 0; else if (gy >= gh) gy = gh - 1;
       const gi = gy * gw + gx;
-      const fk = 1 - SH.calm * 0.85;
-      vx += (gfx[gi] * FIELD * fk + bx_[i]) * dt;
-      vy += (gfy[gi] * FIELD * fk + by_[i]) * dt;
+      // 潮のあいだは、めいめいの気ままな泳ぎを弱める。弱めないと、共通の
+      // 流れの上に個々のゆらぎがそのまま乗って「みんなで同じ方向へ」に
+      // 見えない。0 にはしない。0 にすると隊列が硬直して機械に見える。
+      const wk = 1 - SH.drift * 0.6;
+      const fk = (1 - SH.calm * 0.85) * wk;
+      vx += (gfx[gi] * FIELD * fk + bx_[i] * wk) * dt;
+      vy += (gfy[gi] * FIELD * fk + by_[i] * wk) * dt;
 
       // --- 演目 ---
       // 奥行きを 1 に戻す枝は演目の外に置く。中に入れると、演目が終わった
@@ -729,7 +740,39 @@
           const cap = 1 - SH.hwet * (1 - wet) * 0.78;
           if (dep_[i] > cap) dep_[i] += (cap - dep_[i]) * depGrab;
         }
-        if (SH.lat) vx += SH.lat * dt;
+        // --- 潮：みんなで同じ方向へ、一様に散らばったまま流れる ---
+        // 流れ場でできた筋（魚が線状に集まったかたまり）をほどきながら
+        // 流したい。星空の長時間露光のように、一様な点が平行に流れる絵。
+        //
+        // そこで「一様に散らばった目標の並び」を先に作り、それを流れと一緒に
+        // 平行移動させて、魚をそこへ寄せる。並びは乱数ではなく R2 列
+        // （可塑数の小数部）で置く。乱数だと粗密ができて、ほどいた先が
+        // また筋に見える。
+        if (SH.drift > 0) {
+          // 並びをそのまま使うと、規則正しすぎて壁紙の模様に見える。
+          // 升目の 0.38 倍だけ個体ごとに散らす。一様さは崩れないまま、
+          // 星空のような不揃いさが出る。散らす量は固定なので、目標の
+          // 並びは平行移動するだけで形は変わらない。
+          const jx = bx_[i] * (0.00322 * CELLS), jy = by_[i] * (0.00413 * CELLS);
+          let tgx = ((i * 0.7548776662) % 1) * PX + SH.dqx + jx;
+          let tgy = ((i * 0.5698402910) % 1) * PY + SH.dqy + jy;
+          tgx -= Math.floor((tgx + m) / PX) * PX;      // 魚と同じ範囲へ折り返す
+          tgy -= Math.floor((tgy + m) / PY) * PY;
+          // ずれは折り返しをまたいだ側で測る。素直に引くと、画面の端で
+          // 目標だけ先に反対側へ回ったときに、魚が画面を横断して追いかける。
+          let ex = tgx - x; if (ex > PX * 0.5) ex -= PX; else if (ex < -PX * 0.5) ex += PX;
+          let ey = tgy - y; if (ey > PY * 0.5) ey -= PY; else if (ey < -PY * 0.5) ey += PY;
+          // 寄せる速さは頭打ちにする。強いと、演目の頭で全員が持ち場へ
+          // 一直線に飛んで「整列した」ように見える。
+          let cx = ex * 1.7, cy = ey * 1.7;
+          const c2 = cx * cx + cy * cy;
+          if (c2 > 12100) { const q = 110 / Math.sqrt(c2); cx *= q; cy *= q; }
+          // 目標そのものの速度（＝潮の速度）を足す。足さないと、減衰と
+          // 釣り合うところまで遅れてから流れることになる。
+          const k = shBl * SH.drift;
+          vx += (SH.dvx + cx - vx) * k;
+          vy += (SH.dvy + cy - vy) * k;
+        }
         if (SH.rise) vy -= SH.rise * dt;
         if (SH.pull || SH.w || SH.ringF) {
           const ex = x - SH.x, ey = y - SH.y;
@@ -926,19 +969,26 @@
 
   /* 一気に湧かせず、sec 秒かけて降らせ続ける。
      一度に出すと 1.5 秒で終わってしまい、「星が降っている」時間にならない。 */
-  function starfall(sec) {
+  function starfall(sec, k) {
+    k = k || 1;
+    // 濃さのちがう星降りが重なったら濃いほうに合わせる。凪の静かな星降りの
+    // さなかに指で呼んだのに、そのまま静かなままだと反応が無いように見える。
+    fallK = fallT > 0 ? Math.max(fallK, k) : k;
     fallT = Math.max(fallT, sec);
-    for (let i = 0; i < 6; i++) dropStar();   // 出だしだけ少し多めに
+    const n = Math.max(1, Math.round(6 * k));
+    for (let i = 0; i < n; i++) dropStar();   // 出だしだけ少し多めに
   }
 
   function stepStarfall(dt) {
     if (fallT <= 0) return;
     fallT -= dt;
     const ramp = Math.min(1, fallT / 1.8);    // 終わりぎわは自然に減らす
-    fallAcc += dt * 15 * ramp;
+    fallAcc += dt * 15 * fallK * ramp;
     while (fallAcc >= 1) { fallAcc -= 1; dropStar(); }
     fallBell -= dt;
-    if (fallBell <= 0) { fallBell = rnd(0.34, 0.8); Audio.shimmer(); }
+    // 鳴る間隔も濃さに合わせる。数だけ減らして音がそのままだと、
+    // 見えていない星の音が鳴っているように聞こえる。
+    if (fallBell <= 0) { fallBell = rnd(0.34, 0.8) / fallK; Audio.shimmer(); }
   }
 
   /* 月。
@@ -1072,7 +1122,15 @@
     if (d.id === 'hiraku') { show.x = rnd(W * 0.35, W * 0.65); show.y = H * rnd(0.16, 0.26); }
     if (d.id === 'suikomi'){ show.x = W * 0.5; show.y = waterY - (toriiBox ? toriiBox.th * 0.55 : H * 0.2); }
     // 潮は毎回ちがう長さにする。同じ尺で繰り返すと型が読めてしまう。
-    if (d.id === 'shio')   { show.dur = rnd(10, 15); Audio.swell(0.5); }
+    // 向きも毎回ちがう。横流れに決め打ちすると、何度か見たときに
+    // 「また横に流れた」で終わってしまう。
+    if (d.id === 'shio') {
+      show.dur = rnd(16, 20);
+      show.a0 = Math.random() * TAU;         // その回の基準の向き
+      show.ap = Math.random() * TAU;         // 向きのゆらぎの位相
+      SH.dqx = 0; SH.dqy = 0;
+      Audio.swell(0.5);
+    }
     if (d.id === 'hoshi')  starfall(show.dur);
 
     if (!seen[d.id]) { seen[d.id] = 1; showHint(d.name, 2600); }
@@ -1087,7 +1145,7 @@
 
   /* 演目の値をつくる。ここで SH を埋めて、魚のループはそれを読むだけにする。 */
   function stepShow(dt) {
-    SH.on = 0; SH.pull = 0; SH.rise = 0; SH.lat = 0; SH.w = 0;
+    SH.on = 0; SH.pull = 0; SH.rise = 0; SH.drift = 0; SH.w = 0;
     SH.ringF = 0; SH.calm = 0; SH.hr = 0; SH.gath = 0; SH.gw = 0; SH.hwet = 0;
 
     if (pointers.size) {                       // 指が触れたら演目は即やめる
@@ -1259,21 +1317,49 @@
         }
       }
     } else if (d.id === 'shio') {
-      // 31〜34s の横流れ。画面ぜんぶが片側へ流れる。
-      // 10〜15 秒つづけるので、一定の強さで流しっぱなしにすると途中から
-      // 「ただ横に動いている」だけになって飽きる。潮なので、寄せては緩めるを
-      // ゆっくり繰り返す。向きは変えず、強さだけを 0.10〜1.00 で揺らす。
-      // 山の数は u で数えるので、その回の長さによらず 1 山 5〜7.5 秒になる。
-      // 2 山にして、山（u = 0.25 と 0.75）が出入りの窓の内側に来るようにする。
-      // 2.5 山にすると最後の山がちょうど窓の外（u = 1）で立ち上がって届かない。
-      const swell = 0.55 - 0.45 * Math.cos(TAU * 2 * u);
-      SH.lat = 235 * ease * swell * show.dir;
+      // 31〜34s の流れ。画面ぜんぶが同じ方向へ、15〜20 秒かけて流れる。
+      //
+      // 以前は横向きの加速度（SH.lat）を足すだけだった。それだと、めいめい
+      // 勝手に泳いでいる群れに横流れが乗っているだけで、「演目」に見えない。
+      // 足すのをやめて、群れの速度そのものを一本の共通の速度にする。
+      //
+      // 向きは毎回ランダムに選び、そこからゆっくり振る。周期のちがう
+      // 2 つの正弦を重ねて、行って戻るだけの往復に見えないようにする。
+      // 振れ幅は合わせて ±48 度。
+      const a = show.a0 + 0.55 * Math.sin(TAU * u * 0.9 + show.ap)
+                        + 0.28 * Math.sin(TAU * u * 1.7 + show.ap * 2.7);
+      // 速さは寄せては緩めるを繰り返す。一定で流しっぱなしにすると途中から
+      // 「ただ動いている」だけになって飽きる。0.10〜1.00 で揺らす。
+      // 山の数は長さから決めるが、2〜3 に収める。u に対して固定の山数にすると
+      // 長い回では 1 山 15 秒になって緩急が読めない。かといって数を増やすと、
+      // 谷（強さ 0.10）のたびに群れが止まって見えるので、止まるのは
+      // 山と山のあいだの 1〜2 回までにしたい。
+      const humps = Math.min(3, Math.max(2, Math.round(show.dur / 7.5)));
+      const swell = 0.55 - 0.45 * Math.cos(TAU * humps * u);
+      const sp = 205 * ease * swell;
+      SH.dvx = Math.cos(a) * sp;
+      SH.dvy = Math.sin(a) * sp;
+      // 一様に散らす強さは swell では緩めない。緩めると、寄せの谷で群れが
+      // また筋にもどってしまう。
+      // 立ち上がりは u ではなく秒で数える。ease で立ち上げると、演目が長い
+      // ほど揃うまでの時間まで伸びて「やっと揃ったら終わり」が変わらない。
+      // 引くほうは ease に任せるが、0.55 で割って終わりぎわだけに効かせる。
+      SH.drift = Math.min(show.t / 2.2, ease / 0.55, 1);
+      // 散らす先の格子も流れと一緒に運ぶ。運ばないと、魚が格子に留まろうと
+      // して流れに逆らい、その場で足踏みする。
+      SH.dqx += SH.dvx * dt;
+      SH.dqy += SH.dvy * dt;
       // 山ごとに潮騒を重ねる。長くなったぶん、音が頭だけだと途中で切れて聞こえる。
-      const surge = Math.round(2 * u);
+      const surge = Math.round(humps * u);
       if (surge >= 1 && surge > show.phase) { show.phase = surge; Audio.swell(0.30); }
     } else if (d.id === 'nagi') {
       // 36〜38s。動きが 1/8 まで落ちる。次の演目が効くようになる。
       SH.calm = ease;
+      // 動きだけを落とすと、画面が「凪いだ」ではなく「止まった／固まった」に
+      // 見える。静かな星降りを重ねて、動いているものを 1 つだけ残す。
+      // 濃さは通常の 25%。演目より 1.2 秒長くして、魚が動きだすころに
+      // 星のほうがなだらかに引くようにする。
+      if (show.phase < 0) { show.phase = 0; starfall(show.dur + 1.2, 0.25); }
     }
     // hoshi は starfall がやる
 
