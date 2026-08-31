@@ -381,7 +381,7 @@ export default function App() {
         ) : visible.length === 0 ? (
           <p className="muted centered">条件に当たるものはありませんでした。</p>
         ) : (
-          <ShotGrid shots={visible} query={facets.query} onOpen={setSelected} />
+          <ShotGrid shots={visible} roster={roster} query={facets.query} onOpen={setSelected} />
         )}
       </main>
 
