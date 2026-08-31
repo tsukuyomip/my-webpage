@@ -157,6 +157,20 @@ export function SettingsPanel({
               </small>
             </span>
           </label>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={settings.confirmDuplicates !== false}
+              onChange={(e) => onSettings({ ...settings, confirmDuplicates: e.target.checked })}
+            />
+            <span>
+              同じ絵が来たら、どちらを残すか訊く
+              <small>
+                取り込み済みとほとんど同じ絵が来たとき、両方を並べて見せます。
+                切ると黙って飛ばします。
+              </small>
+            </span>
+          </label>
         </section>
 
         <section>

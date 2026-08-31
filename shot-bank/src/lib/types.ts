@@ -100,9 +100,18 @@ export interface Settings {
    * 一覧が増えたときだけ入れ直す。毎回入れると、消した人が戻ってきてしまう。
    */
   rosterSeed?: number
+  /**
+   * すでにある絵と同じものが来たとき、どちらを残すか訊くか。
+   * 切ると、これまでどおり黙って飛ばす。
+   */
+  confirmDuplicates?: boolean
 }
 
-export const DEFAULT_SETTINGS: Settings = { reencode: true, autoOcr: true }
+export const DEFAULT_SETTINGS: Settings = {
+  reencode: true,
+  autoOcr: true,
+  confirmDuplicates: true,
+}
 
 /** バックアップ ZIP に入れる目録。 */
 export interface BackupManifest {
