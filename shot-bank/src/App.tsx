@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Banners } from './components/Banners'
 import { DetailSheet } from './components/DetailSheet'
+import { DuplicatePanel, type DuplicateChoice } from './components/DuplicatePanel'
 import { FilterBar } from './components/FilterBar'
 import { RosterPanel } from './components/RosterPanel'
 import { SearchBar } from './components/SearchBar'
@@ -20,7 +21,12 @@ import {
 } from './lib/db'
 import { applyFacets, collectTags, EMPTY_FACETS, type Facets } from './lib/filter'
 import { normalizeName } from './lib/names'
-import { imageFilesFrom, ingestFiles, type IngestProgress } from './lib/ingest'
+import {
+  imageFilesFrom,
+  ingestFiles,
+  type DuplicateFile,
+  type IngestProgress,
+} from './lib/ingest'
 import { allMoods } from './lib/moods'
 import { needsOcr, recognizeShots, type RecognizeProgress } from './lib/recognizeQueue'
 import { gakumas } from './lib/profiles/gakumas'
@@ -44,6 +50,7 @@ export default function App() {
   const [tagging, setTagging] = useState(false)
   const [reading, setReading] = useState<RecognizeProgress | null>(null)
   const [staleBuild, setStaleBuild] = useState(false)
+  const [duplicates, setDuplicates] = useState<DuplicateFile[]>([])
   const fileInput = useRef<HTMLInputElement>(null)
   const stopReading = useRef(false)
 
@@ -155,13 +162,36 @@ export default function App() {
     [reload],
   )
 
+  /**
+   * 「同じ絵がある」1 件を、選ばれたとおりに片付ける。
+   * 取り込むほうは重複判定を通さない（もう見比べたあとなので）。
+   */
+  const resolveDuplicate = useCallback(
+    async (item: DuplicateFile, choice: DuplicateChoice) => {
+      const drop = choice === 'new' || choice === 'neither'
+      const take = choice === 'new' || choice === 'both'
+      if (drop) {
+        await releaseThumb(item.existingId)
+        await deleteShot(item.existingId)
+      }
+      let taken: Shot[] = []
+      if (take) {
+        const r = await ingestFiles([item.file], { reencode: settings.reencode, known: [] })
+        taken = r.added
+      }
+      await reload()
+      if (settings.autoOcr && taken.length) await readShots(taken)
+    },
+    [settings.reencode, settings.autoOcr, reload, readShots],
+  )
+
   const importFiles = useCallback(
     async (files: File[]) => {
       if (files.length === 0) return
       setNotice(undefined)
       const result = await ingestFiles(files, {
         reencode: settings.reencode,
-        knownHashes: shots.map((s) => s.dhash),
+        known: shots.map((s) => ({ id: s.id, dhash: s.dhash })),
         onProgress: setProgress,
       })
       setProgress(null)
@@ -169,13 +199,17 @@ export default function App() {
 
       const parts: string[] = []
       if (result.added.length) parts.push(`${result.added.length} 枚を取り込みました`)
-      if (result.duplicates) parts.push(`${result.duplicates} 枚は取り込み済みでした`)
+      if (result.duplicates.length) parts.push(`${result.duplicates.length} 枚は同じ絵でした`)
       if (result.failed.length) parts.push(`${result.failed.length} 枚は読めませんでした`)
       setNotice(parts.join(' / ') || '取り込めるものがありませんでした')
 
       if (settings.autoOcr && result.added.length) await readShots(result.added)
+      // どちらを残すかは訊いてから決める。訊かない設定なら、これまでどおり飛ばしたまま。
+      if (settings.confirmDuplicates !== false && result.duplicates.length) {
+        setDuplicates(result.duplicates)
+      }
     },
-    [settings.reencode, settings.autoOcr, shots, reload, readShots],
+    [settings.reencode, settings.autoOcr, settings.confirmDuplicates, shots, reload, readShots],
   )
 
   // ペーストと、ウィンドウ全体へのドロップを受ける。
@@ -473,6 +507,14 @@ export default function App() {
           onToggleCharacter={toggleCharacter}
           onToggleFavorite={toggleFavorite}
           onClose={() => setTagging(false)}
+        />
+      )}
+      {duplicates.length > 0 && (
+        <DuplicatePanel
+          items={duplicates}
+          shots={shots}
+          onResolve={resolveDuplicate}
+          onClose={() => setDuplicates([])}
         />
       )}
       {showRoster && (

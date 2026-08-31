@@ -627,6 +627,39 @@ button.small {
   font-size: 0.95rem;
   padding: 0.45rem 0.85rem;
 }
+/* ---- 同じ絵の確認 ---- */
+/* 縦長のスクショを 2 枚並べるので、横に割る。縦に積むと片方が画面外へ出て、
+   比べるという肝心のことができない。 */
+.dup-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+  margin: 0.6rem 0;
+}
+.dup-side {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  min-width: 0;
+  text-align: center;
+}
+.dup-side img.full {
+  max-height: 42dvh;
+  width: auto;
+  max-width: 100%;
+}
+.dup-label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--text-dim);
+}
+.dup-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.4rem;
+  margin: 0.6rem 0;
+}
 .roster-open {
   display: flex;
   flex-direction: column;

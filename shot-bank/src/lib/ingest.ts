@@ -4,9 +4,16 @@ import { hamming, DUPLICATE_BITS } from './hash'
 import { newId } from './ids'
 import type { Shot } from './types'
 
+/** すでに保存済みの絵とぶつかった 1 枚。どちらを残すかは呼び出し側が決める。 */
+export interface DuplicateFile {
+  file: File
+  /** ぶつかった、すでに保存済みのスクショの id */
+  existingId: string
+}
+
 export interface IngestResult {
   added: Shot[]
-  duplicates: number
+  duplicates: DuplicateFile[]
   failed: { name: string; reason: string }[]
 }
 
@@ -25,21 +32,25 @@ export async function ingestFiles(
   files: File[],
   options: {
     reencode: boolean
-    /** 既に保存済みのハッシュ。重複を弾くのに使う */
-    knownHashes: string[]
+    /**
+     * すでに保存済みのスクショ。重複を見つけるのに使う。
+     * どちらを残すかは決めない ── 見つけたことだけを返して、判断は呼び出し側に渡す。
+     */
+    known: { id: string; dhash: string }[]
     onProgress?: (p: IngestProgress) => void
   },
 ): Promise<IngestResult> {
-  const result: IngestResult = { added: [], duplicates: 0, failed: [] }
-  const hashes = [...options.knownHashes]
+  const result: IngestResult = { added: [], duplicates: [], failed: [] }
+  const known = [...options.known]
 
   for (const [i, file] of files.entries()) {
     options.onProgress?.({ done: i, total: files.length, currentName: file.name })
     try {
       const prepared = await prepare(file, options.reencode)
 
-      if (hashes.some((h) => hamming(h, prepared.dhash) <= DUPLICATE_BITS)) {
-        result.duplicates++
+      const clash = known.find((k) => hamming(k.dhash, prepared.dhash) <= DUPLICATE_BITS)
+      if (clash) {
+        result.duplicates.push({ file, existingId: clash.id })
         continue
       }
 
@@ -55,7 +66,7 @@ export async function ingestFiles(
         dhash: prepared.dhash,
       }
       await putShot(shot, prepared.blob, prepared.thumb)
-      hashes.push(prepared.dhash)
+      known.push({ id: shot.id, dhash: shot.dhash })
       result.added.push(shot)
     } catch (e) {
       result.failed.push({ name: file.name || '(名前なし)', reason: String(e) })
