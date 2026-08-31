@@ -142,24 +142,29 @@ button.icon {
   margin: 0.9rem 0 0;
   padding: 0;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(6.5rem, 1fr));
+  /* セリフを 2 行出すので、字が読める幅を確保する。
+     402px の画面でちょうど 3 列に収まる幅。 */
+  grid-template-columns: repeat(auto-fill, minmax(7.2rem, 1fr));
   gap: 0.4rem;
+  align-items: start;
 }
 .cell {
   display: block;
   width: 100%;
-  padding: 0;
+  padding: 0 0 0.4rem;
   border: 1px solid var(--line);
   border-radius: 8px;
   overflow: hidden;
   background: var(--surface-2);
-  /* 縦横が混ざるので、タイルは一律の比率にして切り抜く。
-     横長を span 2 にすると行の高さが揃わず、穴だらけになる。 */
-  aspect-ratio: 3 / 4;
+  text-align: left;
 }
+/* 縦横が混ざるので、タイルは一律の比率にして切り抜く。
+   横長を span 2 にすると行の高さが揃わず、穴だらけになる。
+   絶対配置で敷くのは、比率で決まった高さに対する % を当てにしないため。 */
 .thumb {
+  position: relative;
   width: 100%;
-  height: 100%;
+  aspect-ratio: 3 / 4;
 }
 /* iOS は画像を長押しするとドラッグが始まり、離した先で「取り込み」に
    化けてしまう。一覧のサムネは掴む対象ではないので、そこを止める。 */
@@ -169,6 +174,8 @@ button.icon {
   user-select: none;
   -webkit-user-select: none;
   pointer-events: none;
+  position: absolute;
+  inset: 0;
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -512,19 +519,41 @@ button.tiny {
 .grid.searching {
   grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
 }
-.grid.searching .cell {
+.grid.searching .thumb {
   aspect-ratio: 4 / 3;
 }
 .caption {
   display: flex;
   flex-direction: column;
   gap: 0.1rem;
-  padding: 0.35rem 0.1rem 0;
+  padding: 0.35rem 0.45rem 0;
 }
 .caption-head {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
   font-size: 0.72rem;
   font-weight: 700;
   color: var(--accent);
+  min-width: 0;
+}
+/* 省略記号は flex の子には効かない。文字だけを 1 つの箱に入れて、そこで削る。 */
+.caption-name {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* セリフは 2 行まで。行数を決め打ちにしないと、タイルの高さが揃わず段がずれる。 */
+.caption-body {
+  font-size: 0.72rem;
+  line-height: 1.35;
+  color: var(--text-dim);
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
 }
 
 /* ---- 絞り込み ---- */
@@ -587,6 +616,10 @@ button.small {
 .chip.big {
   font-size: 0.95rem;
   padding: 0.45rem 0.85rem;
+}
+.hint {
+  margin-top: -0.3rem;
+  font-size: 0.78rem;
 }
 .chip-dot {
   width: 0.6rem;

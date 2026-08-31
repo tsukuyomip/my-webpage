@@ -119,8 +119,10 @@ export interface Recognized {
   layout: Layout
   /** 本文（縦なら本文パネル、横なら字幕） */
   body: string
-  /** 話者名の OCR 生値。名簿への照合は Phase 2 */
+  /** 話者名。名前として受け取れた綴り */
   speakerRaw: string
+  /** 名前として受け取れなかったときの読み取り生値。受け取れたときは空 */
+  speakerRejected: string
   /** ヘッダチップの OCR 生値 */
   headerRaw: string
   story: Story | null
@@ -146,26 +148,41 @@ export async function recognize(px: Pixels, statusCallback: StatusCallback = () 
     // 横は絵の上に縁取りの白字が乗るだけなので崩れやすい。
     // 信じられない結果は捨てる。空のまま残して、手で入れてもらうほうがまし。
     const body = cleanBody(await recognizeGray(prepare(px, subtitle, 'outlined'), 'block'))
-    const speakerRaw = cleanSpeaker(
-      await recognizeGray(prepare(px, speaker, 'outlined', true), 'line'),
-    )
-    return { layout: 'landscape-story', body, speakerRaw, headerRaw: '', story: null }
+    const speakerOcr = await recognizeGray(prepare(px, speaker, 'outlined', true), 'line')
+    const speakerRaw = cleanSpeaker(speakerOcr)
+    return {
+      layout: 'landscape-story',
+      body,
+      speakerRaw,
+      speakerRejected: speakerRaw ? '' : speakerOcr,
+      headerRaw: '',
+      story: null,
+    }
   }
 
   const headerRaw = await recognizeGray(prepare(px, headerBox(px), 'brightest'), 'block')
   const story = parseHeader(headerRaw)
 
   if (!scan.panel) {
-    return { layout: classify(scan, story !== null), body: '', speakerRaw: '', headerRaw, story }
+    return {
+      layout: classify(scan, story !== null),
+      body: '',
+      speakerRaw: '',
+      speakerRejected: '',
+      headerRaw,
+      story,
+    }
   }
 
   const chip = findSpeakerChip(px, scan.panel)
   const body = cleanBody(await recognizeGray(prepare(px, bodyBox(scan.panel), 'otsu'), 'block'))
-  const speakerRaw = cleanSpeaker(await recognizeGray(prepare(px, chip, 'otsu', true), 'line'))
+  const speakerOcr = await recognizeGray(prepare(px, chip, 'otsu', true), 'line')
+  const speakerRaw = cleanSpeaker(speakerOcr)
   return {
     layout: classify(scan, story !== null),
     body,
     speakerRaw,
+    speakerRejected: speakerRaw ? '' : speakerOcr,
     headerRaw,
     story,
     speakerChipColor: speakerChipColor(px, chip),

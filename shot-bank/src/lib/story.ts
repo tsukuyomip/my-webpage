@@ -21,10 +21,25 @@ function tidy(raw: string): string {
 }
 
 // 桁を数えてから弾く。\d{1,3} だけだと「9999話」から 999 を拾ってしまう。
-const EPISODE = /(\d+)話/
+// 「第」まで含めて食う。題の一部ではないので、残すと題の末尾にぶら下がる。
+const EPISODE = /第?\s*(\d+)話/
 
-/** 題として意味を成すか。OCR の崩れかすを題と取り違えないための下限。 */
+/**
+ * 題として意味を成すか。OCR の崩れかすを題と取り違えないための下限。
+ *
+ * 数えるのは「重みのある字」だけ。長音と小書きの仮名は字数を稼ぐが、
+ * 題を名指す力は弱い。実測で「親愛度」が「にーー衝」と読まれ、
+ * 見かけの 4 字で題として通ってしまった（重みで数えれば「に衝」の 2 字）。
+ */
 const TITLE_MIN_CHARS = 4
+const FILLER = /[ー―ぁぃぅぇぉゃゅょっァィゥェォャュョッ]/g
+
+/** 題の前後につくゴミ。ヘッダの枠や、読み崩れた記号。 */
+const TITLE_EDGE_JUNK = /^[|_[\]()「」『』.,、。・\-ー―~\s]+|[|_[\]()「」『』.,、。・\-ー―~\s]+$/g
+
+/** 題は日本語で書かれている。英数字だらけの塊は、読み崩れたヘッダの残骸。 */
+const JAPANESE = /[ぁ-んァ-ヶー一-龥々〆]/g
+const TITLE_MIN_JAPANESE = 0.6
 
 /**
  * ヘッダを読み解く。話数が読めなければ null（＝ヘッダ無し）。
@@ -43,8 +58,18 @@ export function parseHeader(raw: string): Story | null {
   // カードストーリーは「キャラ名 + カード名 + N話」。話数の手前を題として拾う。
   // ただし、親愛度が読めなかっただけの崩れかす（「にーー衝」など）を
   // 題と取り違えないよう、意味のある長さがあるときだけカードとみなす。
-  const title = t.slice(0, m.index).replace(/[|_[\]()「」『』.,、。・\-ー―~]/g, '').trim()
-  if (title.length >= TITLE_MIN_CHARS) return { kind: 'カード', title, episode }
+  // 削るのは端だけ。中まで削ると「ハッピーミルフィーユ」が
+  // 「ハッピミルフィユ」になる（長音は題の一部で、ゴミではない）。
+  const title = t.slice(0, m.index).replace(TITLE_EDGE_JUNK, '')
+  const japanese = (title.match(JAPANESE) ?? []).length
+  const weight = title.replace(FILLER, '').length
+  if (
+    title.length > 0 &&
+    weight >= TITLE_MIN_CHARS &&
+    japanese / title.length >= TITLE_MIN_JAPANESE
+  ) {
+    return { kind: 'カード', title, episode }
+  }
   return { kind: 'その他', episode }
 }
 

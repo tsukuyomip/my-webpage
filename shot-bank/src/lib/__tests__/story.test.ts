@@ -46,3 +46,19 @@ describe('ヘッダの読み解き', () => {
     expect(formatStory({ kind: 'カード', title: '冠菊', episode: 1 })).toBe('冠菊 第1話')
   })
 })
+
+describe('題の見極め', () => {
+  it('英数字だらけの塊は題として受け取らない', () => {
+    // 実測: ヘッダが崩れて "V4REE第 第22話" と読めた。
+    // 「V4REE第」を題にすると、一覧に化けた字がそのまま並ぶ。
+    expect(parseHeader('V4REE第 第22話')).toEqual({ kind: 'その他', episode: 22 })
+  })
+
+  it('日本語の題はこれまでどおり受け取る', () => {
+    expect(parseHeader('ハッピーミルフィーユ 1話')).toEqual({
+      kind: 'カード',
+      title: 'ハッピーミルフィーユ',
+      episode: 1,
+    })
+  })
+})

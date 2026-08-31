@@ -48,10 +48,77 @@ export function cleanSpeaker(raw: string): string {
   return t
 }
 
-/** 本文として受け取れるか。長い文なので、名前より緩く見る。 */
+/** 日本語の字。ここに挟まれた空白は、日本語には無いものなので tesseract が撒いたもの。 */
+const JAPANESE = '[ぁ-んァ-ヶーｦ-ﾟ一-龥々〆０-９、。，．・…！？「」『』（）〜]'
+
+/** ASCII の記号。日本語のとなりに空白を置く理由がない。 */
+const PUNCT = "[!-/:-@\\[-`{-~]"
+
+/**
+ * 落とす空白の条件。**少なくとも片側が日本語**であること。
+ * 行内の空白だけを詰める。改行はセリフの折り返しなので残す。
+ */
+const GAP = '[^\\S\\n]+'
+const BETWEEN_JAPANESE = new RegExp(
+  `(${JAPANESE})${GAP}(?=${JAPANESE}|${PUNCT})|(${PUNCT})${GAP}(?=${JAPANESE})`,
+  'g',
+)
+
+/**
+ * 日本語の字のあいだの空白を落とす。
+ *
+ * tesseract は日本語の字間に空白を撒く（実測:「それ は そっ うっ 。」）。
+ * 検索は空白を落としてから照合するので当たっていたが、画面にはそのまま出るし、
+ * LINE へ送るときもそのまま付いてくる。読めるようにするのは保存する側の仕事。
+ *
+ * 落とすのは**日本語どうしに挟まれた**空白だけ。英字のあいだの空白は語の区切りなので残す。
+ */
+export function squeezeJapaneseSpaces(s: string): string {
+  return s.replace(BETWEEN_JAPANESE, (_m, jp, punct) => jp ?? punct)
+}
+
+const HAS_JAPANESE = new RegExp(JAPANESE)
+
+/**
+ * 本文の端にぶら下がる、字でない塊か。
+ *
+ * 本文の箱にはパネルの中の飾りが入ることがある（実測: 右下の「∨」が "NV" に、
+ * 左上の縁が "ON" になった）。日本語の本文の端で、日本語も数字も含まない
+ * 短い塊は字ではない。
+ *
+ * 3 文字までに絞る。長いものは、読み違えた本文であるほうが見込みが高いので残す。
+ */
+function isEdgeJunk(token: string): boolean {
+  if (token.length === 0 || token.length > 3) return false
+  return !HAS_JAPANESE.test(token) && !/[0-9０-９]/.test(token)
+}
+
+/**
+ * 先頭と末尾から、字でない塊を落とす。
+ * 全部が落ちることはない（1 つは必ず残す）。
+ */
+function dropEdgeJunk(text: string): string {
+  const tokens = text.split(/\s+/).filter((t) => t.length > 0)
+  while (tokens.length > 1 && isEdgeJunk(tokens[0])) tokens.shift()
+  while (tokens.length > 1 && isEdgeJunk(tokens[tokens.length - 1])) tokens.pop()
+  if (tokens.length === 0) return text
+  // 残った最初と最後の塊のあいだを、元の並びのまま切り出す。改行はそこに残る。
+  const last = tokens[tokens.length - 1]
+  return text.slice(text.indexOf(tokens[0]), text.lastIndexOf(last) + last.length)
+}
+
+/**
+ * 本文として受け取れるか。長い文なので、名前より緩く見る。
+ * 受け取るものは、読める形に整えてから返す。
+ */
 export function cleanBody(raw: string): string {
   const t = raw.trim()
   if (!t) return ''
   if (plausibleRatio(t) < 0.45) return ''
-  return t
+  const lines = t
+    .split('\n')
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0)
+    .join('\n')
+  return squeezeJapaneseSpaces(dropEdgeJunk(lines)).trim()
 }

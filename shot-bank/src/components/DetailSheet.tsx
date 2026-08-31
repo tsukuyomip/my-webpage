@@ -156,6 +156,13 @@ export function DetailSheet({
           <span>話者</span>
           <input value={speaker} onChange={(e) => setSpeaker(e.target.value)} placeholder="（なし）" />
         </label>
+        {/* 読めたのに弾いたときは、その生値を見せる。黙って空にすると
+            「読めなかった」のか「読めたが名前と認めなかった」のか分からず、直しようがない。 */}
+        {!speaker && shot.speakerRejected && (
+          <p className="muted hint">
+            読み取れたのは「{shot.speakerRejected}」でした。名前として受け取れなかったので空にしています。
+          </p>
+        )}
         <label className="field">
           <span>本文</span>
           <textarea rows={4} value={body} onChange={(e) => setBody(e.target.value)} placeholder="（なし）" />
