@@ -20,7 +20,13 @@ export async function recognizeShots(
   shots: Shot[],
   options: {
     onProgress?: (p: RecognizeProgress) => void
-    onDone?: (shot: Shot) => void
+    /**
+     * 1 枚読めるたびに呼ぶ。**必ず待つ**。
+     * 呼び出し側はこの後で保存済みの姿を読み直し、話者の紐付けを足して書き戻す。
+     * 待たずに投げっぱなしにすると、その読み直しが書き込みを追い越しうる
+     * ＝古い姿に紐付けだけ足して保存し、読み取り結果を消してしまう。
+     */
+    onDone?: (shot: Shot) => void | Promise<void>
     /** 中断したいときに true を返す */
     shouldStop?: () => boolean
   } = {},
@@ -49,10 +55,10 @@ export async function recognizeShots(
         ocr: 'done',
         ocrError: undefined,
       }
-      options.onDone?.(updated)
+      await options.onDone?.(updated)
       done++
     } catch (e) {
-      options.onDone?.({ ...shot, ocr: 'error', ocrError: String(e) })
+      await options.onDone?.({ ...shot, ocr: 'error', ocrError: String(e) })
       failed++
     }
   }

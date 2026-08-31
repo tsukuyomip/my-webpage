@@ -63,8 +63,12 @@ export default function App() {
   const seedKnownNames = useCallback(
     async (current: Settings, force = false) => {
       const names = gakumas.knownNames
-      if (!force && current.rosterSeed === names.length) return current
-      const { added, promoted } = seedRoster(await getAllCharacters(), names)
+      const before = await getAllCharacters()
+      // 旗だけを見ていると、全消しのあとに種入れが飛ばされる。
+      // 全消しはスクショと名簿を消すが設定は残すので、旗は立ったままになる（実測）。
+      // 名簿が空なら、消した人を蘇らせる心配もないので入れ直してよい。
+      if (!force && current.rosterSeed === names.length && before.length > 0) return current
+      const { added, promoted } = seedRoster(before, names)
       for (const character of [...added, ...promoted]) await putCharacter(character)
       const next = { ...current, rosterSeed: names.length }
       await saveSettings(next)
@@ -128,7 +132,7 @@ export default function App() {
       setReading({ done: 0, total: targets.length, detail: '' })
       const result = await recognizeShots(targets, {
         onProgress: setReading,
-        onDone: (shot) => void updateShot(shot),
+        onDone: (shot) => updateShot(shot),
         shouldStop: () => stopReading.current,
       })
       setReading(null)
@@ -482,6 +486,11 @@ export default function App() {
           }}
           onDelete={(c) => void deleteCharacter(c.id).then(reload)}
           onSeed={() => void seedKnownNames(settings, true)}
+          onPick={(c) => {
+            // 話者としても「写っている人」としても、その人の出ている枚をまとめて見せる。
+            setFacets({ ...EMPTY_FACETS, characterIds: [c.id] })
+            setShowRoster(false)
+          }}
           onClose={() => setShowRoster(false)}
         />
       )}

@@ -48,8 +48,15 @@ export function toleranceFor(length: number): number {
   return 2
 }
 
-/** 色が「同じキャラのチップ」と言えるほど近いか。 */
+/** 色が「同じキャラのチップ」と言えるほど近いか。名前の裏取りに使う。 */
 const COLOR_TOLERANCE = 60
+
+/**
+ * 色だけで人を決めるときの許し。裏取りより厳しくする。
+ * 実測でいちばん近い 2 人は星南 #ffb03d と千奈 #f08326 で、距離 45。
+ * 60 のままだと両方に当たってしまうので、そこを割る値にする。
+ */
+const COLOR_ONLY_TOLERANCE = 30
 
 function colorDistance(a: string, b: string): number {
   const parse = (hex: string): [number, number, number] | null => {
@@ -62,6 +69,24 @@ function colorDistance(a: string, b: string): number {
   const cb = parse(b)
   if (!ca || !cb) return 0
   return Math.max(Math.abs(ca[0] - cb[0]), Math.abs(ca[1] - cb[1]), Math.abs(ca[2] - cb[2]))
+}
+
+/**
+ * 名前が読めなかったときに、チップの色だけで人を当てる。
+ *
+ * 読み取りは同じ絵でも当たり外れがある（実測: 同じ「星南」の切り出しが、
+ * ある環境では「星南」、別の環境では "Em" になった）。字が崩れても
+ * チップの色は変わらないので、こちらは崩れない手がかりになる。
+ *
+ * 当てはまる人が **ちょうど 1 人** のときだけ返す。2 人以上に近ければ、
+ * 決められないということなので何も返さない。色を覚えていない人は対象外。
+ */
+export function findByColor(roster: Character[], chipColor?: string): Character | null {
+  if (!chipColor) return null
+  const near = roster.filter(
+    (c) => c.color && colorDistance(chipColor, c.color) <= COLOR_ONLY_TOLERANCE,
+  )
+  return near.length === 1 ? near[0] : null
 }
 
 export interface NameMatch {

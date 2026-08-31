@@ -1,5 +1,5 @@
 import { newId } from './ids'
-import { findCharacter, normalizeName } from './names'
+import { findByColor, findCharacter, normalizeName } from './names'
 import type { Character, Shot } from './types'
 
 /**
@@ -81,26 +81,39 @@ export function resolveSpeakers(shots: Shot[], roster: Character[]): ResolveResu
   const added: Character[] = []
   const assignments = new Map<string, string>()
 
+  // 1 周目: 名前で当てる。ここで色が貯まる。
+  const newNames: Shot[] = []
+  const unreadable: Shot[] = []
   for (const shot of shots) {
     const raw = shot.speakerRaw?.trim()
-    if (!raw) continue
-    const match = findCharacter(next, raw, shot.speakerChipColor)
-    if (match) {
-      assignments.set(shot.id, match.character.id)
-      // 読めた綴りが名簿に無い形なら、別名として覚えておく。次から確実に当たる。
-      const known = new Set(
-        [match.character.name, ...match.character.aliases].map(normalizeName),
-      )
-      if (!known.has(normalizeName(raw))) match.character.aliases = [...match.character.aliases, raw]
-      // 色をまだ持っていなければ、ここで覚える。
-      if (!match.character.color && shot.speakerChipColor) {
-        match.character.color = shot.speakerChipColor
-      }
+    if (!raw) {
+      unreadable.push(shot)
       continue
     }
+    const match = findCharacter(next, raw, shot.speakerChipColor)
+    if (!match) {
+      newNames.push(shot)
+      continue
+    }
+    assignments.set(shot.id, match.character.id)
+    // 読めた綴りが名簿に無い形なら、別名として覚えておく。次から確実に当たる。
+    const known = new Set([match.character.name, ...match.character.aliases].map(normalizeName))
+    if (!known.has(normalizeName(raw))) {
+      match.character.aliases = [...match.character.aliases, raw]
+    }
+    // 色をまだ持っていなければ、ここで覚える。
+    if (!match.character.color && shot.speakerChipColor) {
+      match.character.color = shot.speakerChipColor
+    }
+  }
+
+  // 2 周目: 名前は読めたが誰にも寄らなかったもの。新しい人として仮登録する。
+  // ここを色に頼らせてはいけない。プロデューサー（2943）は無彩色なので、
+  // 同じ無彩色の香名江に吸われた（実測）。読めた名前は、新しい人がいる証。
+  for (const shot of newNames) {
     const created: Character = {
       id: newId(),
-      name: raw,
+      name: shot.speakerRaw!.trim(),
       aliases: [],
       color: shot.speakerChipColor,
       provisional: true,
@@ -109,6 +122,13 @@ export function resolveSpeakers(shots: Shot[], roster: Character[]): ResolveResu
     next.push(created)
     added.push(created)
     assignments.set(shot.id, created.id)
+  }
+
+  // 3 周目: 名前が読めなかったものを、色で当てる。
+  // 名簿が出そろってから見るので、「近い人が 2 人いる」をきちんと弾ける。
+  for (const shot of unreadable) {
+    const byColor = findByColor(next, shot.speakerChipColor)
+    if (byColor) assignments.set(shot.id, byColor.id)
   }
 
   return { roster: next, added, assignments }
