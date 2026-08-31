@@ -484,18 +484,30 @@
 
   function setCount(n) {
     n = clamp(n | 0, 0, CAP);
-    for (let i = N; i < n; i++) spawn(i, true);
+    // はじめの 1 回だけは画面ぜんぶに散らす。あとから足すぶんは水から湧かす。
+    const seed = N === 0;
+    for (let i = N; i < n; i++) spawn(i, seed);
     N = n;
   }
 
-  function spawn(i, anywhere) {
-    px_[i] = anywhere ? rnd(0, W) : rnd(-40, W + 40);
-    py_[i] = anywhere ? rnd(0, H) : rnd(-40, H + 40);
-    const a = rnd(0, TAU), sp = rnd(30, 90);
+  function spawn(i, seed) {
+    // あとから足す魚は必ず水の中に置く。空中に湧かせると、何も無いところに
+    // 魚がふっと現れるのがそのまま見えてしまう。景色の切り替えで密度が
+    // 変わるたびに起きていて、宵 → 銀 は 1.0 → 1.4 なので 400 匹以上が湧く。
+    // はじめの 1 回だけは、開いた時点で画面ぜんぶに魚が居てほしいので散らす。
+    px_[i] = rnd(0, W);
+    py_[i] = seed ? rnd(0, H) : rnd(waterY + 6, H - 4);
+    // 水から湧くぶんは上へ向かせる。水際で横に散ると、水面に沿って
+    // 並んだ帯に見えてしまう。
+    const a = seed ? rnd(0, TAU) : rnd(-Math.PI * 0.85, -Math.PI * 0.15);
+    const sp = rnd(30, 90);
     vx_[i] = Math.cos(a) * sp; vy_[i] = Math.sin(a) * sp;
     sz_[i] = rnd(0.55, 1.55);
     ci_[i] = (Math.random() * sprites.length) | 0;
     bx_[i] = rnd(-118, 118); by_[i] = rnd(-92, 92);
+    // 大きさ 0 から出す。1 のままだと、水の中とはいえ「ぱっと現れた」のは
+    // 見える。演目の外では dep_ が 1 へ戻っていくので、0.5 秒ほどで育つ。
+    dep_[i] = seed ? 1 : 0;
   }
 
   /* ============================================================
