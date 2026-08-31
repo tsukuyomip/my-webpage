@@ -100,7 +100,11 @@ export async function deleteAllShots(): Promise<void> {
 export async function getAllCharacters(): Promise<Character[]> {
   const db = await openDb()
   const store = db.transaction('characters', 'readonly').objectStore('characters')
-  return toPromise(store.getAll() as IDBRequest<Character[]>)
+  const all = await toPromise(store.getAll() as IDBRequest<Character[]>)
+  // 鍵は乱数の id なので、そのままだと並びが毎回ばらつく。
+  // 入れた順に揃える。種は教わった並びのまま入るので、
+  // 爆速タグ付けのチップも毎回同じ位置に出る。
+  return all.sort((a, b) => a.createdAt - b.createdAt || (a.name < b.name ? -1 : 1))
 }
 
 export async function putCharacter(character: Character): Promise<void> {

@@ -3,12 +3,64 @@ import { findCharacter, normalizeName } from './names'
 import type { Character, Shot } from './types'
 
 /**
- * 名簿は OCR から勝手に育つ。
+ * 名簿は OCR から育つ。分かっている名前は先に入れておく。
  *
- * キャラ一覧をハードコードしない。読めた話者名が既存に近ければ寄せ、
- * 遠ければ新しい人として仮登録する。ゲーム側にキャラが増えても
- * アプリを直さずに追随できるし、他のゲームにも同じ仕組みが効く。
+ * 育つ仕組みは残す。読めた話者名が既存に近ければ寄せ、遠ければ新しい人として
+ * 仮登録する。ゲーム側にキャラが増えても、アプリを直さずに追随できる。
+ *
+ * そのうえで、分かっている主要キャラは種として先に入れる（seedRoster）。
+ * 種が無いと、1〜2 文字の名前は編集距離の許容が 0 なので、誤読のたびに
+ * 別人が増えていた（実測: 「広」が「リム」と読まれて仮登録された）。
+ * 種があれば、正しく読めた回に確実に当たり、誤読は名簿の画面で
+ * その人に寄せられる（寄せた綴りは別名として残る）。
  */
+
+/**
+ * 分かっている名前を名簿に入れる。何度呼んでも同じ結果になる。
+ *
+ * すでに同じ名前（または別名）の人がいれば、増やさずにその人を「確かめ済み」にする。
+ * 仮登録のまま育っていた人を、種と二重に持たないため。
+ * 消した人が戻ってこないよう、呼ぶ側は 1 回だけ通すこと（Settings.rosterSeed）。
+ */
+export function seedRoster(
+  roster: Character[],
+  names: readonly string[],
+): { roster: Character[]; added: Character[]; promoted: Character[] } {
+  const next = [...roster]
+  const added: Character[] = []
+  const promoted: Character[] = []
+  // 教わった並びを createdAt に写して、一覧の並びを決められるようにする。
+  // 同じミリ秒に 20 人入れると、入れた順が残らない。
+  const base = Date.now()
+  let order = 0
+
+  for (const name of names) {
+    const key = normalizeName(name)
+    if (!key) continue
+    const index = next.findIndex((c) =>
+      [c.name, ...c.aliases].some((n) => normalizeName(n) === key),
+    )
+    if (index >= 0) {
+      const found = next[index]
+      if (!found.provisional) continue
+      const confirmed = { ...found, provisional: false }
+      next[index] = confirmed
+      promoted.push(confirmed)
+      continue
+    }
+    const created: Character = {
+      id: newId(),
+      name,
+      aliases: [],
+      provisional: false,
+      createdAt: base + order++,
+    }
+    next.push(created)
+    added.push(created)
+  }
+
+  return { roster: next, added, promoted }
+}
 
 export interface ResolveResult {
   roster: Character[]
@@ -97,4 +149,21 @@ export function countByCharacter(shots: Shot[]): Map<string, number> {
     for (const id of shot.characterIds ?? []) if (id !== shot.speakerId) bump(id)
   }
   return counts
+}
+
+/** 何枚で喋っているか。「喋っている」の絞り込みは、写っているだけの人を出さない。 */
+export function countSpeakers(shots: Shot[]): Map<string, number> {
+  const counts = new Map<string, number>()
+  for (const shot of shots) {
+    if (!shot.speakerId) continue
+    counts.set(shot.speakerId, (counts.get(shot.speakerId) ?? 0) + 1)
+  }
+  return counts
+}
+
+/** 出てくる人だけを、よく出る順に。0 枚の人を出しても、押せば必ず 0 件になる。 */
+export function byUse(roster: Character[], counts: Map<string, number>): Character[] {
+  return roster
+    .filter((c) => (counts.get(c.id) ?? 0) > 0)
+    .sort((a, b) => (counts.get(b.id) ?? 0) - (counts.get(a.id) ?? 0))
 }

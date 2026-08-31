@@ -634,6 +634,9 @@ button.small {
   width: auto;
   height: auto;
 }
+.tagq-people {
+  align-self: flex-start;
+}
 .tagq-tags {
   display: flex;
   flex-direction: column;

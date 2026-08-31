@@ -6,8 +6,12 @@ import { useEdgeSwipeBack } from './useEdgeSwipeBack'
 /**
  * 名簿の手入れ。
  *
- * 名簿は OCR から勝手に育つので、放っておくと誤読が別人として並ぶ。
+ * 名簿は OCR から育つので、放っておくと誤読が別人として並ぶ。
  * 「同じ人だ」とまとめる操作がいちばん要る。次に改名。
+ *
+ * 改名の欄には名簿の名前を候補として出す。分かっている主要キャラは
+ * 種として入れてあるので、誤読を直すのは「候補から選ぶ」で済む。
+ * すでにいる名前に直したときは、増やさずにその人へまとめられる（App 側）。
  */
 export function RosterPanel({
   roster,
@@ -69,6 +73,7 @@ export function RosterPanel({
                       <span className="row">
                         <input
                           className="roster-input"
+                          list="roster-names"
                           value={draft}
                           onChange={(e) => setDraft(e.target.value)}
                           autoFocus
@@ -139,10 +144,16 @@ export function RosterPanel({
                 </li>
               ))}
             </ul>
+            <datalist id="roster-names">
+              {roster.map((c) => (
+                <option key={c.id} value={c.name} />
+              ))}
+            </datalist>
             <p className="muted">
-              名簿は読み取った話者名から自動で増えます。誤読が別人として並んだら
-              「まとめる」で 1 人にしてください。まとめた綴りは別名として覚えるので、
-              次からは編集距離に頼らず当たります。
+              主要キャラは最初から入っています。それ以外は読み取った話者名から自動で
+              増えます。誤読が別人として並んだら「改名」で正しい名前を選ぶか、
+              「まとめる」で 1 人にしてください。どちらでも元の綴りは別名として
+              覚えるので、次からは編集距離に頼らず当たります。
             </p>
           </>
         )}
