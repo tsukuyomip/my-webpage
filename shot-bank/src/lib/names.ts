@@ -112,6 +112,31 @@ export function colorsOf(character: Character): string[] {
 const MAX_SAMPLES = 6
 
 /**
+ * 種の色を入れ直す。**すでに知っている色は捨てない。**
+ *
+ * 色は実測して少しずつ直している（撫子だけ濃い、星南は場面で 2 色、など）。
+ * 直した値を配っても、種は「色を持っていない人」にしか入れていなかったので、
+ * すでに名簿がある人には一生届かなかった。
+ *
+ * 上書きしてよい理由は、**学習は color を書き換えないから**
+ * （withColorSample は color が空のときだけ入れ、あとは colorSamples に足す）。
+ * それでも実物のチップから覚えた色である可能性は残るので、捨てずに見本へ移す。
+ * 近い色は移さない ── 同じ色が 2 つ並んでも当たり方は変わらない。
+ */
+export function withSeedColor(
+  character: Character,
+  color: string,
+  samples?: readonly string[],
+): Character {
+  const seeded = [color, ...(samples ?? [])]
+  const kept = colorsOf(character).filter(
+    (old) => !seeded.some((c) => colorDistance(old, c) <= COLOR_ONLY_TOLERANCE),
+  )
+  const rest = [...(samples ?? []), ...kept].slice(0, MAX_SAMPLES)
+  return { ...character, color, colorSamples: rest.length ? rest : undefined }
+}
+
+/**
  * 見たチップの色を覚えさせる。
  * すでに近い色を知っていれば増やさない。場面ごとに違う色だけが溜まる。
  */

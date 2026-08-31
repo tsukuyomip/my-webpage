@@ -1,5 +1,5 @@
 import { newId } from './ids'
-import { findByColor, findCharacter, normalizeName, withColorSample } from './names'
+import { findByColor, findCharacter, normalizeName, withColorSample, withSeedColor } from './names'
 import type { Character, Shot } from './types'
 
 /**
@@ -42,15 +42,18 @@ export function seedRoster(
     )
     if (index >= 0) {
       const found = next[index]
-      // 色をまだ持っていない人には入れてやる。名前が一度も読めないキャラは
-      // 自力では色を覚えられないので、ここが唯一の入り口になる。
-      const needsColor = color !== undefined && found.color === undefined
-      if (!found.provisional && !needsColor) continue
-      const updated = {
-        ...found,
+      // 種の色は入れ直す。名前が一度も読めないキャラは自力で色を覚えられないので、
+      // ここが唯一の入り口になる。そして**測り直した値も、ここからしか届かない**
+      //（以前は「色を持っていない人」にしか入れず、既にある名簿には一生届かなかった）。
+      // すでに知っている色は捨てずに見本へ移す。詳しくは withSeedColor。
+      const applied =
+        color === undefined ||
+        (found.color === color &&
+          (samples ?? []).every((v) => (found.colorSamples ?? []).includes(v)))
+      if (!found.provisional && applied) continue
+      const updated: Character = {
+        ...(color !== undefined ? withSeedColor(found, color, samples) : found),
         provisional: false,
-        color: found.color ?? color,
-        colorSamples: found.colorSamples ?? (samples ? [...samples] : undefined),
       }
       next[index] = updated
       promoted.push(updated)

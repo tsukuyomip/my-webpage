@@ -75,6 +75,8 @@ export default function App() {
       // 全消しはスクショと名簿を消すが設定は残すので、旗は立ったままになる（実測）。
       // 名簿が空なら、消した人を蘇らせる心配もないので入れ直してよい。
       if (!force && current.rosterSeed === gakumas.seedVersion && before.length > 0) return current
+      // promoted は「仮」を外した人と、**色を入れ直した人**の両方。
+      // 色は実測して少しずつ直しているので、種の版を上げるたびにここで届く。
       const { added, promoted } = seedRoster(before, known)
       for (const character of [...added, ...promoted]) await putCharacter(character)
       const next = { ...current, rosterSeed: gakumas.seedVersion }
@@ -83,7 +85,7 @@ export default function App() {
       if (force) {
         setNotice(
           added.length || promoted.length
-            ? `${added.length} 人を足して、${promoted.length} 人の「仮」を外しました`
+            ? `${added.length} 人を足して、${promoted.length} 人を直しました`
             : '足りない人はいませんでした',
         )
       }

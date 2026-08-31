@@ -219,6 +219,77 @@ describe('誤読が本人を隠さない', () => {
   })
 })
 
+describe('種の色は測り直しが届く', () => {
+  it('種が前に書いた色を、新しい値で入れ直す', () => {
+    // 以前は「色を持っていない人」にしか入れていなかったので、測り直した値が
+    // すでにある名簿には一生届かなかった。撫子が濃いと分かっても直せない。
+    const before = [person('月花', { color: '#988d83' })]
+    const { roster } = seedRoster(before, [{ name: '月花', color: '#535365' }])
+    expect(roster[0].color).toBe('#535365')
+  })
+
+  it('前の色は捨てずに見本として残す', () => {
+    // 実物のチップから覚えた色かもしれないので、消してはいけない。
+    const before = [person('月花', { color: '#988d83' })]
+    const { roster } = seedRoster(before, [{ name: '月花', color: '#535365' }])
+    expect(roster[0].colorSamples).toContain('#988d83')
+  })
+
+  it('近い色は見本に増やさない', () => {
+    const before = [person('撫子', { color: '#545365' })]
+    const { roster } = seedRoster(before, [{ name: '撫子', color: '#535365' }])
+    expect(roster[0].color).toBe('#535365')
+    expect(roster[0].colorSamples).toBeUndefined()
+  })
+
+  it('何度入れ直しても色は動かない', () => {
+    const once = seedRoster([], gakumas.knownCharacters).roster
+    const twice = seedRoster(once, gakumas.knownCharacters).roster
+    for (const c of twice) {
+      const was = once.find((o) => o.name === c.name)!
+      expect(c.color).toBe(was.color)
+      expect(c.colorSamples).toEqual(was.colorSamples)
+    }
+  })
+})
+
+describe('ライバル勢の濃い色は 1 人に絞らせない', () => {
+  it('濃いチップは撫子に当たらない', () => {
+    // 撫子だけに濃い色を持たせると、月花・四音・燐羽の枚が丸ごと撫子になる。
+    // 実測できているのは撫子だけなので、4 人まとめて同じ色にして必ず諦めさせる。
+    const roster = seedRoster([], gakumas.knownCharacters).roster
+    const r = resolveSpeakers([shot('s1', '', '#535365')], roster)
+    expect(r.assignments.has('s1')).toBe(false)
+  })
+
+  it('誤読も撫子に吸われない', () => {
+    const roster = seedRoster([], gakumas.knownCharacters).roster
+    const r = resolveSpeakers([shot('s1', '月花丸', '#535365')], roster)
+    const nadeshiko = roster.find((c) => c.name === '撫子')!
+    expect(r.assignments.get('s1')).not.toBe(nadeshiko.id)
+  })
+
+  it('名前が読めれば、これまでどおりその人に当たる', () => {
+    // 色で決められなくても、名前が読めた回は名前で当たる。
+    const roster = seedRoster([], gakumas.knownCharacters).roster
+    const r = resolveSpeakers(
+      [shot('s1', '月花', '#535365'), shot('s2', '撫子', '#535365')],
+      roster,
+    )
+    const nameOf = (id: string) => r.roster.find((c) => c.id === r.assignments.get(id))?.name
+    expect(nameOf('s1')).toBe('月花')
+    expect(nameOf('s2')).toBe('撫子')
+  })
+
+  it('グレー勢と濃い勢は混ざらない', () => {
+    const roster = seedRoster([], gakumas.knownCharacters).roster
+    const dark = roster.filter((c) => c.color === '#535365').map((c) => c.name)
+    const grey = roster.filter((c) => c.color === '#988d83').map((c) => c.name)
+    expect(dark).toEqual(['月花', '四音', '撫子', '燐羽'])
+    expect(grey).toEqual(['優', '香名江', 'あさり先生'])
+  })
+})
+
 describe('チップの色は場面で動く。だから何色か覚える', () => {
   it('星南は種の時点で 2 色持つ。明るい場面と暗い場面で 23 離れるため', () => {
     const roster = seedRoster([], gakumas.knownCharacters).roster
