@@ -55,6 +55,14 @@ export async function putShot(shot: Shot, blob: Blob, thumb: Blob): Promise<void
   await txDone(tx)
 }
 
+/** メタだけ差し替える。OCR の結果を書き戻すのに画像まで読み書きしない。 */
+export async function updateShot(shot: Shot): Promise<void> {
+  const db = await openDb()
+  const tx = db.transaction('shots', 'readwrite')
+  tx.objectStore('shots').put(shot)
+  await txDone(tx)
+}
+
 async function getBlobFrom(store: 'blobs' | 'thumbs', id: string): Promise<Blob | undefined> {
   const db = await openDb()
   const s = db.transaction(store, 'readonly').objectStore(store)
