@@ -44,6 +44,7 @@ export async function recognizeShots(
         speakerRaw: r.speakerRaw,
         headerRaw: r.headerRaw,
         story: r.story ?? undefined,
+        speakerChipColor: r.speakerChipColor,
         ocr: 'done',
         ocrError: undefined,
       }

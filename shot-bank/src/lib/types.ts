@@ -36,9 +36,46 @@ export interface Shot {
   textEdited?: boolean
   ocr?: OcrStatus
   ocrError?: string
+  /** 話者チップの平均色（#rrggbb）。キャラ照合の裏取りに使う */
+  speakerChipColor?: string
+
+  // --- 分類 ---
+  /** 誰が喋ったか。名簿へ寄せた結果 */
+  speakerId?: string
+  /** 誰が写っているか。話者とは別物なので分けて持つ */
+  characterIds?: string[]
+  /** 表情。複数付く（ドヤ顔かつ楽、はある） */
+  moods?: string[]
+  /** 自由タグ */
+  tags?: string[]
+  favorite?: boolean
+  /** 手でタグを触ったか。要確認の一覧から外す印 */
+  tagged?: boolean
 }
 
 export type OcrStatus = 'queued' | 'done' | 'error'
+
+/**
+ * 名簿の 1 人。
+ *
+ * ハードコードしない。OCR で読めた話者名がそのまま候補になり、
+ * 既存に近ければ寄せ、遠ければ新しい人として仮登録される。
+ * ゲーム側にキャラが増えても、アプリを直さずに追随できる。
+ */
+export interface Character {
+  id: string
+  /** 表示名 */
+  name: string
+  /** OCR のゆれ・略称・フルネーム。照合はここも見る */
+  aliases: string[]
+  /** 話者チップの平均色。名前照合の裏取りと、一覧のチップ色に使う */
+  color?: string
+  /** 自分（プロデューサー）。セリフの絞り込みで外せるようにする */
+  isProducer?: boolean
+  /** 仮登録のまま確かめていない。名簿の画面で目印を出す */
+  provisional?: boolean
+  createdAt: number
+}
 
 /** 端末に残す設定。IndexedDB の kv ストアに入れる。 */
 export interface Settings {
@@ -46,6 +83,8 @@ export interface Settings {
   reencode: boolean
   /** 取り込んだらそのまま文字認識まで走らせるか */
   autoOcr: boolean
+  /** 初期セットに足した表情タグ */
+  customMoods?: string[]
   /** 最後にバックアップを書き出した日時 */
   lastBackupAt?: number
 }

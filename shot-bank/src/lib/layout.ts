@@ -125,6 +125,59 @@ export function findSpeakerChip(
   return { x: panel.x, y: top, w, h }
 }
 
+/**
+ * 話者チップの代表色。
+ *
+ * 実測でチップの色はキャラ固有だった（ことね＝黄〜桃、清夏＝黄緑〜緑、
+ * 撫子＝紫、サブキャラとプロデューサー＝無彩色）。数画素を拾うだけなのでほぼタダで、
+ * 名前照合の裏取りに使える。
+ *
+ * 字を避けるため、チップの左の余白（名前が始まる手前）から取る。
+ * 横のグラデーションがあるので、狭い範囲の中央値を採る。
+ */
+export function speakerChipColor(
+  px: Pixels,
+  chip: Rect,
+  profile: GameProfile = gakumas,
+): string | undefined {
+  const c = profile.speakerChip
+  const x0 = chip.x + Math.round(px.width * c.seedInset * 0.4)
+  const x1 = chip.x + Math.round(px.width * c.seedInset * 1.6)
+  const y0 = chip.y + Math.round(chip.h * 0.3)
+  const y1 = chip.y + Math.round(chip.h * 0.7)
+  if (x1 <= x0 || y1 <= y0 || x1 >= px.width || y1 >= px.height) return undefined
+
+  const rs: number[] = []
+  const gs: number[] = []
+  const bs: number[] = []
+  for (let y = y0; y < y1; y++) {
+    for (let x = x0; x < x1; x++) {
+      const [r, g, b] = rgbAt(px, x, y)
+      rs.push(r)
+      gs.push(g)
+      bs.push(b)
+    }
+  }
+  if (rs.length === 0) return undefined
+  const mid = (v: number[]): number => {
+    v.sort((a, b) => a - b)
+    return v[Math.floor(v.length / 2)]
+  }
+  const hex = (v: number) => v.toString(16).padStart(2, '0')
+  return `#${hex(mid(rs))}${hex(mid(gs))}${hex(mid(bs))}`
+}
+
+/** 無彩色に近いか。実測で、サブキャラとプロデューサーのチップは無彩色だった。 */
+export function isNeutralColor(hex: string, threshold = 26): boolean {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim())
+  if (!m) return false
+  const n = parseInt(m[1], 16)
+  const r = (n >> 16) & 255
+  const g = (n >> 8) & 255
+  const b = n & 255
+  return Math.max(r, g, b) - Math.min(r, g, b) <= threshold
+}
+
 function rgbAt(px: Pixels, x: number, y: number): [number, number, number] {
   const i = (y * px.width + x) * 4
   return [px.data[i], px.data[i + 1], px.data[i + 2]]

@@ -1,8 +1,8 @@
-import type { Settings, Shot } from './types'
+import type { Character, Settings, Shot } from './types'
 import { DEFAULT_SETTINGS } from './types'
 
 const DB_NAME = 'shot-bank'
-const DB_VERSION = 1
+const DB_VERSION = 2
 
 let dbPromise: Promise<IDBDatabase> | null = null
 
@@ -17,6 +17,10 @@ function openDb(): Promise<IDBDatabase> {
       if (!db.objectStoreNames.contains('blobs')) db.createObjectStore('blobs', { keyPath: 'id' })
       if (!db.objectStoreNames.contains('thumbs')) db.createObjectStore('thumbs', { keyPath: 'id' })
       if (!db.objectStoreNames.contains('kv')) db.createObjectStore('kv', { keyPath: 'key' })
+      // v2: 名簿。OCR で読めた話者名から育つので、初期データは入れない。
+      if (!db.objectStoreNames.contains('characters')) {
+        db.createObjectStore('characters', { keyPath: 'id' })
+      }
     }
     req.onsuccess = () => resolve(req.result)
     req.onerror = () => reject(req.error)
@@ -84,10 +88,32 @@ export async function deleteShot(id: string): Promise<void> {
 
 export async function deleteAllShots(): Promise<void> {
   const db = await openDb()
-  const tx = db.transaction(['shots', 'blobs', 'thumbs'], 'readwrite')
+  const tx = db.transaction(['shots', 'blobs', 'thumbs', 'characters'], 'readwrite')
   tx.objectStore('shots').clear()
   tx.objectStore('blobs').clear()
   tx.objectStore('thumbs').clear()
+  // 名簿はスクショから育ったものなので、元が消えたら一緒に消す。
+  tx.objectStore('characters').clear()
+  await txDone(tx)
+}
+
+export async function getAllCharacters(): Promise<Character[]> {
+  const db = await openDb()
+  const store = db.transaction('characters', 'readonly').objectStore('characters')
+  return toPromise(store.getAll() as IDBRequest<Character[]>)
+}
+
+export async function putCharacter(character: Character): Promise<void> {
+  const db = await openDb()
+  const tx = db.transaction('characters', 'readwrite')
+  tx.objectStore('characters').put(character)
+  await txDone(tx)
+}
+
+export async function deleteCharacter(id: string): Promise<void> {
+  const db = await openDb()
+  const tx = db.transaction('characters', 'readwrite')
+  tx.objectStore('characters').delete(id)
   await txDone(tx)
 }
 

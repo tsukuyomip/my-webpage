@@ -516,3 +516,177 @@ button.tiny {
   font-weight: 700;
   color: var(--accent);
 }
+
+/* ---- 絞り込み ---- */
+.filters {
+  margin-top: 0.7rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+.filter-head {
+  display: flex;
+  gap: 0.5rem;
+}
+button.small {
+  font-size: 0.8rem;
+  padding: 0.3rem 0.6rem;
+}
+.filter-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  padding: 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.filter-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.filter-label {
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+}
+.chips-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.82rem;
+  font-weight: 500;
+  padding: 0.28rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+}
+.chip.active {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+  font-weight: 700;
+}
+.chip.big {
+  font-size: 0.95rem;
+  padding: 0.45rem 0.85rem;
+}
+.chip-dot {
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  flex: none;
+}
+.star {
+  background: none;
+  border: 0;
+  color: var(--text-dim);
+  font-size: 1.15rem;
+  padding: 0.2rem 0.4rem;
+}
+.star.on {
+  color: var(--warn);
+}
+
+/* ---- タグ付けの画面 ---- */
+.tagq {
+  touch-action: pan-y;
+}
+/* 高さを決め打ちにする。flex: 1 だと画像が読み込まれた瞬間に伸び縮みして、
+   タップしようとしたタグが動く。位置が動かないことのほうが大事。 */
+.tagq-image {
+  height: 44dvh;
+  flex: none;
+  display: grid;
+  place-items: center;
+  padding: 0.6rem;
+}
+.tagq-image img.full {
+  max-height: 100%;
+  width: auto;
+}
+.tagq-tags {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0 0.75rem 0.6rem;
+}
+.tagq-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+  padding: 0.6rem 0.75rem calc(0.8rem + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--line);
+  position: sticky;
+  bottom: 0;
+  background: var(--paper);
+}
+
+/* ---- 名簿 ---- */
+.roster {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+.roster-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.6rem 0;
+  border-bottom: 1px solid var(--line);
+}
+.roster-row.dim {
+  opacity: 0.45;
+}
+.roster-row:last-child {
+  border-bottom: 0;
+}
+.roster-color {
+  width: 0.9rem;
+  height: 2rem;
+  border-radius: 3px;
+  border: 1px solid var(--line);
+  flex: none;
+}
+.roster-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.roster-main small {
+  color: var(--text-dim);
+  font-size: 0.76rem;
+}
+.roster-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  justify-content: flex-end;
+}
+.badge {
+  display: inline-block;
+  margin-left: 0.4rem;
+  font-size: 0.66rem;
+  font-weight: 700;
+  padding: 0.05em 0.4em;
+  border-radius: 3px;
+  background: var(--accent-bg);
+  color: var(--accent);
+  vertical-align: middle;
+}
+.badge.dimmed {
+  background: var(--surface-2);
+  color: var(--text-dim);
+}
