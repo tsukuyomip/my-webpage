@@ -149,6 +149,24 @@ export function SettingsPanel({
         </section>
 
         <section>
+          <h2>文字の読み取り</h2>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={settings.autoOcr}
+              onChange={(e) => onSettings({ ...settings, autoOcr: e.target.checked })}
+            />
+            <span>
+              取り込んだらそのまま読み取る
+              <small>
+                初回だけ認識エンジンを約 25MB ダウンロードします（以後はブラウザに残ります）。
+                1 枚あたり 0.5〜2 秒。切ると、一覧の上に出るボタンから手で始められます。
+              </small>
+            </span>
+          </label>
+        </section>
+
+        <section>
           <h2>保存領域</h2>
           <dl className="meta">
             <div>

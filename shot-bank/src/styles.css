@@ -408,3 +408,111 @@ img.full {
     transition: none !important;
   }
 }
+
+/* ---- 検索 ---- */
+.search {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-top: 0.8rem;
+}
+.search input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 0.92rem;
+  padding: 0.5rem 0.75rem;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  -webkit-appearance: none;
+}
+.search-count {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+button.wide {
+  width: 100%;
+  margin-top: 0.7rem;
+}
+button.tiny {
+  font-size: 0.76rem;
+  padding: 0.2rem 0.5rem;
+}
+.progress-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
+}
+.centered {
+  margin: 3rem auto;
+  text-align: center;
+}
+
+/* ---- 読み取った文字の手直し ---- */
+.text-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0 0.75rem 1.2rem;
+}
+.text-edit h2 {
+  margin: 0;
+  font-size: 0.98rem;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.field > span {
+  font-size: 0.74rem;
+  letter-spacing: 0.06em;
+  color: var(--text-dim);
+}
+.field input,
+.field textarea {
+  font: inherit;
+  font-size: 0.92rem;
+  padding: 0.5rem 0.65rem;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  resize: vertical;
+  -webkit-appearance: none;
+}
+.snippet {
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--text-mid);
+}
+.snippet mark {
+  background: var(--accent-bg);
+  color: var(--accent);
+  border-radius: 2px;
+  padding: 0 0.1em;
+}
+
+/* 探しているときは、当たった箇所を添える。サムネだけでは絞り込めない。 */
+.grid.searching {
+  grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+}
+.grid.searching .cell {
+  aspect-ratio: 4 / 3;
+}
+.caption {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.35rem 0.1rem 0;
+}
+.caption-head {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--accent);
+}

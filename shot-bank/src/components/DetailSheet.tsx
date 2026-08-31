@@ -1,32 +1,51 @@
 import { useEffect, useState } from 'react'
 import { getImage } from '../lib/db'
 import { formatBytes, formatDate } from '../lib/format'
+import { formatStory } from '../lib/story'
 import type { Shot } from '../lib/types'
 import { BlobImage } from './BlobImage'
+
+const LAYOUT_LABEL: Record<string, string> = {
+  'portrait-adv': '縦・ADV',
+  'portrait-adv-nopanel': '縦・ADV（セリフなし）',
+  'portrait-plain': '縦・UI なし',
+  'landscape-story': '横・ストーリー',
+}
 
 export function DetailSheet({
   shot,
   onClose,
   onDelete,
+  onSaveText,
+  onReRecognize,
+  busy,
 }: {
   shot: Shot
   onClose: () => void
   onDelete: (shot: Shot) => void
+  onSaveText: (shot: Shot, body: string, speakerRaw: string) => void
+  onReRecognize: (shot: Shot) => void
+  busy: boolean
 }) {
   const [blob, setBlob] = useState<Blob>()
   const [confirming, setConfirming] = useState(false)
+  const [body, setBody] = useState(shot.body ?? '')
+  const [speaker, setSpeaker] = useState(shot.speakerRaw ?? '')
+  const dirty = body !== (shot.body ?? '') || speaker !== (shot.speakerRaw ?? '')
 
   useEffect(() => {
     let alive = true
     setBlob(undefined)
     setConfirming(false)
+    setBody(shot.body ?? '')
+    setSpeaker(shot.speakerRaw ?? '')
     getImage(shot.id).then((b) => {
       if (alive) setBlob(b)
     })
     return () => {
       alive = false
     }
-  }, [shot.id])
+  }, [shot.id, shot.body, shot.speakerRaw])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -63,7 +82,44 @@ export function DetailSheet({
         {blob ? <BlobImage blob={blob} alt={shot.fileName} /> : <p className="muted">読み込み中…</p>}
       </div>
 
+      <section className="text-edit">
+        <h2>読み取った文字</h2>
+        {shot.ocr === 'error' && <p className="notice">読み取りに失敗しました: {shot.ocrError}</p>}
+        {shot.ocr !== 'done' && shot.ocr !== 'error' && !shot.textEdited && (
+          <p className="muted">まだ読み取っていません。</p>
+        )}
+        <label className="field">
+          <span>話者</span>
+          <input value={speaker} onChange={(e) => setSpeaker(e.target.value)} placeholder="（なし）" />
+        </label>
+        <label className="field">
+          <span>本文</span>
+          <textarea rows={4} value={body} onChange={(e) => setBody(e.target.value)} placeholder="（なし）" />
+        </label>
+        <div className="row">
+          <button disabled={!dirty} onClick={() => onSaveText(shot, body, speaker)}>
+            直した内容を保存
+          </button>
+          <button className="ghost" disabled={busy} onClick={() => onReRecognize(shot)}>
+            もう一度読み取る
+          </button>
+        </div>
+        {shot.textEdited && (
+          <p className="muted">
+            手で直したものとして印がついています。以後の一括読み取りでは上書きしません。
+          </p>
+        )}
+      </section>
+
       <dl className="meta">
+        <div>
+          <dt>種別</dt>
+          <dd>{shot.layout ? (LAYOUT_LABEL[shot.layout] ?? shot.layout) : '—'}</dd>
+        </div>
+        <div>
+          <dt>話</dt>
+          <dd>{shot.story ? formatStory(shot.story) : '—'}</dd>
+        </div>
         <div>
           <dt>寸法</dt>
           <dd>
