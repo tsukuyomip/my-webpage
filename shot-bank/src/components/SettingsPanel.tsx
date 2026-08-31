@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { backupFileName, exportBackup, importBackup } from '../lib/backup'
 import { deleteAllShots } from '../lib/db'
 import { formatBytes, formatDate } from '../lib/format'
 import { isPersisted, requestPersistence, storageEstimate, type Estimate } from '../lib/storage'
 import type { Settings, Shot } from '../lib/types'
 import { releaseAllThumbs } from './Thumb'
+import { useEdgeSwipeBack } from './useEdgeSwipeBack'
 
 export function SettingsPanel({
   shots,
@@ -21,6 +22,8 @@ export function SettingsPanel({
   onClose: () => void
   onBusy: (label: string | null) => void
 }) {
+  const sheet = useRef<HTMLDivElement>(null)
+  useEdgeSwipeBack(sheet, onClose)
   const [estimate, setEstimate] = useState<Estimate | null>(null)
   const [persisted, setPersisted] = useState(false)
   const [message, setMessage] = useState<string>()
@@ -90,7 +93,7 @@ export function SettingsPanel({
   const lastBackup = settings.lastBackupAt
 
   return (
-    <div className="sheet" role="dialog" aria-modal="true" aria-label="設定">
+    <div className="sheet" ref={sheet} role="dialog" aria-modal="true" aria-label="設定">
       <div className="sheet-bar">
         <button className="ghost" onClick={onClose}>
           ← 戻る

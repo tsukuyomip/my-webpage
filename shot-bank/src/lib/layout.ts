@@ -45,18 +45,27 @@ export function findPanel(px: Pixels, profile: GameProfile = gakumas): PanelBox 
   const rx0 = Math.round(W * p.marginRight[0])
   const rx1 = Math.round(W * p.marginRight[1])
 
+  const mx0 = Math.round(W * p.middle[0])
+  const mx1 = Math.round(W * p.middle[1])
+
   const from = Math.floor(H * p.searchFrom)
   const flat = new Uint8Array(H)
+  /** 中央まできれいな行。帯はここからしか始めない */
+  const canStart = new Uint8Array(H)
   for (let y = from; y < H; y++) {
     const l = stripStats(px, y, lx0, lx1)
     const r = stripStats(px, y, rx0, rx1)
-    flat[y] =
+    const ok =
       l.luminance > p.minLuminance &&
       r.luminance > p.minLuminance &&
       l.gradient < p.maxGradient &&
       r.gradient < p.maxGradient
-        ? 1
-        : 0
+    flat[y] = ok ? 1 : 0
+    if (!ok) continue
+    // 話者チップは幅 38% しかないので、チップの行なら中央は絵のまま。
+    // ここを見れば「チップまで飲み込んだ帯」の先頭を切り落とせる。
+    const m = stripStats(px, y, mx0, mx1)
+    canStart[y] = m.luminance > p.minLuminance && m.gradient < p.middleMaxGradient ? 1 : 0
   }
 
   // 窓と最低の高さを満たす区間のうち、いちばん長いものを採る。
@@ -67,7 +76,9 @@ export function findPanel(px: Pixels, profile: GameProfile = gakumas): PanelBox 
   let start = -1
   for (let y = from; y <= H; y++) {
     if (y < H && flat[y]) {
-      if (start < 0) start = y
+      // 帯の頭は「中央まできれいな行」に限る。左右だけで始めると、
+      // 話者チップ（左端がパネルと同じ位置）の行から始まってしまう。
+      if (start < 0 && canStart[y]) start = y
     } else if (start >= 0) {
       const end = y - 1
       const tall = end - start + 1 >= minH

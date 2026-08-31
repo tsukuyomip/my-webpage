@@ -1,9 +1,10 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { getImage } from '../lib/db'
 import { formatBytes, formatDate } from '../lib/format'
 import { formatStory } from '../lib/story'
 import type { Character, Shot } from '../lib/types'
 import { BlobImage } from './BlobImage'
+import { useEdgeSwipeBack } from './useEdgeSwipeBack'
 
 const LAYOUT_LABEL: Record<string, string> = {
   'portrait-adv': '縦・ADV',
@@ -39,6 +40,7 @@ export function DetailSheet({
 }) {
   const [blob, setBlob] = useState<Blob>()
   const [confirming, setConfirming] = useState(false)
+  const sheet = useRef<HTMLDivElement>(null)
   const [body, setBody] = useState(shot.body ?? '')
   const [speaker, setSpeaker] = useState(shot.speakerRaw ?? '')
   const dirty = body !== (shot.body ?? '') || speaker !== (shot.speakerRaw ?? '')
@@ -65,8 +67,10 @@ export function DetailSheet({
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
+  useEdgeSwipeBack(sheet, onClose)
+
   return (
-    <div className="sheet" role="dialog" aria-modal="true" aria-label="スクショの詳細">
+    <div className="sheet" ref={sheet} role="dialog" aria-modal="true" aria-label="スクショの詳細">
       <div className="sheet-bar">
         <button className="ghost" onClick={onClose}>
           ← 戻る

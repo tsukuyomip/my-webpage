@@ -17,12 +17,22 @@ describe('話者名として受け取れるか', () => {
     expect(cleanSpeaker('. ことね')).toBe('ことね')
   })
 
+  it('真ん中に紛れた記号でも名前を捨てない', () => {
+    // 前後だけ削っていたときは、これで名前ごと消えていた。
+    // 名前が消えるほうが、たまにゴミが残るより困る。
+    expect(cleanSpeaker('清|夏')).toBe('清夏')
+    expect(cleanSpeaker('香 名 江 、')).toBe('香名江')
+    expect(cleanSpeaker('こと(ね')).toBe('ことね')
+  })
+
   it('崩れた読み取りは捨てる', () => {
     // 横向きの話者名は実測でこう出た。残すと検索の邪魔にしかならない。
     expect(cleanSpeaker('-MEAowFel“elNR4|oieeAoF職リーサビ1')).toBe('')
     expect(cleanSpeaker('し』|AWwLAee|FedebagelVand|/リーチビ1')).toBe('')
-    // カタカナ主体でも、記号が 1 つ紛れていれば読めていない。
+    // 数字と仮名が混ざっているものは読めていない。
+    // 名前は「全部が数字」か「数字を含まない」かのどちらか。
     expect(cleanSpeaker('4ー,ビーリピ1')).toBe('')
+    expect(cleanSpeaker('7ー)ビーリピ')).not.toBe('7ービーリピ')
   })
 
   it('長すぎるものは名前ではない', () => {

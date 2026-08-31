@@ -93,7 +93,12 @@ export function TagQueue({
         const dy = t.clientY - start.y
         // 横に十分振れて、縦より横が勝っているときだけ送る。
         // そうしないと、タグを縦にスクロールするだけで送られてしまう。
-        if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) go(dx < 0 ? 1 : -1)
+        if (Math.abs(dx) <= 60 || Math.abs(dx) <= Math.abs(dy) * 1.5) return
+        // ここは送りの画面なので、横は前後の送りに使う。
+        // ただし先頭で左端から右へ払ったときは行き先がないので、閉じるに回す。
+        const fromEdge = start.x <= window.innerWidth / 3
+        if (dx > 0 && index === 0 && fromEdge) onClose()
+        else go(dx < 0 ? 1 : -1)
       }}
     >
       <div className="sheet-bar">

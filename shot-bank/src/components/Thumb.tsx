@@ -57,7 +57,7 @@ export function Thumb({ id, alt }: { id: string; alt: string }) {
 
   return (
     <div className="thumb" ref={ref}>
-      {url && <img src={url} alt={alt} />}
+      {url && <img src={url} alt={alt} draggable={false} />}
     </div>
   )
 }

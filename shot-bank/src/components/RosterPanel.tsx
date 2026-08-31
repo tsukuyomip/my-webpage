@@ -1,6 +1,7 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { countByCharacter } from '../lib/roster'
 import type { Character, Shot } from '../lib/types'
+import { useEdgeSwipeBack } from './useEdgeSwipeBack'
 
 /**
  * 名簿の手入れ。
@@ -25,6 +26,8 @@ export function RosterPanel({
   onDelete: (character: Character) => void
   onClose: () => void
 }) {
+  const sheet = useRef<HTMLDivElement>(null)
+  useEdgeSwipeBack(sheet, onClose)
   const [mergeSource, setMergeSource] = useState<Character | null>(null)
   const [editing, setEditing] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
@@ -33,7 +36,7 @@ export function RosterPanel({
   const sorted = [...roster].sort((a, b) => (counts.get(b.id) ?? 0) - (counts.get(a.id) ?? 0))
 
   return (
-    <div className="sheet" role="dialog" aria-modal="true" aria-label="名簿">
+    <div className="sheet" ref={sheet} role="dialog" aria-modal="true" aria-label="名簿">
       <div className="sheet-bar">
         <button className="ghost" onClick={onClose}>
           ← 戻る
@@ -64,7 +67,12 @@ export function RosterPanel({
                   <div className="roster-main">
                     {editing === c.id ? (
                       <span className="row">
-                        <input value={draft} onChange={(e) => setDraft(e.target.value)} autoFocus />
+                        <input
+                          className="roster-input"
+                          value={draft}
+                          onChange={(e) => setDraft(e.target.value)}
+                          autoFocus
+                        />
                         <button
                           className="tiny"
                           onClick={() => {
