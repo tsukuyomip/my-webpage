@@ -128,8 +128,11 @@ export function findSpeakerChip(
   while (top > 0 && near(rgbAt(px, seedX, top - 1), ref, c.tolerance)) top--
   let bottom = seedY
   while (bottom < H - 1 && near(rgbAt(px, seedX, bottom + 1), ref, c.tolerance)) bottom++
-  const h = bottom - top + 1
-  if (h < H * c.minHeight || h > H * c.maxHeight) return fallback
+  const scanned = bottom - top + 1
+  if (scanned < H * c.minHeight) return fallback
+  // 伸びすぎたら打ち切る。上端は当たっているので、そこから決め打ちの高さを取る。
+  // 捨てて決め打ちの箱に戻すより、当たっている端を活かすほうが色がよく採れる。
+  const h = Math.min(scanned, Math.round(H * c.maxHeight))
 
   // 幅は測らない。実測すると 1206px 幅で 466px、1179px 幅で 456px
   // ＝どちらも画像幅の 38.6% で、名前の長さ（「ことね」と「2943」）に依らず一定だった。

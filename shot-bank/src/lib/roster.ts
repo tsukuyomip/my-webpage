@@ -1,5 +1,5 @@
 import { newId } from './ids'
-import { findByColor, findCharacter, normalizeName } from './names'
+import { findByColor, findCharacter, normalizeName, withColorSample } from './names'
 import type { Character, Shot } from './types'
 
 /**
@@ -24,7 +24,7 @@ import type { Character, Shot } from './types'
  */
 export function seedRoster(
   roster: Character[],
-  names: readonly string[],
+  known: readonly { name: string; color?: string }[],
 ): { roster: Character[]; added: Character[]; promoted: Character[] } {
   const next = [...roster]
   const added: Character[] = []
@@ -34,7 +34,7 @@ export function seedRoster(
   const base = Date.now()
   let order = 0
 
-  for (const name of names) {
+  for (const { name, color } of known) {
     const key = normalizeName(name)
     if (!key) continue
     const index = next.findIndex((c) =>
@@ -42,16 +42,24 @@ export function seedRoster(
     )
     if (index >= 0) {
       const found = next[index]
-      if (!found.provisional) continue
-      const confirmed = { ...found, provisional: false }
-      next[index] = confirmed
-      promoted.push(confirmed)
+      // 色をまだ持っていない人には入れてやる。名前が一度も読めないキャラは
+      // 自力では色を覚えられないので、ここが唯一の入り口になる。
+      const needsColor = color !== undefined && found.color === undefined
+      if (!found.provisional && !needsColor) continue
+      const updated = {
+        ...found,
+        provisional: false,
+        color: found.color ?? color,
+      }
+      next[index] = updated
+      promoted.push(updated)
       continue
     }
     const created: Character = {
       id: newId(),
       name,
       aliases: [],
+      color,
       provisional: false,
       createdAt: base + order++,
     }
@@ -87,8 +95,10 @@ export function resolveSpeakers(shots: Shot[], roster: Character[]): ResolveResu
     // 読めた綴りが名簿に無い形なら、別名として覚えておく。次から確実に当たる。
     const known = new Set([character.name, ...character.aliases].map(normalizeName))
     if (!known.has(normalizeName(raw))) character.aliases = [...character.aliases, raw]
-    // 色をまだ持っていなければ、ここで覚える。
-    if (!character.color && shot.speakerChipColor) character.color = shot.speakerChipColor
+    // 見た色を覚える。すでに近い色を知っていれば増えない。
+    const learned = withColorSample(character, shot.speakerChipColor)
+    character.color = learned.color
+    character.colorSamples = learned.colorSamples
   }
 
   // 1 周目: 名前で当てる。ここで色が貯まる。

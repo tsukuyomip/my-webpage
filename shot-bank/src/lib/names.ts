@@ -53,10 +53,15 @@ const COLOR_TOLERANCE = 60
 
 /**
  * 色だけで人を決めるときの許し。裏取りより厳しくする。
- * 実測でいちばん近い 2 人は星南 #ffb03d と千奈 #f08326 で、距離 45。
- * 60 のままだと両方に当たってしまうので、そこを割る値にする。
+ *
+ * 20 人ぶんの実測が揃ったので締め直した。無彩色を除くといちばん近い 2 人は
+ * 手毬 #26b5ea と広 #04bddd で距離 34。30 のままだと、片方の色が少し動いた
+ * だけで隣に届いてしまう。
+ *
+ * 同じ人の色が場面でどれだけ動くかは実測でごく小さい（ことね 6、リーリヤ 1、
+ * 広 1、清夏 0）。15 なら同じ人は確実に拾えて、隣とは 19 以上あく。
  */
-const COLOR_ONLY_TOLERANCE = 30
+const COLOR_ONLY_TOLERANCE = 15
 
 function colorDistance(a: string, b: string): number {
   const parse = (hex: string): [number, number, number] | null => {
@@ -83,10 +88,33 @@ function colorDistance(a: string, b: string): number {
  */
 export function findByColor(roster: Character[], chipColor?: string): Character | null {
   if (!chipColor) return null
-  const near = roster.filter(
-    (c) => c.color && colorDistance(chipColor, c.color) <= COLOR_ONLY_TOLERANCE,
+  const near = roster.filter((c) =>
+    colorsOf(c).some((known) => colorDistance(chipColor, known) <= COLOR_ONLY_TOLERANCE),
   )
   return near.length === 1 ? near[0] : null
+}
+
+/** その人について知っている色ぜんぶ。 */
+export function colorsOf(character: Character): string[] {
+  return [character.color, ...(character.colorSamples ?? [])].filter(
+    (c): c is string => typeof c === 'string',
+  )
+}
+
+/** 覚えておく色の数の上限。これ以上は増やしても当たり方が変わらない。 */
+const MAX_SAMPLES = 6
+
+/**
+ * 見たチップの色を覚えさせる。
+ * すでに近い色を知っていれば増やさない。場面ごとに違う色だけが溜まる。
+ */
+export function withColorSample(character: Character, chipColor?: string): Character {
+  if (!chipColor) return character
+  const known = colorsOf(character)
+  if (known.some((c) => colorDistance(chipColor, c) <= COLOR_ONLY_TOLERANCE)) return character
+  if (!character.color) return { ...character, color: chipColor }
+  if (known.length > MAX_SAMPLES) return character
+  return { ...character, colorSamples: [...(character.colorSamples ?? []), chipColor] }
 }
 
 export interface NameMatch {

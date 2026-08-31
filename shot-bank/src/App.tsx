@@ -20,7 +20,7 @@ import {
   updateShot,
 } from './lib/db'
 import { applyFacets, collectTags, EMPTY_FACETS, type Facets } from './lib/filter'
-import { normalizeName } from './lib/names'
+import { normalizeName, withColorSample } from './lib/names'
 import {
   imageFilesFrom,
   ingestFiles,
@@ -69,15 +69,15 @@ export default function App() {
    */
   const seedKnownNames = useCallback(
     async (current: Settings, force = false) => {
-      const names = gakumas.knownNames
+      const known = gakumas.knownCharacters
       const before = await getAllCharacters()
       // 旗だけを見ていると、全消しのあとに種入れが飛ばされる。
       // 全消しはスクショと名簿を消すが設定は残すので、旗は立ったままになる（実測）。
       // 名簿が空なら、消した人を蘇らせる心配もないので入れ直してよい。
-      if (!force && current.rosterSeed === names.length && before.length > 0) return current
-      const { added, promoted } = seedRoster(before, names)
+      if (!force && current.rosterSeed === gakumas.seedVersion && before.length > 0) return current
+      const { added, promoted } = seedRoster(before, known)
       for (const character of [...added, ...promoted]) await putCharacter(character)
-      const next = { ...current, rosterSeed: names.length }
+      const next = { ...current, rosterSeed: gakumas.seedVersion }
       await saveSettings(next)
       if (added.length || promoted.length) await reload()
       if (force) {
@@ -200,10 +200,13 @@ export default function App() {
         speakerId: characterId ?? undefined,
         speakerPicked: characterId ? true : undefined,
       })
+      // 教わった色は必ず足す。種の色と場面が違えば別の色として溜まる
+      //（実測: 星南は明るい部屋と暗い場面で 24 離れた）。
       const person = characterId ? roster.find((c) => c.id === characterId) : undefined
-      const learned = Boolean(person && !person.color && shot.speakerChipColor)
-      if (person && learned) {
-        await putCharacter({ ...person, color: shot.speakerChipColor, provisional: false })
+      const grown = person ? withColorSample(person, shot.speakerChipColor) : undefined
+      const learned = Boolean(grown && grown !== person)
+      if (person && grown) {
+        await putCharacter({ ...grown, provisional: false })
       }
 
       const fresh = await getAllShots()
@@ -222,6 +225,8 @@ export default function App() {
         setNotice(`「${person?.name}」の色を覚えました。同じ色の ${linked} 枚も紐付けました`)
       } else if (learned) {
         setNotice(`「${person?.name}」の色を覚えました`)
+      } else if (linked) {
+        setNotice(`${linked} 枚を紐付けました`)
       }
     },
     [roster, reload],
