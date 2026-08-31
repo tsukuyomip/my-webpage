@@ -84,12 +84,19 @@ function colorDistance(a: string, b: string): number {
  * チップの色は変わらないので、こちらは崩れない手がかりになる。
  *
  * 当てはまる人が **ちょうど 1 人** のときだけ返す。2 人以上に近ければ、
- * 決められないということなので何も返さない。色を覚えていない人は対象外。
+ * 決められないということなので何も返さない。
+ *
+ * **仮登録の人は数えない。** 誤読でできた仮登録は本人と同じ色を持つので、
+ * 数に入れると必ず 2 人になって当てられなくなる（実測: 「広上」という
+ * 仮登録が水色を持ってしまい、広の枚が丸ごと拾えなくなった）。
+ * 色は強い手がかりなので、確かめた人にだけ使う。
  */
 export function findByColor(roster: Character[], chipColor?: string): Character | null {
   if (!chipColor) return null
-  const near = roster.filter((c) =>
-    colorsOf(c).some((known) => colorDistance(chipColor, known) <= COLOR_ONLY_TOLERANCE),
+  const near = roster.filter(
+    (c) =>
+      !c.provisional &&
+      colorsOf(c).some((known) => colorDistance(chipColor, known) <= COLOR_ONLY_TOLERANCE),
   )
   return near.length === 1 ? near[0] : null
 }

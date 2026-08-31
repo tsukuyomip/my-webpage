@@ -119,17 +119,26 @@ export function resolveSpeakers(shots: Shot[], roster: Character[]): ResolveResu
     else newNames.push(shot)
   }
 
-  // 2 周目: 名前は読めたが誰にも寄らなかったもの。新しい人として仮登録する。
-  // ここを色に頼らせてはいけない。プロデューサー（2943）は無彩色なので、
-  // 同じ無彩色の香名江に吸われた（実測）。読めた名前は、新しい人がいる証。
+  // 2 周目: 名前は読めたが誰にも寄らなかったもの。
   //
-  // ただし **この周で作った人にも当て直す**。ここを見落としていて、同じ「ことね」が
+  // **この周で作った人にも当て直す**。ここを見落としていて、同じ「ことね」が
   // 枚数ぶん並んだ（実測: 84 枚から名簿が 40 人になり、全員 1 枚だった）。
   for (const shot of newNames) {
     const raw = shot.speakerRaw!.trim()
     const again = findCharacter(next, raw, shot.speakerChipColor)
     if (again) {
       attach(shot, again.character, raw)
+      continue
+    }
+    // 色が 1 人を指すなら、それは新しい人ではなく誤読とみなす。
+    // 実測で「広」が「広上」と読まれ、水色を持った仮登録ができていた。
+    // 別名には足さない ── 誤読の綴りは毎回ちがうので、溜めても当たらない。
+    //
+    // 無彩色の人は 6 人いて必ず 2 人以上に当たるので、ここは素通りする。
+    // プロデューサー（2943）が香名江に吸われないのはそのおかげ。
+    const sameColor = findByColor(next, shot.speakerChipColor)
+    if (sameColor) {
+      assignments.set(shot.id, sameColor.id)
       continue
     }
     const created: Character = {

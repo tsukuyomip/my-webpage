@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { editDistance, findCharacter, normalizeName, toleranceFor } from '../names'
+import { editDistance, findByColor, findCharacter, normalizeName, toleranceFor } from '../names'
 import type { Character } from '../types'
 
 const char = (name: string, over: Partial<Character> = {}): Character => ({
@@ -77,5 +77,39 @@ describe('名簿への照合', () => {
   it('何も無ければ当たらない', () => {
     expect(findCharacter(roster, '')).toBeNull()
     expect(findCharacter([], '清夏')).toBeNull()
+  })
+})
+
+describe('色だけで当てる', () => {
+  const cyan = char('広', { color: '#00bed8', provisional: false })
+  const pink = char('莉波', { color: '#fd7ec2', provisional: false })
+
+  it('近い色の人がちょうど 1 人なら当てる', () => {
+    expect(findByColor([cyan, pink], '#00bed8')?.name).toBe('広')
+    // 実測の振れ幅（許容 15）の内側なら当てる
+    expect(findByColor([cyan, pink], '#0ab4cd')?.name).toBe('広')
+  })
+
+  it('近い色が 2 人いれば諦める', () => {
+    const grey1 = char('優', { color: '#988d83', provisional: false })
+    const grey2 = char('香名江', { color: '#988d83', provisional: false })
+    expect(findByColor([grey1, grey2], '#988d83')).toBeNull()
+  })
+
+  it('誰の色とも遠ければ当てない', () => {
+    expect(findByColor([cyan, pink], '#92de5a')).toBeNull()
+    expect(findByColor([cyan], undefined)).toBeNull()
+  })
+
+  it('仮登録の人は数に入れない', () => {
+    // 実測: OCR が「広」を「広上」と読んだ枚が仮登録され、広と同じ水色を
+    // 持ってしまった。数に入れると必ず 2 人になり、広の枚が丸ごと拾えなくなる。
+    const misread = char('広上', { color: '#00bed8', provisional: true })
+    expect(findByColor([cyan, misread], '#00bed8')?.name).toBe('広')
+  })
+
+  it('仮登録しかいなければ当てない', () => {
+    const only = char('広上', { color: '#00bed8', provisional: true })
+    expect(findByColor([only], '#00bed8')).toBeNull()
   })
 })
