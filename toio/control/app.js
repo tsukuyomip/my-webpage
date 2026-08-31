@@ -5,6 +5,7 @@
   const $ = (id) => document.getElementById(id);
   const T = window.Toio;
   const MIDI = window.ToioMidi;   // MIDI ファイルの読み込みと変換
+  const P = window.ToioPitch;    // マイクからの音程検出
 
   // ---------------------------------------------------------------- 状態
   const cubes = [];
@@ -1323,6 +1324,286 @@
     if (!melody.length) { toast('音がありません'); return; }
     const repeat = Number($('sRepeat').value);
     send((c) => c.soundMidi(melody, repeat));
+  });
+
+  // ---------------------------------------------------------- ハミング
+  // マイクの波形から音の高さを拾い、いちばん近い半音をキューブで鳴らす。
+  // 拾った音は Tracker が音符の並びとして貯める。
+  let humCtx = null;        // AudioContext
+  let humStream = null;     // MediaStream（止めるときにトラックを閉じる）
+  let humAnalyser = null;
+  let humGain = null;       // マイクの増幅。小さい声でも拾えるように
+  let humBuf = null;
+  let humTimer = 0;
+  let humTracker = null;
+  let humT0 = 0;
+  let humSounding = null;   // いまキューブに出している音
+  let humLast = null;       // チューナーに出す直近の検出結果
+  let humNeedle = 0;        // 針の位置（セント）。急に飛ばないようならしていく
+
+  function humSetState(text) { $('humState').textContent = text; }
+
+  /**
+   * チューナーの絵。音名を大きく出し、いちばん近い半音からのずれを針で示す。
+   * 下に入力レベルと「拾う下限」の線を並べてあるので、増幅や下限を
+   * どちらへ動かせばいいかが目で分かる。
+   */
+  function renderTuner() {
+    const cv = $('humTuner');
+    if (!cv) return;
+    const ctx = cv.getContext('2d');
+    const dpr = fitCanvas(cv);
+    const w = cv.width, h = cv.height;
+    ctx.clearRect(0, 0, w, h);
+
+    const d = humLast;
+    const on = !!(d && d.freq > 0);
+    const cents = on ? P.centsOff(d.freq) : 0;
+    // 針はそのまま動かすと震えるので、少しずつ寄せる
+    humNeedle += (cents - humNeedle) * (on ? 0.35 : 0.2);
+    const shown = on ? humNeedle : 0;
+
+    const midX = w / 2;
+    const scaleY = h * 0.62;
+    const halfW = w * 0.42;         // ±50 セントぶんの幅
+    const px = (c) => midX + (c / 50) * halfW;
+
+    // 合っているほど緑に寄せる
+    const good = Math.abs(cents) <= 5;
+    const color = !on ? '#484f58' : good ? '#3fb950' : Math.abs(cents) <= 20 ? '#d29922' : '#f85149';
+
+    // 中央の合格帯
+    ctx.fillStyle = on && good ? 'rgba(63,185,80,0.18)' : 'rgba(139,148,158,0.08)';
+    ctx.fillRect(px(-5), scaleY - 22 * dpr, px(5) - px(-5), 44 * dpr);
+
+    // 目盛り
+    ctx.strokeStyle = '#30363d';
+    ctx.lineWidth = dpr;
+    for (let c = -50; c <= 50; c += 10) {
+      const big = c === 0 || Math.abs(c) === 50;
+      ctx.beginPath();
+      ctx.moveTo(px(c), scaleY - (big ? 20 : 11) * dpr);
+      ctx.lineTo(px(c), scaleY + (big ? 20 : 11) * dpr);
+      ctx.stroke();
+    }
+    ctx.beginPath();
+    ctx.moveTo(px(-50), scaleY); ctx.lineTo(px(50), scaleY);
+    ctx.stroke();
+
+    ctx.fillStyle = '#8b949e';
+    ctx.font = `${10 * dpr}px ui-monospace, monospace`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText('-50', px(-50), scaleY + 24 * dpr);
+    ctx.fillText('0', px(0), scaleY + 24 * dpr);
+    ctx.fillText('+50', px(50), scaleY + 24 * dpr);
+
+    // 音名。左右に隣の半音を薄く添えると、どちらへ寄っているか分かりやすい
+    const note = on ? Math.round(P.freqToNote(d.freq)) : null;
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillStyle = color;
+    ctx.font = `bold ${34 * dpr}px ui-monospace, monospace`;
+    ctx.fillText(note === null ? '—' : T.noteName(note), midX, h * 0.3);
+    if (note !== null) {
+      ctx.fillStyle = '#484f58';
+      ctx.font = `${14 * dpr}px ui-monospace, monospace`;
+      ctx.fillText(T.noteName(note - 1), midX - halfW * 0.72, h * 0.3);
+      ctx.fillText(T.noteName(note + 1), midX + halfW * 0.72, h * 0.3);
+      ctx.fillStyle = color;
+      ctx.font = `${12 * dpr}px ui-monospace, monospace`;
+      ctx.fillText(`${cents > 0 ? '+' : ''}${cents}`, midX, h * 0.3 + 18 * dpr);
+    }
+
+    // 針
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = 3 * dpr;
+    ctx.beginPath();
+    ctx.moveTo(px(shown), scaleY - 26 * dpr);
+    ctx.lineTo(px(shown), scaleY + 26 * dpr);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(px(shown), scaleY - 30 * dpr);
+    ctx.lineTo(px(shown) - 7 * dpr, scaleY - 42 * dpr);
+    ctx.lineTo(px(shown) + 7 * dpr, scaleY - 42 * dpr);
+    ctx.closePath();
+    ctx.fill();
+
+    // 入力レベルと「拾う下限」の線
+    const gate = Number($('humGate').value);
+    const barY = h - 18 * dpr, barH = 10 * dpr;
+    const barX = w * 0.08, barW = w * 0.84;
+    const full = 0.25;                            // これで満タンとみなす
+    const lv = Math.min(1, (d ? d.rms : 0) / full);
+    ctx.fillStyle = '#21262d';
+    ctx.fillRect(barX, barY, barW, barH);
+    ctx.fillStyle = (d && d.rms >= gate) ? '#3fb950' : '#6e7681';
+    ctx.fillRect(barX, barY, barW * lv, barH);
+    ctx.strokeStyle = '#f85149';
+    ctx.lineWidth = 2 * dpr;
+    const gx = barX + barW * Math.min(1, gate / full);
+    ctx.beginPath();
+    ctx.moveTo(gx, barY - 4 * dpr); ctx.lineTo(gx, barY + barH + 4 * dpr);
+    ctx.stroke();
+    ctx.fillStyle = '#8b949e';
+    ctx.font = `${9 * dpr}px ui-monospace, monospace`;
+    ctx.textAlign = 'left';
+    ctx.fillText('入力', barX, barY - 6 * dpr);
+    ctx.textAlign = 'center';
+    ctx.fillText('下限', gx, barY - 6 * dpr);
+    ctx.textAlign = 'left';
+  }
+
+  function renderHumLog() {
+    const wrap = $('humLog');
+    wrap.textContent = '';
+    const log = humTracker ? humTracker.log : [];
+    if (!log.length) return;
+    log.forEach((n, i) => {
+      const row = document.createElement('div');
+      row.className = 'hum-row';
+      const idx = document.createElement('span');
+      idx.className = 'idx';
+      idx.textContent = String(i + 1);
+      const nm = document.createElement('b');
+      nm.textContent = T.noteName(n.note);
+      const at = document.createElement('span');
+      at.className = 'idx';
+      at.textContent = `${(n.startMs / 1000).toFixed(2)}s`;
+      const dur = document.createElement('span');
+      dur.className = 'idx';
+      dur.textContent = `${Math.round(n.durMs)}ms`;
+      row.append(idx, nm, at, dur);
+      wrap.appendChild(row);
+    });
+    wrap.scrollTop = wrap.scrollHeight;
+  }
+
+  /** 拾った音をキューブに出す。押しっぱなしの鍵盤と同じやり方 */
+  function humPlay(note) {
+    if (!$('humLive').checked) return;
+    if (note === humSounding) return;
+    humSounding = note;
+    if (note === null) { send((c) => c.soundStop()); return; }
+    send((c) => c.soundMidi([{ note, durationMs: 2550, volume: Number($('sVolume').value) }], 255));
+  }
+
+  function humFrame() {
+    humAnalyser.getFloatTimeDomainData(humBuf);
+    const d = P.detect(humBuf, humCtx.sampleRate, { gate: Number($('humGate').value) });
+    const t = performance.now() - humT0;
+    humTracker.feed(d, t);
+
+    $('humNote').textContent = humTracker.current === null ? '—'
+      : `${T.noteName(humTracker.current)} (${humTracker.current})`;
+    $('humFreq').textContent = d.freq ? d.freq.toFixed(1) + ' Hz' : '—';
+    $('humCents').textContent = d.freq ? `${P.centsOff(d.freq) > 0 ? '+' : ''}${P.centsOff(d.freq)}` : '—';
+    $('humLevel').textContent = d.rms.toFixed(3);
+    humLast = d;
+    renderTuner();
+  }
+
+  async function humStart() {
+    if (humCtx) return;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      toast('このブラウザはマイクを使えません'); return;
+    }
+    try {
+      // 自動ゲインや雑音抑制は音程を歪めるので切る
+      humStream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+      });
+    } catch (e) {
+      humSetState('マイクを使えませんでした: ' + (e.message || e));
+      toast('マイクの許可が必要です');
+      return;
+    }
+    humCtx = new (window.AudioContext || window.webkitAudioContext)();
+    // iOS では操作をきっかけに resume しないと止まったままになる
+    if (humCtx.state === 'suspended') await humCtx.resume();
+    humAnalyser = humCtx.createAnalyser();
+    humAnalyser.fftSize = 2048;
+    // 増幅は検出のためだけのもの。スピーカーには繋がない
+    humGain = humCtx.createGain();
+    humGain.gain.value = Number($('humBoost').value);
+    humCtx.createMediaStreamSource(humStream).connect(humGain).connect(humAnalyser);
+    humBuf = new Float32Array(humAnalyser.fftSize);
+
+    humT0 = performance.now();
+    humTracker = new P.Tracker({
+      hold: Number($('humHold').value),
+      minMs: 80,
+      // 増幅したぶんを戻してから強弱に写す。増幅は拾いやすさだけの話で、
+      // 記録する強弱まで一律に大きくなってしまっては困る
+      loud: 0.3 * Number($('humBoost').value),
+      onChange: (note) => { humPlay(note); renderHumLog(); },
+    });
+    // 20ms ごと。これより細かくしても検出窓（46ms）より短くて意味がない
+    humTimer = setInterval(humFrame, 20);
+    humSetState('マイクを聞いています。鼻歌をどうぞ');
+  }
+
+  function humStop() {
+    if (!humCtx) return;
+    clearInterval(humTimer);
+    humTimer = 0;
+    humTracker.stop(performance.now() - humT0);
+    humPlay(null);
+    renderHumLog();
+    if (humStream) humStream.getTracks().forEach((t) => t.stop());
+    humCtx.close();
+    humCtx = null; humStream = null; humAnalyser = null; humGain = null; humBuf = null;
+    humLast = null;
+    renderTuner();
+    $('humNote').textContent = '—';
+    $('humFreq').textContent = '—';
+    $('humCents').textContent = '—';
+    $('humLevel').textContent = '—';
+    humSetState(`マイクを止めました。${humTracker.log.length} 音を記録しています`);
+  }
+
+  renderTuner();
+  window.addEventListener('resize', renderTuner);
+
+  $('btnHumStart').addEventListener('click', humStart);
+  $('btnHumStop').addEventListener('click', humStop);
+  $('humHold').addEventListener('input', () => {
+    $('outHumHold').textContent = $('humHold').value;
+    if (humTracker) humTracker.hold = Number($('humHold').value);
+  });
+  $('humGate').addEventListener('input', () => {
+    $('outHumGate').textContent = Number($('humGate').value).toFixed(3);
+    renderTuner();
+  });
+  $('humBoost').addEventListener('input', () => {
+    const v = Number($('humBoost').value);
+    $('outHumBoost').textContent = '×' + v;
+    if (humGain) humGain.gain.value = v;
+    if (humTracker) humTracker.loud = 0.3 * v;
+  });
+
+  $('btnHumToSeq').addEventListener('click', () => {
+    if (!humTracker || !humTracker.log.length) { toast('記録がありません'); return; }
+    // 記録は {note, startMs, durMs, velocity} なので MIDI 側の変換をそのまま使える
+    const seq = MIDI.toSequence(humTracker.log, { volume: Number($('sVolume').value) });
+    if (!seq.length) { toast('鳴らせる音がありません'); return; }
+    melody.length = 0;
+    seq.slice(0, 59).forEach((s) => melody.push(s));
+    renderMelody();
+    toast(seq.length > 59 ? `先頭 59 音を入れました（全 ${seq.length} 音）` : `${melody.length} 音を入れました`);
+  });
+
+  $('btnHumReplay').addEventListener('click', () => {
+    if (!humTracker || !humTracker.log.length) { toast('記録がありません'); return; }
+    const seq = MIDI.toSequence(humTracker.log, { volume: Number($('sVolume').value) });
+    if (!seq.length) { toast('鳴らせる音がありません'); return; }
+    send((c) => c.soundMidi(seq.slice(0, 59), 1));
+  });
+
+  $('btnHumClear').addEventListener('click', () => {
+    if (humTracker) humTracker.clear();
+    renderHumLog();
+    humSetState(humCtx ? 'マイクを聞いています。鼻歌をどうぞ' : 'マイクは止まっています');
   });
 
   // ------------------------------------------------------ MIDI ファイル
