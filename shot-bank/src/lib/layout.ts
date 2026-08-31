@@ -1,4 +1,4 @@
-import { stripStats, type Pixels } from './pixels'
+import { colorDistance, stripColor, stripStats, type Pixels } from './pixels'
 import { gakumas, type GameProfile } from './profiles/gakumas'
 
 /**
@@ -45,27 +45,25 @@ export function findPanel(px: Pixels, profile: GameProfile = gakumas): PanelBox 
   const rx0 = Math.round(W * p.marginRight[0])
   const rx1 = Math.round(W * p.marginRight[1])
 
-  const mx0 = Math.round(W * p.middle[0])
-  const mx1 = Math.round(W * p.middle[1])
-
   const from = Math.floor(H * p.searchFrom)
   const flat = new Uint8Array(H)
-  /** 中央まできれいな行。帯はここからしか始めない */
-  const canStart = new Uint8Array(H)
   for (let y = from; y < H; y++) {
     const l = stripStats(px, y, lx0, lx1)
     const r = stripStats(px, y, rx0, rx1)
-    const ok =
-      l.luminance > p.minLuminance &&
-      r.luminance > p.minLuminance &&
-      l.gradient < p.maxGradient &&
-      r.gradient < p.maxGradient
-    flat[y] = ok ? 1 : 0
-    if (!ok) continue
-    // 話者チップは幅 38% しかないので、チップの行なら中央は絵のまま。
-    // ここを見れば「チップまで飲み込んだ帯」の先頭を切り落とせる。
-    const m = stripStats(px, y, mx0, mx1)
-    canStart[y] = m.luminance > p.minLuminance && m.gradient < p.middleMaxGradient ? 1 : 0
+    if (
+      l.luminance <= p.minLuminance ||
+      r.luminance <= p.minLuminance ||
+      l.gradient >= p.maxGradient ||
+      r.gradient >= p.maxGradient
+    ) {
+      continue
+    }
+    // 左右の**色**が近いこと。パネルは横に続く 1 枚の面なので左端と右端が似る。
+    // 話者チップは左半分しか覆わないので、チップの行はここで落ちる。
+    // 落ちることで帯が分断され、チップの上の背景とパネルが別の区間になり、
+    // 長いほう（＝本物のパネル）が残る。
+    const distance = colorDistance(stripColor(px, y, lx0, lx1), stripColor(px, y, rx0, rx1))
+    flat[y] = distance < p.maxSideColorDistance ? 1 : 0
   }
 
   // 窓と最低の高さを満たす区間のうち、いちばん長いものを採る。
@@ -76,9 +74,7 @@ export function findPanel(px: Pixels, profile: GameProfile = gakumas): PanelBox 
   let start = -1
   for (let y = from; y <= H; y++) {
     if (y < H && flat[y]) {
-      // 帯の頭は「中央まできれいな行」に限る。左右だけで始めると、
-      // 話者チップ（左端がパネルと同じ位置）の行から始まってしまう。
-      if (start < 0 && canStart[y]) start = y
+      if (start < 0) start = y
     } else if (start >= 0) {
       const end = y - 1
       const tall = end - start + 1 >= minH
@@ -110,15 +106,21 @@ export function findSpeakerChip(
 ): Rect {
   const c = profile.speakerChip
   const { width: W, height: H } = px
-  const w = Math.round(W * c.width)
+  // チップの左端そのものは名前ではない。角が丸いので、後ろが暗いと縁が
+  // 黒い柱として切り出しに入り、その柱が 1 行の高さを決めてしまう
+  // （実測: 「清夏」が "|B=" に、「広」が「リム」に化けた）。
+  // 色を採る種と同じだけ内側から始めれば、確実にチップの内側から切り出せる。
+  // 右端は動かしたくないので、内側に寄せたぶんだけ幅を詰める。
+  const inset = Math.round(W * c.seedInset)
+  const w = Math.round(W * c.width) - inset
   const fallback: Rect = {
-    x: panel.x,
+    x: panel.x + inset,
     y: Math.max(0, panel.y - Math.round(H * c.above)),
     w,
     h: Math.round(H * (c.above + c.below)),
   }
 
-  const seedX = Math.min(W - 1, panel.x + Math.round(W * c.seedInset))
+  const seedX = Math.min(W - 1, panel.x + inset)
   const seedY = Math.max(0, panel.y - Math.round(H * c.seedAbove))
   const ref = rgbAt(px, seedX, seedY)
 
@@ -133,7 +135,7 @@ export function findSpeakerChip(
   // ＝どちらも画像幅の 38.6% で、名前の長さ（「ことね」と「2943」）に依らず一定だった。
   // 大きさの決まった UI 部品なので、比率で置くほうが探るより確か。
   // 色で右端を追う方法も試したが、縁の影と縦のグラデーションで手前で止まった。
-  return { x: panel.x, y: top, w, h }
+  return { x: panel.x + inset, y: top, w, h }
 }
 
 /**

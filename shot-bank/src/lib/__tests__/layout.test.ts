@@ -2,6 +2,7 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { PNG } from 'pngjs'
 import { describe, expect, it } from 'vitest'
+import { binarize, cropGray } from '../binarize'
 import { bodyBox, findPanel, findSpeakerChip, scanLayout } from '../layout'
 
 /**
@@ -63,6 +64,22 @@ describe('話者名チップ', () => {
     expect(panel.y - (chip.y + chip.h)).toBeLessThan(png.height * 0.03)
     // 幅はチップの実測（38.6%）の内側。はみ出すと二値化の基準がずれる。
     expect(chip.w / png.width).toBeLessThan(0.386)
+  })
+
+  it.each(PORTRAIT_WITH_PANEL)('%s の切り出しにチップの丸い縁が入らない', (name) => {
+    const png = load(name)
+    const bin = binarize(cropGray(png, findSpeakerChip(png, findPanel(png)!)))
+    // チップの左端は角が丸い。後ろが暗いと、その縁が「上から下まで真っ黒な柱」
+    // として切り出しに入る。柱は字より背が高いので、tesseract は柱の高さで
+    // 1 行を正規化してしまい、名前が読めなくなる
+    //（実測: 「清夏」→"|B="、「広」→「リム」。どちらも柱つきの端末で起きた）。
+    const inkInColumn = (x: number) => {
+      let n = 0
+      for (let y = 0; y < bin.height; y++) if (bin.data[y * bin.width + x] === 0) n++
+      return n / bin.height
+    }
+    expect(inkInColumn(0)).toBeLessThan(0.5)
+    expect(inkInColumn(1)).toBeLessThan(0.5)
   })
 })
 

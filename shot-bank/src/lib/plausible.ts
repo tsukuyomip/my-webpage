@@ -28,7 +28,11 @@ const NEVER_IN_A_NAME = /[\s|/\\[\]{}<>()（）「」『』"'`~^*_+=:;,.。、!�
  * たまにゴミが残るより困る。ゴミは名簿の画面でまとめるか消せる。
  */
 export function cleanSpeaker(raw: string): string {
+  // 先に NFKC で揃える。OCR は「|」を全角の「｜」で返すことがあり、
+  // 正規化しないと下の除去にも「もっともらしい字」の判定にも引っかからず、
+  // 名前ごと捨ててしまう。
   const t = raw
+    .normalize('NFKC')
     .replace(NEVER_IN_A_NAME, '')
     .replace(/^[^ぁ-んァ-ヶ一-龥0-9０-９a-zA-Z]+/, '')
     .replace(/[^ぁ-んァ-ヶー一-龥0-9０-９a-zA-Z]+$/, '')

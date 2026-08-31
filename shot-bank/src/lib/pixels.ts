@@ -41,6 +41,28 @@ export function stripStats(px: Pixels, y: number, x0: number, x1: number): Strip
   return { luminance: sum / n, gradient: grad / Math.max(1, n - 1) }
 }
 
+/** 1 行の一部分の平均色。左右が同じ面かを見るのに使う。 */
+export function stripColor(px: Pixels, y: number, x0: number, x1: number): [number, number, number] {
+  let r = 0
+  let g = 0
+  let b = 0
+  let n = 0
+  for (let x = x0; x < x1; x++) {
+    const i = (y * px.width + x) * 4
+    r += px.data[i]
+    g += px.data[i + 1]
+    b += px.data[i + 2]
+    n++
+  }
+  if (n === 0) return [0, 0, 0]
+  return [r / n, g / n, b / n]
+}
+
+/** 2 色の、いちばん離れているチャンネルの差。 */
+export function colorDistance(a: [number, number, number], b: [number, number, number]): number {
+  return Math.max(Math.abs(a[0] - b[0]), Math.abs(a[1] - b[1]), Math.abs(a[2] - b[2]))
+}
+
 export interface Run {
   start: number
   end: number

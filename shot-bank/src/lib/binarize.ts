@@ -184,6 +184,45 @@ function slidingMin(
   }
 }
 
+/**
+ * 字のあるところまで切り詰めて、まわりに白い余白をつけ直す。
+ *
+ * 話者チップの切り出しは幅を決め打ちにしているので、短い名前だと右の 7 割が
+ * 白紙のまま残る。行の見つけ方が画像全体の縦横比に引きずられるので、
+ * 「二文字＋広大な白紙」を渡すと不利になる。字の外接矩形まで詰めてから、
+ * 字の高さに見合う余白をつけ直すほうが、素直な 1 行の絵になる。
+ *
+ * どの二値化も 0 が字・255 が地で揃えてあるので、ここは共通で使える。
+ * 字が 1 画素もなければ、そのまま返す。
+ */
+export function trimToInk(g: Gray, marginRatio = 0.25): Gray {
+  let x0 = g.width
+  let x1 = -1
+  let y0 = g.height
+  let y1 = -1
+  for (let y = 0; y < g.height; y++) {
+    for (let x = 0; x < g.width; x++) {
+      if (g.data[y * g.width + x] !== 0) continue
+      if (x < x0) x0 = x
+      if (x > x1) x1 = x
+      if (y < y0) y0 = y
+      if (y > y1) y1 = y
+    }
+  }
+  if (x1 < 0) return g
+
+  const margin = Math.max(2, Math.round((y1 - y0 + 1) * marginRatio))
+  const w = x1 - x0 + 1 + margin * 2
+  const h = y1 - y0 + 1 + margin * 2
+  const out = new Uint8ClampedArray(w * h).fill(255)
+  for (let y = y0; y <= y1; y++) {
+    const src = y * g.width
+    const dst = (y - y0 + margin) * w + margin
+    for (let x = x0; x <= x1; x++) out[dst + x - x0] = g.data[src + x]
+  }
+  return { data: out, width: w, height: h }
+}
+
 /** 二値化の結果を、canvas に載せられる RGBA に広げる。 */
 export function toRGBA(g: Gray): Uint8ClampedArray {
   const out = new Uint8ClampedArray(g.width * g.height * 4)

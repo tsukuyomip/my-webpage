@@ -436,6 +436,13 @@ export default function App() {
           onReload={reload}
           onClose={() => setShowSettings(false)}
           onBusy={setBusy}
+          reading={reading !== null}
+          onReadAll={() => {
+            // 手で直したものは触らない。それ以外は読み直す。
+            // 読み取りの直しを、すでに取り込んだぶんにも当てるための入口。
+            setShowSettings(false)
+            void readShots(shots.filter((s) => !s.textEdited))
+          }}
         />
       )}
     </div>
