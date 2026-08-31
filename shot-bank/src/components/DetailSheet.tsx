@@ -70,7 +70,7 @@ export function DetailSheet({
   useEdgeSwipeBack(sheet, onClose)
 
   return (
-    <div className="sheet" ref={sheet} role="dialog" aria-modal="true" aria-label="スクショの詳細">
+    <div className="sheet over" ref={sheet} role="dialog" aria-modal="true" aria-label="スクショの詳細">
       <div className="sheet-bar">
         <button className="ghost" onClick={onClose}>
           ← 戻る

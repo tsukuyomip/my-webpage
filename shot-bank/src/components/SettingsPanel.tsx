@@ -15,6 +15,7 @@ export function SettingsPanel({
   onClose,
   onBusy,
   onReadAll,
+  onCleared,
   reading,
 }: {
   shots: Shot[]
@@ -24,6 +25,8 @@ export function SettingsPanel({
   onClose: () => void
   onBusy: (label: string | null) => void
   onReadAll: () => void
+  /** 全消しのあとに呼ぶ。名簿の種を入れ直すため（消したままだと空で始まる） */
+  onCleared: () => void | Promise<void>
   reading: boolean
 }) {
   const sheet = useRef<HTMLDivElement>(null)
@@ -85,6 +88,7 @@ export function SettingsPanel({
     try {
       await releaseAllThumbs()
       await deleteAllShots()
+      await onCleared()
       await onReload()
       setMessage('全件を消しました')
     } finally {

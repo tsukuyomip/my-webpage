@@ -308,6 +308,11 @@ button.icon {
   overflow-y: auto;
   overscroll-behavior: contain;
 }
+/* 名簿から潜って開いた詳細は、名簿より前に出す。
+   どのシートも同じ層なので、並び順だけだと後から書いたほうが前に来る。 */
+.sheet.over {
+  z-index: 50;
+}
 .sheet-bar {
   position: sticky;
   top: 0;

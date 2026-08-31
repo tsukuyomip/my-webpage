@@ -81,6 +81,16 @@ export function resolveSpeakers(shots: Shot[], roster: Character[]): ResolveResu
   const added: Character[] = []
   const assignments = new Map<string, string>()
 
+  /** 当たった人に紐付け、読めた綴りと色を覚えさせる。 */
+  const attach = (shot: Shot, character: Character, raw: string) => {
+    assignments.set(shot.id, character.id)
+    // 読めた綴りが名簿に無い形なら、別名として覚えておく。次から確実に当たる。
+    const known = new Set([character.name, ...character.aliases].map(normalizeName))
+    if (!known.has(normalizeName(raw))) character.aliases = [...character.aliases, raw]
+    // 色をまだ持っていなければ、ここで覚える。
+    if (!character.color && shot.speakerChipColor) character.color = shot.speakerChipColor
+  }
+
   // 1 周目: 名前で当てる。ここで色が貯まる。
   const newNames: Shot[] = []
   const unreadable: Shot[] = []
@@ -91,29 +101,26 @@ export function resolveSpeakers(shots: Shot[], roster: Character[]): ResolveResu
       continue
     }
     const match = findCharacter(next, raw, shot.speakerChipColor)
-    if (!match) {
-      newNames.push(shot)
-      continue
-    }
-    assignments.set(shot.id, match.character.id)
-    // 読めた綴りが名簿に無い形なら、別名として覚えておく。次から確実に当たる。
-    const known = new Set([match.character.name, ...match.character.aliases].map(normalizeName))
-    if (!known.has(normalizeName(raw))) {
-      match.character.aliases = [...match.character.aliases, raw]
-    }
-    // 色をまだ持っていなければ、ここで覚える。
-    if (!match.character.color && shot.speakerChipColor) {
-      match.character.color = shot.speakerChipColor
-    }
+    if (match) attach(shot, match.character, raw)
+    else newNames.push(shot)
   }
 
   // 2 周目: 名前は読めたが誰にも寄らなかったもの。新しい人として仮登録する。
   // ここを色に頼らせてはいけない。プロデューサー（2943）は無彩色なので、
   // 同じ無彩色の香名江に吸われた（実測）。読めた名前は、新しい人がいる証。
+  //
+  // ただし **この周で作った人にも当て直す**。ここを見落としていて、同じ「ことね」が
+  // 枚数ぶん並んだ（実測: 84 枚から名簿が 40 人になり、全員 1 枚だった）。
   for (const shot of newNames) {
+    const raw = shot.speakerRaw!.trim()
+    const again = findCharacter(next, raw, shot.speakerChipColor)
+    if (again) {
+      attach(shot, again.character, raw)
+      continue
+    }
     const created: Character = {
       id: newId(),
-      name: shot.speakerRaw!.trim(),
+      name: raw,
       aliases: [],
       color: shot.speakerChipColor,
       provisional: true,

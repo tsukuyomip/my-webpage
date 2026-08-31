@@ -1,6 +1,8 @@
-import { useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
+import { shownCharacterIds } from '../lib/filter'
 import { countByCharacter } from '../lib/roster'
 import type { Character, Shot } from '../lib/types'
+import { ShotGrid } from './ShotGrid'
 import { useEdgeSwipeBack } from './useEdgeSwipeBack'
 
 /**
@@ -12,6 +14,10 @@ import { useEdgeSwipeBack } from './useEdgeSwipeBack'
  * 改名の欄には名簿の名前を候補として出す。分かっている主要キャラは
  * 種として入れてあるので、誤読を直すのは「候補から選ぶ」で済む。
  * すでにいる名前に直したときは、増やさずにその人へまとめられる（App 側）。
+ *
+ * 名前を押すと、その人の枚を **このシートの中で** 開く。一覧へ絞り込みを
+ * 掛けて閉じてしまうと、名簿へ戻る道がなくなる。名簿から一階層潜る形にすれば、
+ * 左端からのスワイプでそのまま名簿へ戻れる。
  */
 export function RosterPanel({
   roster,
@@ -21,7 +27,7 @@ export function RosterPanel({
   onToggleProducer,
   onDelete,
   onSeed,
-  onPick,
+  onOpenShot,
   onClose,
 }: {
   roster: Character[]
@@ -31,17 +37,44 @@ export function RosterPanel({
   onToggleProducer: (character: Character) => void
   onDelete: (character: Character) => void
   onSeed: () => void
-  onPick: (character: Character) => void
+  onOpenShot: (shot: Shot) => void
   onClose: () => void
 }) {
   const sheet = useRef<HTMLDivElement>(null)
-  useEdgeSwipeBack(sheet, onClose)
   const [mergeSource, setMergeSource] = useState<Character | null>(null)
   const [editing, setEditing] = useState<string | null>(null)
   const [draft, setDraft] = useState('')
+  const [picked, setPicked] = useState<Character | null>(null)
+
+  // 潜っているときは、まず一階層戻る。名簿を閉じるのはその次。
+  const back = useCallback(() => {
+    if (picked) setPicked(null)
+    else onClose()
+  }, [picked, onClose])
+  useEdgeSwipeBack(sheet, back)
 
   const counts = countByCharacter(shots)
   const sorted = [...roster].sort((a, b) => (counts.get(b.id) ?? 0) - (counts.get(a.id) ?? 0))
+
+  if (picked) {
+    const mine = shots.filter((s) => shownCharacterIds(s).includes(picked.id))
+    return (
+      <div className="sheet" ref={sheet} role="dialog" aria-modal="true" aria-label={picked.name}>
+        <div className="sheet-bar">
+          <button className="ghost" onClick={() => setPicked(null)}>
+            ← 名簿
+          </button>
+          <span className="sheet-name">
+            {picked.name} · {mine.length} 枚
+          </span>
+          <span />
+        </div>
+        <div className="panel">
+          <ShotGrid shots={mine} roster={roster} query="" onOpen={onOpenShot} />
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="sheet" ref={sheet} role="dialog" aria-modal="true" aria-label="名簿">
@@ -100,7 +133,7 @@ export function RosterPanel({
                       // 名簿は「誰がいるか」の一覧なので、そこから中身へ行けるのが素直。
                       <button
                         className="roster-open"
-                        onClick={() => onPick(c)}
+                        onClick={() => setPicked(c)}
                         disabled={(counts.get(c.id) ?? 0) === 0}
                       >
                         <b>

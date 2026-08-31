@@ -486,11 +486,7 @@ export default function App() {
           }}
           onDelete={(c) => void deleteCharacter(c.id).then(reload)}
           onSeed={() => void seedKnownNames(settings, true)}
-          onPick={(c) => {
-            // 話者としても「写っている人」としても、その人の出ている枚をまとめて見せる。
-            setFacets({ ...EMPTY_FACETS, characterIds: [c.id] })
-            setShowRoster(false)
-          }}
+          onOpenShot={setSelected}
           onClose={() => setShowRoster(false)}
         />
       )}
@@ -503,6 +499,9 @@ export default function App() {
           onClose={() => setShowSettings(false)}
           onBusy={setBusy}
           reading={reading !== null}
+          onCleared={async () => {
+            await seedKnownNames(settings)
+          }}
           onReadAll={() => {
             // 手で直したものは触らない。それ以外は読み直す。
             // 読み取りの直しを、すでに取り込んだぶんにも当てるための入口。
