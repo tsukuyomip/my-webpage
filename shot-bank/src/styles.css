@@ -161,7 +161,14 @@ button.icon {
   width: 100%;
   height: 100%;
 }
+/* iOS は画像を長押しするとドラッグが始まり、離した先で「取り込み」に
+   化けてしまう。一覧のサムネは掴む対象ではないので、そこを止める。 */
 .thumb img {
+  -webkit-touch-callout: none;
+  -webkit-user-drag: none;
+  user-select: none;
+  -webkit-user-select: none;
+  pointer-events: none;
   width: 100%;
   height: 100%;
   object-fit: cover;
@@ -416,11 +423,13 @@ img.full {
   gap: 0.6rem;
   margin-top: 0.8rem;
 }
+/* iOS Safari は 16px 未満の入力欄にフォーカスすると画面を勝手に拡大する。
+   拡大されると戻せず操作しづらいので、入力欄はどれも 16px 以上にする。 */
 .search input {
   flex: 1;
   min-width: 0;
   font: inherit;
-  font-size: 0.92rem;
+  font-size: 16px;
   padding: 0.5rem 0.75rem;
   border-radius: 8px;
   border: 1px solid var(--line);
@@ -477,7 +486,8 @@ button.tiny {
 .field input,
 .field textarea {
   font: inherit;
-  font-size: 0.92rem;
+  /* iOS の自動ズーム対策。16px 未満だとフォーカスで画面が拡大する */
+  font-size: 16px;
   padding: 0.5rem 0.65rem;
   border-radius: 8px;
   border: 1px solid var(--line);
@@ -689,4 +699,18 @@ button.small {
 .badge.dimmed {
   background: var(--surface-2);
   color: var(--text-dim);
+}
+
+.roster-input {
+  font: inherit;
+  /* iOS の自動ズーム対策 */
+  font-size: 16px;
+  min-width: 0;
+  flex: 1;
+  padding: 0.35rem 0.5rem;
+  border-radius: 6px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  -webkit-appearance: none;
 }

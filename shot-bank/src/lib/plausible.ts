@@ -16,17 +16,31 @@ function plausibleRatio(s: string): number {
   return chars.filter((c) => PLAUSIBLE.test(c)).length / chars.length
 }
 
+/** 名前には決して現れない字。括弧・引用符・記号のたぐい。 */
+const NEVER_IN_A_NAME = /[\s|/\\[\]{}<>()（）「」『』"'`~^*_+=:;,.。、!！?？…]/g
+
 /**
  * 話者名として受け取れるか。
- * 名前は短く、ほぼ日本語か数字（プロデューサー名は数字のことがある）。
+ *
+ * 名前に来ない字は **どこにあっても** 落としてから判定する。
+ * 前後だけ削っていたときは、真ん中に 1 文字紛れただけで名前ごと捨てていた
+ * （実機で「話者（なし）」になる原因のひとつ）。名前が消えるほうが、
+ * たまにゴミが残るより困る。ゴミは名簿の画面でまとめるか消せる。
  */
 export function cleanSpeaker(raw: string): string {
-  const t = raw.replace(/\s+/g, '').replace(/^[^ぁ-んァ-ヶ一-龥0-9０-９]+/, '').replace(/[^ぁ-んァ-ヶー一-龥0-9０-９]+$/, '')
+  const t = raw
+    .replace(NEVER_IN_A_NAME, '')
+    .replace(/^[^ぁ-んァ-ヶ一-龥0-9０-９a-zA-Z]+/, '')
+    .replace(/[^ぁ-んァ-ヶー一-龥0-9０-９a-zA-Z]+$/, '')
   if (!t) return ''
+  // 名前は短い。長いものは、そもそも名前を読めていない。
   if (t.length > 10) return ''
-  // 名前は短いので、正しく読めていれば全部の字がもっともらしくなる。
-  // 1 文字でも紛れていたら読めていない（実測: 横向きで「4ー,ビーリピ1」が残った）。
   if (plausibleRatio(t) < 1) return ''
+  // 名前は「全部が数字」（プロデューサー名）か「数字を含まない」かのどちらか。
+  // 混ざっているものは読めていない（実測: 横向きで「4ー,ビーリピ1」）。
+  // 記号をどこからでも落とすようにしたぶん、この規則で締めておく。
+  const digits = (t.match(/[0-9０-９]/g) ?? []).length
+  if (digits > 0 && digits < t.length) return ''
   return t
 }
 
