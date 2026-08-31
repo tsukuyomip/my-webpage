@@ -232,6 +232,11 @@ button.icon {
   color: var(--warn);
   border-color: color-mix(in srgb, var(--warn) 35%, transparent);
 }
+.banner.update {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface-2));
+  color: var(--text);
+}
 .banner.risk {
   background: var(--risk-bg);
   color: var(--risk);

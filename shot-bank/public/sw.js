@@ -1,5 +1,5 @@
 // 目的はオフライン起動だけ。画像は IndexedDB にあるので、ここでは扱わない。
-const CACHE = 'shot-bank-v1'
+const CACHE = 'shot-bank-v2'
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(['./', './index.html'])))
@@ -17,7 +17,11 @@ self.addEventListener('activate', (e) => {
 
 self.addEventListener('fetch', (e) => {
   const req = e.request
-  if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) return
+  const url = new URL(req.url)
+  if (req.method !== 'GET' || url.origin !== self.location.origin) return
+
+  // 刻印だけは必ず網から取る。これを溜め込むと、更新に気づくための口が塞がる。
+  if (url.pathname.endsWith('/version.json')) return
 
   // HTML はネットワーク優先。そうしないと新しいデプロイのアセット名を拾えない。
   if (req.mode === 'navigate') {

@@ -20,6 +20,7 @@ export function RosterPanel({
   onMerge,
   onToggleProducer,
   onDelete,
+  onSeed,
   onClose,
 }: {
   roster: Character[]
@@ -28,6 +29,7 @@ export function RosterPanel({
   onMerge: (keepId: string, dropId: string) => void
   onToggleProducer: (character: Character) => void
   onDelete: (character: Character) => void
+  onSeed: () => void
   onClose: () => void
 }) {
   const sheet = useRef<HTMLDivElement>(null)
@@ -155,6 +157,11 @@ export function RosterPanel({
               「まとめる」で 1 人にしてください。どちらでも元の綴りは別名として
               覚えるので、次からは編集距離に頼らず当たります。
             </p>
+            {/* 種入れは初回に 1 度だけ走る。消した人が起動のたびに戻るのを避けるため。
+                そのぶん、足りないと気づいたときに自分で入れ直せる口を残す。 */}
+            <button className="ghost" onClick={onSeed}>
+              主要キャラを名簿に入れ直す
+            </button>
           </>
         )}
       </div>
