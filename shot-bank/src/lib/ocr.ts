@@ -1,5 +1,13 @@
-import { createWorker, OEM, type Worker } from 'tesseract.js'
-import { binarize, binarizeBrightest, binarizeOutlined, cropGray, toRGBA, type Gray } from './binarize'
+import { createWorker, OEM, PSM, type Worker } from 'tesseract.js'
+import {
+  binarize,
+  binarizeBrightest,
+  binarizeOutlined,
+  cropGray,
+  toRGBA,
+  trimToInk,
+  type Gray,
+} from './binarize'
 import {
   bodyBox,
   classify,
@@ -55,8 +63,29 @@ export function isOcrLoaded(): boolean {
   return workerPromise !== null
 }
 
+/**
+ * 切り出した領域の形を tesseract に伝える。既定は「1 つの塊」なので、
+ * それで困る領域だけ指定を変える。
+ *
+ * - `line`   … 話者チップと横向きの話者名。1 行しかない小さな絵。
+ *   字の外接矩形まで詰めてから渡す（下の trimToInk）
+ * - `block`  … 本文パネルと横向きの字幕。数行の塊で、まわりに余計なものが入らない
+ * - `sparse` … ヘッダ帯。半透明チップの外側に絵が入るので、文字の塊を探させる。
+ *   実測（実機のスクショ 3 枚、ブラウザ上）:
+ *     塊とみなす … "-CN.Em=E3254" / "i画ha4おでかけーーミーEE"
+ *     散在とみなす … "ーーーーREE第32話" / "Lv;B&i=E広<|八ツピビーミルフィーユK1話"
+ *   前者からは話数が 1 つも取れず、後者からは 2 枚とも取れた。
+ */
+type Shape = 'line' | 'block' | 'sparse'
+
+const PAGE_SEG: Record<Shape, PSM> = {
+  line: PSM.SINGLE_LINE,
+  block: PSM.SINGLE_BLOCK,
+  sparse: PSM.SPARSE_TEXT,
+}
+
 /** 二値化した領域を canvas に載せて OCR に渡す。 */
-async function recognizeGray(gray: Gray): Promise<string> {
+async function recognizeGray(gray: Gray, shape: Shape): Promise<string> {
   const canvas = document.createElement('canvas')
   canvas.width = gray.width
   canvas.height = gray.height
@@ -66,6 +95,7 @@ async function recognizeGray(gray: Gray): Promise<string> {
   image.data.set(toRGBA(gray))
   ctx.putImageData(image, 0, 0)
   const worker = await getWorker()
+  await worker.setParameters({ tessedit_pageseg_mode: PAGE_SEG[shape] })
   const {
     data: { text },
   } = await worker.recognize(canvas)
@@ -74,11 +104,15 @@ async function recognizeGray(gray: Gray): Promise<string> {
 
 type Mode = 'otsu' | 'brightest' | 'outlined'
 
-function prepare(px: Pixels, rect: Rect, mode: Mode): Gray {
+function prepare(px: Pixels, rect: Rect, mode: Mode, trim = false): Gray {
   const gray = cropGray(px, rect)
-  if (mode === 'brightest') return binarizeBrightest(gray)
-  if (mode === 'outlined') return binarizeOutlined(gray)
-  return binarize(gray)
+  const bin =
+    mode === 'brightest'
+      ? binarizeBrightest(gray)
+      : mode === 'outlined'
+        ? binarizeOutlined(gray)
+        : binarize(gray)
+  return trim ? trimToInk(bin) : bin
 }
 
 export interface Recognized {
@@ -111,12 +145,14 @@ export async function recognize(px: Pixels, statusCallback: StatusCallback = () 
     const { subtitle, speaker } = landscapeBoxes(px)
     // 横は絵の上に縁取りの白字が乗るだけなので崩れやすい。
     // 信じられない結果は捨てる。空のまま残して、手で入れてもらうほうがまし。
-    const body = cleanBody(await recognizeGray(prepare(px, subtitle, 'outlined')))
-    const speakerRaw = cleanSpeaker(await recognizeGray(prepare(px, speaker, 'outlined')))
+    const body = cleanBody(await recognizeGray(prepare(px, subtitle, 'outlined'), 'block'))
+    const speakerRaw = cleanSpeaker(
+      await recognizeGray(prepare(px, speaker, 'outlined', true), 'line'),
+    )
     return { layout: 'landscape-story', body, speakerRaw, headerRaw: '', story: null }
   }
 
-  const headerRaw = await recognizeGray(prepare(px, headerBox(px), 'brightest'))
+  const headerRaw = await recognizeGray(prepare(px, headerBox(px), 'brightest'), 'block')
   const story = parseHeader(headerRaw)
 
   if (!scan.panel) {
@@ -124,8 +160,8 @@ export async function recognize(px: Pixels, statusCallback: StatusCallback = () 
   }
 
   const chip = findSpeakerChip(px, scan.panel)
-  const body = cleanBody(await recognizeGray(prepare(px, bodyBox(scan.panel), 'otsu')))
-  const speakerRaw = cleanSpeaker(await recognizeGray(prepare(px, chip, 'otsu')))
+  const body = cleanBody(await recognizeGray(prepare(px, bodyBox(scan.panel), 'otsu'), 'block'))
+  const speakerRaw = cleanSpeaker(await recognizeGray(prepare(px, chip, 'otsu', true), 'line'))
   return {
     layout: classify(scan, story !== null),
     body,

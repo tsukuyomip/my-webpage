@@ -610,17 +610,29 @@ button.small {
   touch-action: pan-y;
 }
 /* 高さを決め打ちにする。flex: 1 だと画像が読み込まれた瞬間に伸び縮みして、
-   タップしようとしたタグが動く。位置が動かないことのほうが大事。 */
+   タップしようとしたタグが動く。位置が動かないことのほうが大事。
+
+   画像の上限は % ではなく実寸で書く。grid + max-height:100% にしていたら、
+   iOS Safari で縦長のスクショだけが枠より 234px 下にずれ、タグの上に重なった
+   （実測 1206x2622 の端末。ずれ幅は「画像の本来の高さの行」の中央に
+   置いた場合と 1px 差で一致した）。実寸なら解釈の余地がない。
+   overflow: hidden は最後の砦。どうずれてもタグの上には出ない。 */
 .tagq-image {
-  height: 44dvh;
+  --tagq-image-height: 44dvh;
+  height: var(--tagq-image-height);
   flex: none;
-  display: grid;
-  place-items: center;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   padding: 0.6rem;
+  overflow: hidden;
 }
 .tagq-image img.full {
-  max-height: 100%;
+  /* 0.6rem の余白が上下、枠線が上下 1px ずつ。 */
+  max-height: calc(var(--tagq-image-height) - 1.2rem - 2px);
+  max-width: 100%;
   width: auto;
+  height: auto;
 }
 .tagq-tags {
   display: flex;

@@ -14,6 +14,8 @@ export function SettingsPanel({
   onReload,
   onClose,
   onBusy,
+  onReadAll,
+  reading,
 }: {
   shots: Shot[]
   settings: Settings
@@ -21,6 +23,8 @@ export function SettingsPanel({
   onReload: () => Promise<void>
   onClose: () => void
   onBusy: (label: string | null) => void
+  onReadAll: () => void
+  reading: boolean
 }) {
   const sheet = useRef<HTMLDivElement>(null)
   useEdgeSwipeBack(sheet, onClose)
@@ -153,6 +157,17 @@ export function SettingsPanel({
 
         <section>
           <h2>文字の読み取り</h2>
+          <p className="muted">
+            読み取りの精度は直しが入ることがあります。うまく読めていないものが多いときは、
+            全部もう一度読み取ってください。<strong>手で直したものは触りません。</strong>
+          </p>
+          <button
+            className="ghost"
+            disabled={shots.length === 0 || reading}
+            onClick={onReadAll}
+          >
+            全部もう一度読み取る（{shots.filter((s) => !s.textEdited).length} 枚）
+          </button>
           <label className="check">
             <input
               type="checkbox"
