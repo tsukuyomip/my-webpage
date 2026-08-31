@@ -1,0 +1,410 @@
+/* 設計ドキュメント（docs/shot-bank-plan.md）と同じ色みで揃えている。
+   話者チップの実測色から取った桃をアクセントに、地は端末の系統色に寄せた寒色グレー。 */
+:root {
+  --paper: #f1f1f5;
+  --surface: #ffffff;
+  --surface-2: #e9e9ef;
+  --line: #d5d3db;
+  --text: #1b1a21;
+  --text-mid: #4b4753;
+  --text-dim: #6e6875;
+  --accent: #c0356a;
+  --accent-bg: #fbe9f0;
+  --warn: #9c6c10;
+  --warn-bg: #f7eeda;
+  --risk: #b23a28;
+  --risk-bg: #fae7e3;
+  --on-accent: #ffffff;
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #14161a;
+    --surface: #1c1f25;
+    --surface-2: #24272f;
+    --line: #343841;
+    --text: #eceaf0;
+    --text-mid: #b8b3c0;
+    --text-dim: #8b8593;
+    --accent: #ff8ab0;
+    --accent-bg: #331e27;
+    --warn: #dcae55;
+    --warn-bg: #2c2519;
+    --risk: #f0836d;
+    --risk-bg: #301d1a;
+    --on-accent: #1b1a21;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--text);
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Yu Gothic', system-ui,
+    sans-serif;
+  font-size: 15px;
+  line-height: 1.7;
+  -webkit-font-smoothing: antialiased;
+}
+
+.app {
+  min-height: 100dvh;
+  padding: 0 max(0.75rem, env(safe-area-inset-left)) calc(2rem + env(safe-area-inset-bottom));
+  max-width: 60rem;
+  margin: 0 auto;
+}
+
+/* ---- ヘッダ ---- */
+.bar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: max(0.7rem, env(safe-area-inset-top)) 0 0.7rem;
+  background: color-mix(in srgb, var(--paper) 88%, transparent);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--line);
+}
+.brand {
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+.count {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+  font-variant-numeric: tabular-nums;
+  margin-right: auto;
+}
+
+/* ---- ボタン ---- */
+button,
+.button-like {
+  font: inherit;
+  font-weight: 600;
+  font-size: 0.88rem;
+  padding: 0.42rem 0.9rem;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: var(--accent);
+  color: var(--on-accent);
+  cursor: pointer;
+}
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+button.ghost,
+.button-like {
+  background: var(--surface);
+  color: var(--text);
+  border-color: var(--line);
+}
+button.danger {
+  background: var(--risk);
+  color: var(--on-accent);
+}
+button.icon {
+  padding: 0.42rem 0.6rem;
+}
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.button-like {
+  display: inline-block;
+  position: relative;
+  overflow: hidden;
+}
+.button-like input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+.hidden-input {
+  display: none;
+}
+
+/* ---- 一覧 ---- */
+.grid {
+  list-style: none;
+  margin: 0.9rem 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(6.5rem, 1fr));
+  gap: 0.4rem;
+}
+.cell {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--surface-2);
+  /* 縦横が混ざるので、タイルは一律の比率にして切り抜く。
+     横長を span 2 にすると行の高さが揃わず、穴だらけになる。 */
+  aspect-ratio: 3 / 4;
+}
+.thumb {
+  width: 100%;
+  height: 100%;
+}
+.thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  /* 見分けるのは顔なので、中央より少し上を残して切る。 */
+  object-position: center 32%;
+  display: block;
+}
+
+/* ---- 空のとき ---- */
+.empty {
+  margin-top: 20%;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.7rem;
+}
+.empty-title {
+  margin: 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+.muted {
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 0.88rem;
+  max-width: 26rem;
+}
+
+/* ---- 告知 ---- */
+.banners {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.8rem;
+}
+.banner {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  text-align: left;
+  font-weight: 400;
+  padding: 0.7rem 0.85rem;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  font-size: 0.84rem;
+  line-height: 1.6;
+}
+.banner b {
+  font-size: 0.9rem;
+}
+.banner.warn {
+  background: var(--warn-bg);
+  color: var(--warn);
+  border-color: color-mix(in srgb, var(--warn) 35%, transparent);
+}
+.banner.risk {
+  background: var(--risk-bg);
+  color: var(--risk);
+  border-color: color-mix(in srgb, var(--risk) 35%, transparent);
+  cursor: pointer;
+}
+.notice {
+  margin: 0.8rem 0 0;
+  padding: 0.6rem 0.85rem;
+  border-radius: 8px;
+  background: var(--accent-bg);
+  color: var(--accent);
+  font-size: 0.85rem;
+}
+
+/* ---- 進捗・ドロップ ---- */
+.progress {
+  position: fixed;
+  left: 50%;
+  bottom: calc(1rem + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 20;
+  width: min(28rem, calc(100vw - 1.5rem));
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  padding: 0.7rem 0.9rem;
+  border-radius: 10px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: 0 10px 30px -12px rgba(0, 0, 0, 0.45);
+  font-size: 0.82rem;
+  color: var(--text-mid);
+}
+.progress-bar {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.progress-bar span {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 0.2s ease;
+}
+.dropzone {
+  position: fixed;
+  inset: 0.75rem;
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  border: 2px dashed var(--accent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--paper) 82%, transparent);
+  color: var(--accent);
+  font-weight: 700;
+  pointer-events: none;
+}
+
+/* ---- シート（詳細・設定） ---- */
+.sheet {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: var(--paper);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.sheet-bar {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: max(0.7rem, env(safe-area-inset-top)) 0.75rem 0.7rem;
+  background: color-mix(in srgb, var(--paper) 88%, transparent);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--line);
+}
+.sheet-name {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.85rem;
+  color: var(--text-dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.confirm {
+  display: flex;
+  gap: 0.4rem;
+}
+.sheet-body {
+  padding: 0.75rem;
+  display: grid;
+  place-items: center;
+}
+img.full {
+  max-width: 100%;
+  max-height: 70dvh;
+  height: auto;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  display: block;
+}
+
+/* ---- メタ情報 ---- */
+.meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+  gap: 0;
+  margin: 0;
+  padding: 0 0.75rem 1.5rem;
+  border-top: 1px solid var(--line);
+}
+.meta div {
+  padding: 0.6rem 0.8rem 0.6rem 0;
+}
+.meta dt {
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  color: var(--text-dim);
+}
+.meta dd {
+  margin: 0;
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- 設定 ---- */
+.panel {
+  padding: 0.5rem 0.75rem 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.6rem;
+}
+.panel section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  align-items: flex-start;
+}
+.panel h2 {
+  margin: 0;
+  font-size: 0.98rem;
+  font-weight: 700;
+}
+.panel .meta {
+  border-top: 0;
+  padding: 0;
+  width: 100%;
+}
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.check {
+  display: flex;
+  gap: 0.6rem;
+  align-items: flex-start;
+  cursor: pointer;
+}
+.check input {
+  margin-top: 0.35rem;
+  accent-color: var(--accent);
+  width: 1.05rem;
+  height: 1.05rem;
+}
+.check small {
+  display: block;
+  color: var(--text-dim);
+  font-size: 0.82rem;
+  line-height: 1.6;
+}
+.build {
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    transition: none !important;
+  }
+}
