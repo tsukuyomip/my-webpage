@@ -190,6 +190,35 @@ describe('手で決めた話者は、自動の寄せで上書きしない', () =
   })
 })
 
+describe('誤読が本人を隠さない', () => {
+  it('「広上」「莉波回生前」は本人に吸われ、名簿を汚さない', () => {
+    // 実機で起きたそのもの。OCR が「広」を「広上」、「莉波」を「莉波回生前」と
+    // 読み、水色とピンクを持った仮登録ができた。色で当てる仕組みは
+    // 「ちょうど 1 人」が条件なので、同じ色が 2 人になった時点で
+    // 本人の枚も丸ごと拾えなくなっていた。
+    const roster = seedRoster([], gakumas.knownCharacters).roster
+    const hiro = roster.find((c) => c.name === '広')!
+    const rinami = roster.find((c) => c.name === '莉波')!
+    const r = resolveSpeakers(
+      [shot('s1', '広上', '#04bddd'), shot('s2', '莉波回生前', '#fd7ec2')],
+      roster,
+    )
+    expect(r.added).toHaveLength(0)
+    expect(r.assignments.get('s1')).toBe(hiro.id)
+    expect(r.assignments.get('s2')).toBe(rinami.id)
+  })
+
+  it('すでに名簿にいる誤読は、本人の邪魔をしない', () => {
+    // 直す前に取り込んだぶんが残っていても、消さずに直る。
+    // 仮登録は色の数に入れないので、水色は広ひとりを指したまま。
+    const roster = seedRoster([], gakumas.knownCharacters).roster
+    const hiro = roster.find((c) => c.name === '広')!
+    roster.push(person('広上', { provisional: true, color: '#04bddd' }))
+    const r = resolveSpeakers([shot('s1', '', '#04bddd')], roster)
+    expect(r.assignments.get('s1')).toBe(hiro.id)
+  })
+})
+
 describe('チップの色は場面で動く。だから何色か覚える', () => {
   it('星南は種の時点で 2 色持つ。明るい場面と暗い場面で 23 離れるため', () => {
     const roster = seedRoster([], gakumas.knownCharacters).roster
