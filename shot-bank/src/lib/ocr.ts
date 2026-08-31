@@ -7,6 +7,7 @@ import {
   headerBox,
   landscapeBoxes,
   scanLayout,
+  speakerChipColor,
   type Layout,
   type Rect,
 } from './layout'
@@ -89,6 +90,8 @@ export interface Recognized {
   /** ヘッダチップの OCR 生値 */
   headerRaw: string
   story: Story | null
+  /** 話者チップの代表色（#rrggbb）。キャラ照合の裏取りに使う */
+  speakerChipColor?: string
 }
 
 /**
@@ -120,11 +123,17 @@ export async function recognize(px: Pixels, statusCallback: StatusCallback = () 
     return { layout: classify(scan, story !== null), body: '', speakerRaw: '', headerRaw, story }
   }
 
+  const chip = findSpeakerChip(px, scan.panel)
   const body = cleanBody(await recognizeGray(prepare(px, bodyBox(scan.panel), 'otsu')))
-  const speakerRaw = cleanSpeaker(
-    await recognizeGray(prepare(px, findSpeakerChip(px, scan.panel), 'otsu')),
-  )
-  return { layout: classify(scan, story !== null), body, speakerRaw, headerRaw, story }
+  const speakerRaw = cleanSpeaker(await recognizeGray(prepare(px, chip, 'otsu')))
+  return {
+    layout: classify(scan, story !== null),
+    body,
+    speakerRaw,
+    headerRaw,
+    story,
+    speakerChipColor: speakerChipColor(px, chip),
+  }
 }
 
 /** 画像 Blob を解析できる形（ImageData）にする。 */

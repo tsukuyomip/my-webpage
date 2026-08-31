@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { getImage } from '../lib/db'
 import { formatBytes, formatDate } from '../lib/format'
 import { formatStory } from '../lib/story'
-import type { Shot } from '../lib/types'
+import type { Character, Shot } from '../lib/types'
 import { BlobImage } from './BlobImage'
 
 const LAYOUT_LABEL: Record<string, string> = {
@@ -18,6 +18,11 @@ export function DetailSheet({
   onDelete,
   onSaveText,
   onReRecognize,
+  onToggleMood,
+  onToggleCharacter,
+  onToggleFavorite,
+  roster,
+  moods,
   busy,
 }: {
   shot: Shot
@@ -25,6 +30,11 @@ export function DetailSheet({
   onDelete: (shot: Shot) => void
   onSaveText: (shot: Shot, body: string, speakerRaw: string) => void
   onReRecognize: (shot: Shot) => void
+  onToggleMood: (shot: Shot, mood: string) => void
+  onToggleCharacter: (shot: Shot, characterId: string) => void
+  onToggleFavorite: (shot: Shot) => void
+  roster: Character[]
+  moods: string[]
   busy: boolean
 }) {
   const [blob, setBlob] = useState<Blob>()
@@ -62,6 +72,14 @@ export function DetailSheet({
           ← 戻る
         </button>
         <span className="sheet-name">{shot.fileName}</span>
+        <button
+          className={shot.favorite ? 'star on' : 'star'}
+          onClick={() => onToggleFavorite(shot)}
+          aria-label="お気に入り"
+          aria-pressed={shot.favorite ?? false}
+        >
+          ★
+        </button>
         {confirming ? (
           <span className="confirm">
             <button className="danger" onClick={() => onDelete(shot)}>
@@ -81,6 +99,48 @@ export function DetailSheet({
       <div className="sheet-body">
         {blob ? <BlobImage blob={blob} alt={shot.fileName} /> : <p className="muted">読み込み中…</p>}
       </div>
+
+      <section className="text-edit">
+        <h2>タグ</h2>
+        <span className="filter-label">表情</span>
+        <div className="chips-row">
+          {moods.map((m) => {
+            const on = shot.moods?.includes(m) ?? false
+            return (
+              <button
+                key={m}
+                className={on ? 'chip active' : 'chip'}
+                onClick={() => onToggleMood(shot, m)}
+                aria-pressed={on}
+              >
+                {m}
+              </button>
+            )
+          })}
+        </div>
+        {roster.length > 0 && (
+          <>
+            <span className="filter-label">写っている人</span>
+            <div className="chips-row">
+              {roster.map((c) => {
+                const on = shot.characterIds?.includes(c.id) ?? false
+                return (
+                  <button
+                    key={c.id}
+                    className={on ? 'chip active' : 'chip'}
+                    onClick={() => onToggleCharacter(shot, c.id)}
+                    aria-pressed={on}
+                    style={c.color && !on ? { borderColor: c.color } : undefined}
+                  >
+                    {c.color && <span className="chip-dot" style={{ background: c.color }} />}
+                    {c.name}
+                  </button>
+                )
+              })}
+            </div>
+          </>
+        )}
+      </section>
 
       <section className="text-edit">
         <h2>読み取った文字</h2>

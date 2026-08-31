@@ -1,16 +1,30 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Banners } from './components/Banners'
 import { DetailSheet } from './components/DetailSheet'
+import { FilterBar } from './components/FilterBar'
+import { RosterPanel } from './components/RosterPanel'
 import { SearchBar } from './components/SearchBar'
 import { SettingsPanel } from './components/SettingsPanel'
 import { ShotGrid } from './components/ShotGrid'
+import { TagQueue } from './components/TagQueue'
 import { releaseThumb } from './components/Thumb'
-import { deleteShot, getAllShots, loadSettings, saveSettings, updateShot } from './lib/db'
+import {
+  deleteCharacter,
+  deleteShot,
+  getAllCharacters,
+  getAllShots,
+  loadSettings,
+  putCharacter,
+  saveSettings,
+  updateShot,
+} from './lib/db'
+import { applyFacets, collectTags, EMPTY_FACETS, type Facets } from './lib/filter'
 import { imageFilesFrom, ingestFiles, type IngestProgress } from './lib/ingest'
-import { matchShot } from './lib/matching'
+import { allMoods } from './lib/moods'
 import { needsOcr, recognizeShots, type RecognizeProgress } from './lib/recognizeQueue'
+import { mergeCharacters, resolveSpeakers } from './lib/roster'
 import { requestPersistence } from './lib/storage'
-import { DEFAULT_SETTINGS, type Settings, type Shot } from './lib/types'
+import { DEFAULT_SETTINGS, type Character, type Settings, type Shot } from './lib/types'
 
 export default function App() {
   const [shots, setShots] = useState<Shot[]>([])
@@ -21,15 +35,19 @@ export default function App() {
   const [busy, setBusy] = useState<string | null>(null)
   const [notice, setNotice] = useState<string>()
   const [dragging, setDragging] = useState(false)
-  const [query, setQuery] = useState('')
+  const [roster, setRoster] = useState<Character[]>([])
+  const [facets, setFacets] = useState<Facets>(EMPTY_FACETS)
+  const [showRoster, setShowRoster] = useState(false)
+  const [tagging, setTagging] = useState(false)
   const [reading, setReading] = useState<RecognizeProgress | null>(null)
   const fileInput = useRef<HTMLInputElement>(null)
   const stopReading = useRef(false)
 
   const reload = useCallback(async () => {
-    const all = await getAllShots()
+    const [all, chars] = await Promise.all([getAllShots(), getAllCharacters()])
     all.sort((a, b) => b.createdAt - a.createdAt || (a.id < b.id ? 1 : -1))
     setShots(all)
+    setRoster(chars)
   }, [])
 
   useEffect(() => {
@@ -70,6 +88,17 @@ export default function App() {
         shouldStop: () => stopReading.current,
       })
       setReading(null)
+
+      // 読めた話者名を名簿へ寄せる。無ければ仮登録する。
+      // 名簿は OCR から育つので、ここが唯一の増え口になる。
+      const fresh = await getAllShots()
+      const current = await getAllCharacters()
+      const resolved = resolveSpeakers(fresh, current)
+      for (const c of resolved.roster) await putCharacter(c)
+      for (const shot of fresh) {
+        const id = resolved.assignments.get(shot.id)
+        if (id && shot.speakerId !== id) await updateShot({ ...shot, speakerId: id })
+      }
       await reload()
       if (result.stopped) setNotice('読み取りを止めました')
       else if (result.failed) setNotice(`${result.done} 枚を読み取り、${result.failed} 枚は失敗しました`)
@@ -169,11 +198,71 @@ export default function App() {
     [readShots],
   )
 
-  const visible = useMemo(
-    () => shots.filter((s) => matchShot(s, query) !== null),
-    [shots, query],
+  /** 1 枚のメタを差し替えて、画面にも即反映する。タグ付けは手数が命なので待たせない。 */
+  const patchShot = useCallback(async (shot: Shot, patch: Partial<Shot>) => {
+    const next: Shot = { ...shot, ...patch }
+    setShots((prev) => prev.map((s) => (s.id === next.id ? next : s)))
+    setSelected((cur) => (cur && cur.id === next.id ? next : cur))
+    await updateShot(next)
+  }, [])
+
+  const toggleIn = (list: string[] | undefined, value: string): string[] => {
+    const cur = list ?? []
+    return cur.includes(value) ? cur.filter((v) => v !== value) : [...cur, value]
+  }
+
+  const toggleMood = useCallback(
+    (shot: Shot, mood: string) =>
+      void patchShot(shot, { moods: toggleIn(shot.moods, mood), tagged: true }),
+    [patchShot],
   )
+  const toggleCharacter = useCallback(
+    (shot: Shot, id: string) =>
+      void patchShot(shot, { characterIds: toggleIn(shot.characterIds, id), tagged: true }),
+    [patchShot],
+  )
+  const toggleFavorite = useCallback(
+    (shot: Shot) => void patchShot(shot, { favorite: !shot.favorite }),
+    [patchShot],
+  )
+
+  const renameCharacter = useCallback(
+    async (character: Character, name: string) => {
+      // 元の綴りは別名に残す。過去の読み取り結果が当たらなくなるのを防ぐ。
+      const aliases = character.aliases.includes(character.name)
+        ? character.aliases
+        : [...character.aliases, character.name]
+      await putCharacter({ ...character, name, aliases, provisional: false })
+      await reload()
+    },
+    [reload],
+  )
+
+  const mergeInto = useCallback(
+    async (keepId: string, dropId: string) => {
+      const merged = mergeCharacters(roster, keepId, dropId)
+      if (!merged) return
+      await putCharacter(merged.keep)
+      await deleteCharacter(dropId)
+      // まとめられた側を指していたスクショを、残るほうへ付け替える。
+      for (const shot of shots) {
+        const patch: Partial<Shot> = {}
+        if (shot.speakerId === dropId) patch.speakerId = keepId
+        if (shot.characterIds?.includes(dropId)) {
+          patch.characterIds = [...new Set(shot.characterIds.map((i) => (i === dropId ? keepId : i)))]
+        }
+        if (Object.keys(patch).length) await updateShot({ ...shot, ...patch })
+      }
+      await reload()
+      setNotice(`「${merged.keep.name}」にまとめました`)
+    },
+    [roster, shots, reload],
+  )
+
+  const visible = useMemo(() => applyFacets(shots, facets), [shots, facets])
   const unread = useMemo(() => needsOcr(shots), [shots])
+  const moods = useMemo(() => allMoods(settings.customMoods), [settings.customMoods])
+  const tags = useMemo(() => collectTags(shots), [shots])
 
   const working = progress !== null || busy !== null || reading !== null
 
@@ -185,6 +274,11 @@ export default function App() {
         <button onClick={() => fileInput.current?.click()} disabled={working}>
           取り込む
         </button>
+        {roster.length > 0 && (
+          <button className="ghost icon" onClick={() => setShowRoster(true)} aria-label="名簿">
+            👥
+          </button>
+        )}
         <button className="ghost icon" onClick={() => setShowSettings(true)} aria-label="設定">
           ⚙
         </button>
@@ -210,7 +304,22 @@ export default function App() {
       />
 
       {shots.length > 0 && (
-        <SearchBar value={query} onChange={setQuery} hits={visible.length} total={shots.length} />
+        <>
+          <SearchBar
+            value={facets.query}
+            onChange={(query) => setFacets({ ...facets, query })}
+            hits={visible.length}
+            total={shots.length}
+          />
+          <FilterBar
+            facets={facets}
+            onChange={setFacets}
+            roster={roster}
+            shots={shots}
+            moods={moods}
+            tags={tags}
+          />
+        </>
       )}
 
       {notice && <p className="notice">{notice}</p>}
@@ -218,6 +327,12 @@ export default function App() {
       {unread.length > 0 && reading === null && (
         <button className="ghost wide" onClick={() => void readShots(unread)}>
           未読み取りの {unread.length} 枚を読み取る
+        </button>
+      )}
+
+      {visible.length > 0 && (
+        <button className="ghost wide" onClick={() => setTagging(true)}>
+          いま出ている {visible.length} 枚にタグを振る
         </button>
       )}
 
@@ -233,9 +348,9 @@ export default function App() {
             </button>
           </div>
         ) : visible.length === 0 ? (
-          <p className="muted centered">「{query}」に当たるものはありませんでした。</p>
+          <p className="muted centered">条件に当たるものはありませんでした。</p>
         ) : (
-          <ShotGrid shots={visible} query={query} onOpen={setSelected} />
+          <ShotGrid shots={visible} query={facets.query} onOpen={setSelected} />
         )}
       </main>
 
@@ -281,7 +396,36 @@ export default function App() {
           onDelete={removeShot}
           onSaveText={(shot, body, speaker) => void saveText(shot, body, speaker)}
           onReRecognize={(shot) => void reRecognize(shot)}
+          onToggleMood={toggleMood}
+          onToggleCharacter={toggleCharacter}
+          onToggleFavorite={toggleFavorite}
+          roster={roster}
+          moods={moods}
           busy={working}
+        />
+      )}
+      {tagging && (
+        <TagQueue
+          shots={visible}
+          roster={roster}
+          moods={moods}
+          onToggleMood={toggleMood}
+          onToggleCharacter={toggleCharacter}
+          onToggleFavorite={toggleFavorite}
+          onClose={() => setTagging(false)}
+        />
+      )}
+      {showRoster && (
+        <RosterPanel
+          roster={roster}
+          shots={shots}
+          onRename={(c, name) => void renameCharacter(c, name)}
+          onMerge={(keepId, dropId) => void mergeInto(keepId, dropId)}
+          onToggleProducer={(c) => {
+            void putCharacter({ ...c, isProducer: !c.isProducer }).then(reload)
+          }}
+          onDelete={(c) => void deleteCharacter(c.id).then(reload)}
+          onClose={() => setShowRoster(false)}
         />
       )}
       {showSettings && (
