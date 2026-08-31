@@ -622,6 +622,22 @@ button.small {
   font-size: 0.95rem;
   padding: 0.45rem 0.85rem;
 }
+.roster-open {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+  width: 100%;
+  padding: 0.1rem 0;
+  background: none;
+  border: 0;
+  color: inherit;
+  text-align: left;
+  font: inherit;
+}
+.roster-open:disabled {
+  opacity: 1;
+}
 .hint {
   margin-top: -0.3rem;
   font-size: 0.78rem;

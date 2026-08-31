@@ -5,7 +5,6 @@ import {
   binarizeOutlined,
   cropGray,
   toRGBA,
-  trimToInk,
   type Gray,
 } from './binarize'
 import {
@@ -104,15 +103,19 @@ async function recognizeGray(gray: Gray, shape: Shape): Promise<string> {
 
 type Mode = 'otsu' | 'brightest' | 'outlined'
 
-function prepare(px: Pixels, rect: Rect, mode: Mode, trim = false): Gray {
+/**
+ * 切り出しは詰めない。
+ *
+ * 字の外接矩形まで詰めてから渡すほうが素直な絵になると考えて一度やったが、
+ * 実測で悪くなった（チップ 10 枚: 詰めない 10/10、詰める 7/10）。
+ * 「リーリヤ」が「リーリヤギヤ」に、「撫子」が「撫子.」になる。
+ * まわりの余白は、tesseract が行の高さを測るための手がかりになっているらしい。
+ */
+function prepare(px: Pixels, rect: Rect, mode: Mode): Gray {
   const gray = cropGray(px, rect)
-  const bin =
-    mode === 'brightest'
-      ? binarizeBrightest(gray)
-      : mode === 'outlined'
-        ? binarizeOutlined(gray)
-        : binarize(gray)
-  return trim ? trimToInk(bin) : bin
+  if (mode === 'brightest') return binarizeBrightest(gray)
+  if (mode === 'outlined') return binarizeOutlined(gray)
+  return binarize(gray)
 }
 
 export interface Recognized {
@@ -148,7 +151,7 @@ export async function recognize(px: Pixels, statusCallback: StatusCallback = () 
     // 横は絵の上に縁取りの白字が乗るだけなので崩れやすい。
     // 信じられない結果は捨てる。空のまま残して、手で入れてもらうほうがまし。
     const body = cleanBody(await recognizeGray(prepare(px, subtitle, 'outlined'), 'block'))
-    const speakerOcr = await recognizeGray(prepare(px, speaker, 'outlined', true), 'line')
+    const speakerOcr = await recognizeGray(prepare(px, speaker, 'outlined'), 'line')
     const speakerRaw = cleanSpeaker(speakerOcr)
     return {
       layout: 'landscape-story',
@@ -175,8 +178,8 @@ export async function recognize(px: Pixels, statusCallback: StatusCallback = () 
   }
 
   const chip = findSpeakerChip(px, scan.panel)
-  const body = cleanBody(await recognizeGray(prepare(px, bodyBox(scan.panel), 'otsu'), 'block'))
-  const speakerOcr = await recognizeGray(prepare(px, chip, 'otsu', true), 'line')
+  const body = cleanBody(await recognizeGray(prepare(px, bodyBox(scan.panel, chip), 'otsu'), 'block'))
+  const speakerOcr = await recognizeGray(prepare(px, chip, 'otsu'), 'line')
   const speakerRaw = cleanSpeaker(speakerOcr)
   return {
     layout: classify(scan, story !== null),

@@ -201,14 +201,19 @@ function near(a: [number, number, number], b: [number, number, number], tol: num
 }
 
 /** 本文はパネルの内側。左右と上下に少し余白を取って切る。 */
-export function bodyBox(panel: PanelBox): Rect {
+export function bodyBox(panel: PanelBox, chip?: Rect): Rect {
   const padX = Math.round(panel.w * 0.035)
   const padY = Math.round(panel.h * 0.06)
+  // 話者チップはパネルの上端をまたぐ。チップの下の縁が本文の箱に入ると、
+  // その縁が字として読まれる（実測:「ひ、ひえぇ……」の頭に「いび」が付いた）。
+  // チップが分かっているときは、その下端より下から始める。
+  const below = chip ? chip.y + chip.h + Math.round(panel.h * 0.02) : 0
+  const y = Math.max(panel.y + padY, below)
   return {
     x: panel.x + padX,
-    y: panel.y + padY,
+    y,
     w: panel.w - padX * 2,
-    h: panel.h - padY * 2,
+    h: Math.max(1, panel.y + panel.h - padY - y),
   }
 }
 

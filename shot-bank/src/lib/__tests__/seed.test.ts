@@ -71,3 +71,54 @@ describe('seedRoster', () => {
     expect(nameOf('s2')).toBe('清夏')
   })
 })
+
+describe('色で当てる', () => {
+  it('名前が読めなくても、覚えている色と合えばその人になる', () => {
+    // 星南の色を 1 枚めで覚え、2 枚めは名前が読めなくても当たる。
+    const roster = seedRoster([], gakumas.knownNames).roster
+    const first = resolveSpeakers([shot('s1', '星南', '#ffb03d')], roster)
+    const seina = first.roster.find((c) => c.name === '星南')
+    expect(seina?.color).toBe('#ffb03d')
+
+    const second = resolveSpeakers([shot('s2', '', '#ffb13e')], first.roster)
+    expect(second.added).toHaveLength(0)
+    expect(second.assignments.get('s2')).toBe(seina?.id)
+  })
+
+  it('読めた名前は色に上書きさせない。新しい人はこれまでどおり仮登録する', () => {
+    // プロデューサー（2943）は無彩色。同じ無彩色の人が名簿にいても吸わせない。
+    const roster = seedRoster([], gakumas.knownNames).roster
+    const first = resolveSpeakers([shot('s1', '香名江', '#978d83')], roster)
+    const second = resolveSpeakers([shot('s2', '2943', '#978d83')], first.roster)
+    expect(second.added.map((c) => c.name)).toEqual(['2943'])
+  })
+
+  it('2 人に近い色では決めない', () => {
+    // 星南 #ffb03d と千奈 #f08326 は距離 45。あいだの色はどちらとも言えない。
+    const roster = seedRoster([], gakumas.knownNames).roster
+    const withColors = resolveSpeakers(
+      [shot('s1', '星南', '#ffb03d'), shot('s2', '千奈', '#f08326')],
+      roster,
+    ).roster
+    const middle = resolveSpeakers([shot('s3', '', '#f8991f')], withColors)
+    expect(middle.assignments.has('s3')).toBe(false)
+  })
+
+  it('色を覚えていない人は対象にしない', () => {
+    const roster = seedRoster([], gakumas.knownNames).roster
+    const r = resolveSpeakers([shot('s1', '', '#ffb03d')], roster)
+    expect(r.assignments.has('s1')).toBe(false)
+  })
+})
+
+describe('色で当てるのは、順番に依らない', () => {
+  it('読めなかった 1 枚が先に来ても当たる', () => {
+    // 1 周目で「星南」から色を覚え、2 周目で読めなかった 1 枚を拾う。
+    const roster = seedRoster([], gakumas.knownNames).roster
+    const r = resolveSpeakers([shot('s1', '', '#ffb03d'), shot('s2', '星南', '#ffb03d')], roster)
+    const seina = r.roster.find((c) => c.name === '星南')
+    expect(r.assignments.get('s1')).toBe(seina?.id)
+    expect(r.assignments.get('s2')).toBe(seina?.id)
+    expect(r.added).toHaveLength(0)
+  })
+})

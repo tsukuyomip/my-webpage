@@ -21,6 +21,7 @@ export function RosterPanel({
   onToggleProducer,
   onDelete,
   onSeed,
+  onPick,
   onClose,
 }: {
   roster: Character[]
@@ -30,6 +31,7 @@ export function RosterPanel({
   onToggleProducer: (character: Character) => void
   onDelete: (character: Character) => void
   onSeed: () => void
+  onPick: (character: Character) => void
   onClose: () => void
 }) {
   const sheet = useRef<HTMLDivElement>(null)
@@ -94,7 +96,13 @@ export function RosterPanel({
                         </button>
                       </span>
                     ) : (
-                      <>
+                      // 名前を押すと、その人の出ている枚だけに絞った一覧へ。
+                      // 名簿は「誰がいるか」の一覧なので、そこから中身へ行けるのが素直。
+                      <button
+                        className="roster-open"
+                        onClick={() => onPick(c)}
+                        disabled={(counts.get(c.id) ?? 0) === 0}
+                      >
                         <b>
                           {c.name}
                           {c.isProducer && <span className="badge">自分</span>}
@@ -104,7 +112,7 @@ export function RosterPanel({
                           {counts.get(c.id) ?? 0} 枚
                           {c.aliases.length > 0 && ` · 別名: ${c.aliases.join(', ')}`}
                         </small>
-                      </>
+                      </button>
                     )}
                   </div>
                   <div className="roster-actions">
