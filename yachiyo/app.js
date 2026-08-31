@@ -116,6 +116,8 @@
      オーバーレイは毎フレーム描き直す表の層に出す。混ぜると加算が
      際限なく溜まって画面が白く飽和する。 */
   let trailCv = null, tctx = null;
+  // 水鏡のもとになる「水面より上」の帯を写しておくキャンバス（下のコメント参照）
+  let mirrorCv = null, mctx = null;
 
   /* 流れ場グリッド */
   const CELL = 48;
@@ -1599,6 +1601,18 @@
       const srcTop = Math.max(0, 2 * wyD - HD);
       const srcH = wyD - srcTop;
 
+      // 映すもとの帯を、いちど別のキャンバスへ写してから使う。
+      // キャンバスを自分自身から drawImage すると、呼ぶたびに元の絵を
+      // 取り直すことになり、16 本ぶんで丸ごと 16 回になる。実測で、ここだけで
+      // 1 フレームの 6 割を使っていた（水鏡を切ると 2.5 倍速くなった）。
+      // 写しておけば読み取りは 1 回で済み、出てくる絵は 1 画素も変わらない。
+      if (!mirrorCv) { mirrorCv = document.createElement('canvas'); mctx = mirrorCv.getContext('2d', { alpha: false }); }
+      if (mirrorCv.width !== WD || mirrorCv.height !== srcH) { mirrorCv.width = WD; mirrorCv.height = srcH; }
+      mctx.setTransform(1, 0, 0, 1, 0, 0);
+      mctx.globalCompositeOperation = 'source-over';
+      mctx.globalAlpha = 1;
+      mctx.drawImage(cv, 0, srcTop, WD, srcH, 0, 0, WD, srcH);
+
       // 先に水中を沈めておく。ここを暗くしておかないと、水中を泳いでいる
       // 魚の明るさが反射の下から残って、水面が「ただの鏡像」に見える。
       ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -1620,7 +1634,7 @@
         // 端に隙間ができないよう、ずらした幅ぶんだけ横に食い込ませて描く
         const pad = amp + 1;
         ctx.globalAlpha = 0.50 * (1 - (b / BANDS) * 0.9);
-        ctx.drawImage(cv, 0, sy, WD, bh, off - pad, sy, WD + pad * 2, bh);
+        ctx.drawImage(mirrorCv, 0, sy - srcTop, WD, bh, off - pad, sy, WD + pad * 2, bh);
       }
       ctx.setTransform(1, 0, 0, 1, 0, 0);
       ctx.globalAlpha = 1;
@@ -2375,13 +2389,28 @@
     }
     Audio.setCharge(maxC);
 
+    const work0 = performance.now();
     step(dt, t);
     render(t, dt);
+    const work = performance.now() - work0;
 
-    /* 性能に合わせて群れの数を落とす／戻す */
+    /* 性能に合わせて群れの数を落とす／戻す
+     *
+     * 「戻す」ほうは、フレームの間隔ではなく「1 フレームで実際に使った時間」が
+     * 間隔の何割かで見る。間隔そのものは vsync で頭打ちになるので、60Hz の
+     * 画面では余裕たっぷりに動いていても常に 16.7ms になり、13.5ms を
+     * 下回らない。つまり、いちど落とした群れの数が二度と戻らなかった
+     * （実測：60fps を保ち、コマ落ち 0.2% の画面でも、旧ルールが「余裕あり」と
+     * 判定したフレームは 0.0%）。割合で見れば 120Hz の画面にもそのまま効く。
+     * 9ms で頭打ちにするのは、間隔が伸びているときに「割合では余裕」に
+     * 見えてしまうのを避けるため。
+     * 「落とす」ほうは間隔のままでよい。21ms を超えている＝実際にコマを
+     * 落としているので、原因が CPU でも GPU でもここに出る。 */
     frames++;
     const ms = dt * 1000;
-    if (ms > 21) { slow++; fast = 0; } else if (ms < 13.5) { fast++; slow = 0; } else { slow = 0; fast = 0; }
+    if (ms > 21) { slow++; fast = 0; }
+    else if (work < Math.min(9, ms * 0.55)) { fast++; slow = 0; }
+    else { slow = 0; fast = 0; }
     if (QFIX) { /* 固定 */ }
     else if (slow > 55 && S.quality > 0.36) { S.quality = Math.max(0.35, S.quality - 0.12); retarget(); slow = 0; }
     else if (fast > 200 && S.quality < 1) { S.quality = Math.min(1, S.quality + 0.1); retarget(); fast = 0; }
