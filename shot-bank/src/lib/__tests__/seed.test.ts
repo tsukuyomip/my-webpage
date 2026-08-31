@@ -77,9 +77,9 @@ describe('色で当てる', () => {
     // 星南は種に色を持っている。名前が一度も読めなくても当たる。
     const roster = seedRoster([], gakumas.knownCharacters).roster
     const seina = roster.find((c) => c.name === '星南')
-    expect(seina?.color).toBe('#fcad27')
+    expect(seina?.color).toBe('#ffad28')
 
-    const r = resolveSpeakers([shot('s1', '', '#fbae28')], roster)
+    const r = resolveSpeakers([shot('s1', '', '#feae29')], roster)
     expect(r.added).toHaveLength(0)
     expect(r.assignments.get('s1')).toBe(seina?.id)
   })
@@ -87,7 +87,7 @@ describe('色で当てる', () => {
   it('種の色は、読めた回の色に上書きされない', () => {
     const roster = seedRoster([], gakumas.knownCharacters).roster
     const r = resolveSpeakers([shot('s1', '星南', '#ff0000')], roster)
-    expect(r.roster.find((c) => c.name === '星南')?.color).toBe('#fcad27')
+    expect(r.roster.find((c) => c.name === '星南')?.color).toBe('#ffad28')
   })
 
   it('読めた名前は色に上書きさせない。新しい人はこれまでどおり仮登録する', () => {
@@ -102,16 +102,15 @@ describe('色で当てる', () => {
     // 香名江・あさり先生・月花・四音・燐羽・優 はどれも同じ無彩色。
     // 見分けられないので、当てずに諦める。誤爆するよりよい。
     const roster = seedRoster([], gakumas.knownCharacters).roster
-    const grey = roster.filter((c) => c.color === '#978d83')
+    const grey = roster.filter((c) => c.color === '#988d83')
     expect(grey.length).toBeGreaterThan(1)
-    const r = resolveSpeakers([shot('s1', '', '#978d83')], roster)
+    const r = resolveSpeakers([shot('s1', '', '#988d83')], roster)
     expect(r.assignments.has('s1')).toBe(false)
   })
 
-  it('色を持たない人は対象にしない', () => {
-    // 佑芽と燕はまだ実測できていないので色を持たない。
+  it('どの色にも近くなければ、当てない', () => {
+    // 種の 20 人はどれも色を持つが、遠い色は誰にも当たらない。
     const roster = seedRoster([], gakumas.knownCharacters).roster
-    expect(roster.find((c) => c.name === '佑芽')?.color).toBeUndefined()
     const r = resolveSpeakers([shot('s1', '', '#123456')], roster)
     expect(r.assignments.has('s1')).toBe(false)
   })
@@ -192,19 +191,29 @@ describe('手で決めた話者は、自動の寄せで上書きしない', () =
 })
 
 describe('チップの色は場面で動く。だから何色か覚える', () => {
-  it('離れた色を見たら、覚えている色に足す', () => {
-    // 実測: 星南は明るい部屋 #fcad27、暗い場面 #ffb03f で 24 離れた。
+  it('星南は種の時点で 2 色持つ。明るい場面と暗い場面で 23 離れるため', () => {
     const roster = seedRoster([], gakumas.knownCharacters).roster
-    const r = resolveSpeakers([shot('s1', '星南', '#ffb03f')], roster)
-    const seina = r.roster.find((c) => c.name === '星南')
-    expect(seina?.color).toBe('#fcad27')
+    const seina = roster.find((c) => c.name === '星南')
+    expect(seina?.color).toBe('#ffad28')
     expect(seina?.colorSamples).toEqual(['#ffb03f'])
+    // どちらの場面でも、名前が読めない枚を拾える。
+    const r = resolveSpeakers([shot('s1', '', '#ffad28'), shot('s2', '', '#ffb03f')], roster)
+    expect(r.assignments.get('s1')).toBe(seina?.id)
+    expect(r.assignments.get('s2')).toBe(seina?.id)
+  })
+
+  it('離れた色を見たら、覚えている色に足す', () => {
+    const roster = seedRoster([], gakumas.knownCharacters).roster
+    const r = resolveSpeakers([shot('s1', '清夏', '#7fc94a')], roster)
+    const kiyoshi = r.roster.find((c) => c.name === '清夏')
+    expect(kiyoshi?.color).toBe('#92de5a')
+    expect(kiyoshi?.colorSamples).toEqual(['#7fc94a'])
   })
 
   it('近い色は増やさない', () => {
     const roster = seedRoster([], gakumas.knownCharacters).roster
-    const r = resolveSpeakers([shot('s1', '星南', '#fcae28')], roster)
-    expect(r.roster.find((c) => c.name === '星南')?.colorSamples).toBeUndefined()
+    const r = resolveSpeakers([shot('s1', '清夏', '#93df5b')], roster)
+    expect(r.roster.find((c) => c.name === '清夏')?.colorSamples).toBeUndefined()
   })
 
   it('足した色でも、名前が読めない枚を拾える', () => {

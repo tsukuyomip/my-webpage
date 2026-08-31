@@ -24,7 +24,7 @@ import type { Character, Shot } from './types'
  */
 export function seedRoster(
   roster: Character[],
-  known: readonly { name: string; color?: string }[],
+  known: readonly { name: string; color?: string; samples?: readonly string[] }[],
 ): { roster: Character[]; added: Character[]; promoted: Character[] } {
   const next = [...roster]
   const added: Character[] = []
@@ -34,7 +34,7 @@ export function seedRoster(
   const base = Date.now()
   let order = 0
 
-  for (const { name, color } of known) {
+  for (const { name, color, samples } of known) {
     const key = normalizeName(name)
     if (!key) continue
     const index = next.findIndex((c) =>
@@ -50,6 +50,7 @@ export function seedRoster(
         ...found,
         provisional: false,
         color: found.color ?? color,
+        colorSamples: found.colorSamples ?? (samples ? [...samples] : undefined),
       }
       next[index] = updated
       promoted.push(updated)
@@ -60,6 +61,7 @@ export function seedRoster(
       name,
       aliases: [],
       color,
+      colorSamples: samples ? [...samples] : undefined,
       provisional: false,
       createdAt: base + order++,
     }
