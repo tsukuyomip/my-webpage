@@ -185,6 +185,48 @@ export default function App() {
     [settings.reencode, settings.autoOcr, reload, readShots],
   )
 
+  /**
+   * 話者を手で決める。
+   *
+   * 読み取りは同じ絵でも当たり外れがある。名前が一度も読めないキャラは、
+   * 色を覚える機会がないので色でも拾えない（実機で「清夏」がそうなった）。
+   * ここで教えてもらった色を名簿に覚えさせ、その場で他の枚にも当て直す。
+   * 読み直しは要らない ── 必要なのは色の対応づけだけなので。
+   */
+  const setSpeaker = useCallback(
+    async (shot: Shot, characterId: string | null) => {
+      await updateShot({
+        ...shot,
+        speakerId: characterId ?? undefined,
+        speakerPicked: characterId ? true : undefined,
+      })
+      const person = characterId ? roster.find((c) => c.id === characterId) : undefined
+      const learned = Boolean(person && !person.color && shot.speakerChipColor)
+      if (person && learned) {
+        await putCharacter({ ...person, color: shot.speakerChipColor, provisional: false })
+      }
+
+      const fresh = await getAllShots()
+      const resolved = resolveSpeakers(fresh, await getAllCharacters())
+      for (const c of resolved.roster) await putCharacter(c)
+      let linked = 0
+      for (const s of fresh) {
+        const id = resolved.assignments.get(s.id)
+        if (id && s.speakerId !== id) {
+          await updateShot({ ...s, speakerId: id })
+          linked++
+        }
+      }
+      await reload()
+      if (learned && linked) {
+        setNotice(`「${person?.name}」の色を覚えました。同じ色の ${linked} 枚も紐付けました`)
+      } else if (learned) {
+        setNotice(`「${person?.name}」の色を覚えました`)
+      }
+    },
+    [roster, reload],
+  )
+
   const importFiles = useCallback(
     async (files: File[]) => {
       if (files.length === 0) return
@@ -492,6 +534,7 @@ export default function App() {
           onReRecognize={(shot) => void reRecognize(shot)}
           onToggleMood={toggleMood}
           onToggleCharacter={toggleCharacter}
+          onSetSpeaker={(shot, id) => void setSpeaker(shot, id)}
           onToggleFavorite={toggleFavorite}
           roster={roster}
           moods={moods}

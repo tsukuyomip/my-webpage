@@ -48,6 +48,8 @@ export interface Shot {
   // --- 分類 ---
   /** 誰が喋ったか。名簿へ寄せた結果 */
   speakerId?: string
+  /** 話者を手で決めたか。自動の寄せで上書きしないための印 */
+  speakerPicked?: boolean
   /** 誰が写っているか。話者とは別物なので分けて持つ */
   characterIds?: string[]
   /** 表情。複数付く（ドヤ顔かつ楽、はある） */

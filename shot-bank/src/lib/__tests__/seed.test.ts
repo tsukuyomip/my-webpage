@@ -151,3 +151,26 @@ describe('同じ名前が枚数ぶん並ばない', () => {
     expect(r.added[0].aliases).toContain('リーリヤギヤ')
   })
 })
+
+describe('手で決めた話者は、自動の寄せで上書きしない', () => {
+  it('読めた名前が別人でも、手の判断が残る', () => {
+    const roster = seedRoster([], gakumas.knownNames).roster
+    const hiro = roster.find((c) => c.name === '広')!
+    // OCR は「広上」と読んだが、人が「広」だと決めた 1 枚。
+    const picked = { ...shot('s1', '広上', '#04bddd'), speakerId: hiro.id, speakerPicked: true }
+    const r = resolveSpeakers([picked], roster)
+    expect(r.assignments.has('s1')).toBe(false)
+    expect(r.added).toHaveLength(0)
+  })
+
+  it('教わった色は、名前が読めなかった他の枚に効く', () => {
+    // 実機で「清夏」は一度も読めず、色を覚える機会がなかった。
+    // 手で 1 枚教えれば、残りは読み直さずに当たる。
+    const roster = seedRoster([], gakumas.knownNames).roster
+    const kiyoshi = roster.find((c) => c.name === '清夏')!
+    kiyoshi.color = '#92de5a'
+    const r = resolveSpeakers([shot('s2', '', '#92de5a'), shot('s3', '', '#93df5b')], roster)
+    expect(r.assignments.get('s2')).toBe(kiyoshi.id)
+    expect(r.assignments.get('s3')).toBe(kiyoshi.id)
+  })
+})

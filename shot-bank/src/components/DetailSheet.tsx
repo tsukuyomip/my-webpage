@@ -1,17 +1,17 @@
-import { useEffect, useRef, useState } from 'react'
-import { getImage } from '../lib/db'
-import { formatBytes, formatDate } from '../lib/format'
-import { formatStory } from '../lib/story'
-import type { Character, Shot } from '../lib/types'
-import { BlobImage } from './BlobImage'
-import { useEdgeSwipeBack } from './useEdgeSwipeBack'
+import { useEffect, useRef, useState } from "react";
+import { getImage } from "../lib/db";
+import { formatBytes, formatDate } from "../lib/format";
+import { formatStory } from "../lib/story";
+import type { Character, Shot } from "../lib/types";
+import { BlobImage } from "./BlobImage";
+import { useEdgeSwipeBack } from "./useEdgeSwipeBack";
 
 const LAYOUT_LABEL: Record<string, string> = {
-  'portrait-adv': '縦・ADV',
-  'portrait-adv-nopanel': '縦・ADV（セリフなし）',
-  'portrait-plain': '縦・UI なし',
-  'landscape-story': '横・ストーリー',
-}
+  "portrait-adv": "縦・ADV",
+  "portrait-adv-nopanel": "縦・ADV（セリフなし）",
+  "portrait-plain": "縦・UI なし",
+  "landscape-story": "横・ストーリー",
+};
 
 export function DetailSheet({
   shot,
@@ -21,63 +21,79 @@ export function DetailSheet({
   onReRecognize,
   onToggleMood,
   onToggleCharacter,
+  onSetSpeaker,
   onToggleFavorite,
   roster,
   moods,
   busy,
 }: {
-  shot: Shot
-  onClose: () => void
-  onDelete: (shot: Shot) => void
-  onSaveText: (shot: Shot, body: string, speakerRaw: string) => void
-  onReRecognize: (shot: Shot) => void
-  onToggleMood: (shot: Shot, mood: string) => void
-  onToggleCharacter: (shot: Shot, characterId: string) => void
-  onToggleFavorite: (shot: Shot) => void
-  roster: Character[]
-  moods: string[]
-  busy: boolean
+  shot: Shot;
+  onClose: () => void;
+  onDelete: (shot: Shot) => void;
+  onSaveText: (shot: Shot, body: string, speakerRaw: string) => void;
+  onReRecognize: (shot: Shot) => void;
+  onToggleMood: (shot: Shot, mood: string) => void;
+  onToggleCharacter: (shot: Shot, characterId: string) => void;
+  /** 話者を手で決める。null で外す。決めた色は名簿が覚える（App 側） */
+  onSetSpeaker: (shot: Shot, characterId: string | null) => void;
+  onToggleFavorite: (shot: Shot) => void;
+  roster: Character[];
+  moods: string[];
+  busy: boolean;
 }) {
-  const [blob, setBlob] = useState<Blob>()
-  const [confirming, setConfirming] = useState(false)
-  const sheet = useRef<HTMLDivElement>(null)
-  const [body, setBody] = useState(shot.body ?? '')
-  const [speaker, setSpeaker] = useState(shot.speakerRaw ?? '')
-  const dirty = body !== (shot.body ?? '') || speaker !== (shot.speakerRaw ?? '')
+  const [blob, setBlob] = useState<Blob>();
+  const [confirming, setConfirming] = useState(false);
+  const sheet = useRef<HTMLDivElement>(null);
+  const [body, setBody] = useState(shot.body ?? "");
+  const [speaker, setSpeaker] = useState(shot.speakerRaw ?? "");
+  // 決まっていないときだけ開いておく。名簿は 20 人を超えるので、
+  // 決まっている枚でも開いたままだと本文までが遠い。
+  const [picking, setPicking] = useState(!shot.speakerId);
+  const dirty =
+    body !== (shot.body ?? "") || speaker !== (shot.speakerRaw ?? "");
 
   useEffect(() => {
-    let alive = true
-    setBlob(undefined)
-    setConfirming(false)
-    setBody(shot.body ?? '')
-    setSpeaker(shot.speakerRaw ?? '')
+    let alive = true;
+    setBlob(undefined);
+    setConfirming(false);
+    setBody(shot.body ?? "");
+    setSpeaker(shot.speakerRaw ?? "");
+    setPicking(!shot.speakerId);
     getImage(shot.id).then((b) => {
-      if (alive) setBlob(b)
-    })
+      if (alive) setBlob(b);
+    });
     return () => {
-      alive = false
-    }
-  }, [shot.id, shot.body, shot.speakerRaw])
+      alive = false;
+    };
+  }, [shot.id, shot.body, shot.speakerRaw, shot.speakerId]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
 
-  useEdgeSwipeBack(sheet, onClose)
+  useEdgeSwipeBack(sheet, onClose);
+
+  const picked = roster.find((c) => c.id === shot.speakerId);
 
   return (
-    <div className="sheet over" ref={sheet} role="dialog" aria-modal="true" aria-label="スクショの詳細">
+    <div
+      className="sheet over"
+      ref={sheet}
+      role="dialog"
+      aria-modal="true"
+      aria-label="スクショの詳細"
+    >
       <div className="sheet-bar">
         <button className="ghost" onClick={onClose}>
           ← 戻る
         </button>
         <span className="sheet-name">{shot.fileName}</span>
         <button
-          className={shot.favorite ? 'star on' : 'star'}
+          className={shot.favorite ? "star on" : "star"}
           onClick={() => onToggleFavorite(shot)}
           aria-label="お気に入り"
           aria-pressed={shot.favorite ?? false}
@@ -101,7 +117,11 @@ export function DetailSheet({
       </div>
 
       <div className="sheet-body">
-        {blob ? <BlobImage blob={blob} alt={shot.fileName} /> : <p className="muted">読み込み中…</p>}
+        {blob ? (
+          <BlobImage blob={blob} alt={shot.fileName} />
+        ) : (
+          <p className="muted">読み込み中…</p>
+        )}
       </div>
 
       <section className="text-edit">
@@ -109,17 +129,17 @@ export function DetailSheet({
         <span className="filter-label">表情</span>
         <div className="chips-row">
           {moods.map((m) => {
-            const on = shot.moods?.includes(m) ?? false
+            const on = shot.moods?.includes(m) ?? false;
             return (
               <button
                 key={m}
-                className={on ? 'chip active' : 'chip'}
+                className={on ? "chip active" : "chip"}
                 onClick={() => onToggleMood(shot, m)}
                 aria-pressed={on}
               >
                 {m}
               </button>
-            )
+            );
           })}
         </div>
         {roster.length > 0 && (
@@ -127,19 +147,26 @@ export function DetailSheet({
             <span className="filter-label">写っている人</span>
             <div className="chips-row">
               {roster.map((c) => {
-                const on = shot.characterIds?.includes(c.id) ?? false
+                const on = shot.characterIds?.includes(c.id) ?? false;
                 return (
                   <button
                     key={c.id}
-                    className={on ? 'chip active' : 'chip'}
+                    className={on ? "chip active" : "chip"}
                     onClick={() => onToggleCharacter(shot, c.id)}
                     aria-pressed={on}
-                    style={c.color && !on ? { borderColor: c.color } : undefined}
+                    style={
+                      c.color && !on ? { borderColor: c.color } : undefined
+                    }
                   >
-                    {c.color && <span className="chip-dot" style={{ background: c.color }} />}
+                    {c.color && (
+                      <span
+                        className="chip-dot"
+                        style={{ background: c.color }}
+                      />
+                    )}
                     {c.name}
                   </button>
-                )
+                );
               })}
             </div>
           </>
@@ -148,30 +175,100 @@ export function DetailSheet({
 
       <section className="text-edit">
         <h2>読み取った文字</h2>
-        {shot.ocr === 'error' && <p className="notice">読み取りに失敗しました: {shot.ocrError}</p>}
-        {shot.ocr !== 'done' && shot.ocr !== 'error' && !shot.textEdited && (
+        {shot.ocr === "error" && (
+          <p className="notice">読み取りに失敗しました: {shot.ocrError}</p>
+        )}
+        {shot.ocr !== "done" && shot.ocr !== "error" && !shot.textEdited && (
           <p className="muted">まだ読み取っていません。</p>
         )}
         <label className="field">
           <span>話者</span>
-          <input value={speaker} onChange={(e) => setSpeaker(e.target.value)} placeholder="（なし）" />
+          <input
+            value={speaker}
+            onChange={(e) => setSpeaker(e.target.value)}
+            placeholder="（なし）"
+          />
         </label>
         {/* 読めたのに弾いたときは、その生値を見せる。黙って空にすると
             「読めなかった」のか「読めたが名前と認めなかった」のか分からず、直しようがない。 */}
         {!speaker && shot.speakerRejected && (
           <p className="muted hint">
-            読み取れたのは「{shot.speakerRejected}」でした。名前として受け取れなかったので空にしています。
+            読み取れたのは「{shot.speakerRejected}
+            」でした。名前として受け取れなかったので空にしています。
           </p>
+        )}
+        {/* 誰かを選べば、その人にこのチップの色を覚えさせる。
+            以後、同じ色で名前が読めなかった枚は、読み直しなしで同じ人に付く。
+            読み取りは同じ絵でも当たり外れがあるので、教える口が要る。 */}
+        {roster.length > 0 && (
+          <>
+            <button
+              className="ghost small tagq-people"
+              onClick={() => setPicking(!picking)}
+              aria-expanded={picking}
+            >
+              話者は{picked ? `「${picked.name}」` : "（なし）"}
+              {shot.speakerChipColor && (
+                <>
+                  {" · "}
+                  <span
+                    className="chip-dot"
+                    style={{ background: shot.speakerChipColor }}
+                  />{" "}
+                  {shot.speakerChipColor}
+                </>
+              )}{" "}
+              {picking ? "▲" : "▼"}
+            </button>
+            {picking && (
+              <div className="chips-row">
+                {roster.map((c) => {
+                  const on = shot.speakerId === c.id;
+                  return (
+                    <button
+                      key={c.id}
+                      className={on ? "chip active" : "chip"}
+                      onClick={() => onSetSpeaker(shot, on ? null : c.id)}
+                      aria-pressed={on}
+                      style={
+                        c.color && !on ? { borderColor: c.color } : undefined
+                      }
+                    >
+                      {c.color && (
+                        <span
+                          className="chip-dot"
+                          style={{ background: c.color }}
+                        />
+                      )}
+                      {c.name}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </>
         )}
         <label className="field">
           <span>本文</span>
-          <textarea rows={4} value={body} onChange={(e) => setBody(e.target.value)} placeholder="（なし）" />
+          <textarea
+            rows={4}
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            placeholder="（なし）"
+          />
         </label>
         <div className="row">
-          <button disabled={!dirty} onClick={() => onSaveText(shot, body, speaker)}>
+          <button
+            disabled={!dirty}
+            onClick={() => onSaveText(shot, body, speaker)}
+          >
             直した内容を保存
           </button>
-          <button className="ghost" disabled={busy} onClick={() => onReRecognize(shot)}>
+          <button
+            className="ghost"
+            disabled={busy}
+            onClick={() => onReRecognize(shot)}
+          >
             もう一度読み取る
           </button>
         </div>
@@ -185,11 +282,13 @@ export function DetailSheet({
       <dl className="meta">
         <div>
           <dt>種別</dt>
-          <dd>{shot.layout ? (LAYOUT_LABEL[shot.layout] ?? shot.layout) : '—'}</dd>
+          <dd>
+            {shot.layout ? (LAYOUT_LABEL[shot.layout] ?? shot.layout) : "—"}
+          </dd>
         </div>
         <div>
           <dt>話</dt>
-          <dd>{shot.story ? formatStory(shot.story) : '—'}</dd>
+          <dd>{shot.story ? formatStory(shot.story) : "—"}</dd>
         </div>
         <div>
           <dt>寸法</dt>
@@ -203,11 +302,11 @@ export function DetailSheet({
         </div>
         <div>
           <dt>形式</dt>
-          <dd>{shot.mime.replace('image/', '')}</dd>
+          <dd>{shot.mime.replace("image/", "")}</dd>
         </div>
         <div>
           <dt>撮影</dt>
-          <dd>{shot.shotAt ? formatDate(shot.shotAt) : '不明'}</dd>
+          <dd>{shot.shotAt ? formatDate(shot.shotAt) : "不明"}</dd>
         </div>
         <div>
           <dt>取り込み</dt>
@@ -215,5 +314,5 @@ export function DetailSheet({
         </div>
       </dl>
     </div>
-  )
+  );
 }
