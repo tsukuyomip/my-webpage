@@ -122,3 +122,32 @@ describe('色で当てるのは、順番に依らない', () => {
     expect(r.added).toHaveLength(0)
   })
 })
+
+describe('同じ名前が枚数ぶん並ばない', () => {
+  it('名簿に無い名前が何枚あっても、増えるのは 1 人', () => {
+    // 実測: 84 枚から名簿が 40 人になり、全員 1 枚だった。
+    // 2 周目で「この周で作った人」を見ていなかったため。
+    const shots = Array.from({ length: 8 }, (_, i) => shot(`s${i}`, 'ことね', '#f7d81e'))
+    const r = resolveSpeakers(shots, [])
+    expect(r.added.map((c) => c.name)).toEqual(['ことね'])
+    expect(new Set([...r.assignments.values()]).size).toBe(1)
+  })
+
+  it('種のある名前は、そもそも増えない', () => {
+    const roster = seedRoster([], gakumas.knownNames).roster
+    const shots = Array.from({ length: 8 }, (_, i) => shot(`s${i}`, 'ことね', '#f7d81e'))
+    const r = resolveSpeakers(shots, roster)
+    expect(r.added).toHaveLength(0)
+    expect(r.roster).toHaveLength(roster.length)
+  })
+
+  it('読み崩れも 1 人にまとまる', () => {
+    // 「リーリヤ」と「リーリヤギヤ」は編集距離 2、4 文字以上なので寄る。
+    const r = resolveSpeakers(
+      [shot('s1', 'リーリヤ', '#d2e3e5'), shot('s2', 'リーリヤギヤ', '#d2e3e5')],
+      [],
+    )
+    expect(r.added).toHaveLength(1)
+    expect(r.added[0].aliases).toContain('リーリヤギヤ')
+  })
+})
