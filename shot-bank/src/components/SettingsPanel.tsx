@@ -1,0 +1,208 @@
+import { useEffect, useState } from 'react'
+import { backupFileName, exportBackup, importBackup } from '../lib/backup'
+import { deleteAllShots } from '../lib/db'
+import { formatBytes, formatDate } from '../lib/format'
+import { isPersisted, requestPersistence, storageEstimate, type Estimate } from '../lib/storage'
+import type { Settings, Shot } from '../lib/types'
+import { releaseAllThumbs } from './Thumb'
+
+export function SettingsPanel({
+  shots,
+  settings,
+  onSettings,
+  onReload,
+  onClose,
+  onBusy,
+}: {
+  shots: Shot[]
+  settings: Settings
+  onSettings: (s: Settings) => void
+  onReload: () => Promise<void>
+  onClose: () => void
+  onBusy: (label: string | null) => void
+}) {
+  const [estimate, setEstimate] = useState<Estimate | null>(null)
+  const [persisted, setPersisted] = useState(false)
+  const [message, setMessage] = useState<string>()
+  const [confirmingClear, setConfirmingClear] = useState(false)
+
+  const refreshStorage = () => {
+    void storageEstimate().then(setEstimate)
+    void isPersisted().then(setPersisted)
+  }
+  useEffect(refreshStorage, [shots.length])
+
+  const doExport = async () => {
+    onBusy('バックアップを書き出しています…')
+    try {
+      const zip = await exportBackup(shots, (done, total) =>
+        onBusy(`バックアップを書き出しています… ${done}/${total}`),
+      )
+      const url = URL.createObjectURL(zip)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = backupFileName()
+      a.click()
+      // 保存ダイアログが URL を掴む余地を残してから片付ける。
+      setTimeout(() => URL.revokeObjectURL(url), 60_000)
+      onSettings({ ...settings, lastBackupAt: Date.now() })
+      setMessage(`${shots.length} 枚を書き出しました（${formatBytes(zip.size)}）`)
+    } catch (e) {
+      setMessage(`書き出しに失敗しました: ${e}`)
+    } finally {
+      onBusy(null)
+    }
+  }
+
+  const doImport = async (file: File) => {
+    onBusy('バックアップを読み込んでいます…')
+    try {
+      const ids = new Set(shots.map((s) => s.id))
+      const r = await importBackup(file, ids, (done, total) =>
+        onBusy(`バックアップを読み込んでいます… ${done}/${total}`),
+      )
+      await onReload()
+      const parts = [`${r.added} 枚を追加`]
+      if (r.skipped) parts.push(`${r.skipped} 枚は既にあるので飛ばしました`)
+      if (r.missing) parts.push(`${r.missing} 枚は画像が入っていませんでした`)
+      setMessage(parts.join(' / '))
+    } catch (e) {
+      setMessage(`読み込みに失敗しました: ${e}`)
+    } finally {
+      onBusy(null)
+    }
+  }
+
+  const doClear = async () => {
+    onBusy('全件を消しています…')
+    try {
+      await releaseAllThumbs()
+      await deleteAllShots()
+      await onReload()
+      setMessage('全件を消しました')
+    } finally {
+      setConfirmingClear(false)
+      onBusy(null)
+    }
+  }
+
+  const totalBytes = shots.reduce((a, s) => a + s.size, 0)
+  const lastBackup = settings.lastBackupAt
+
+  return (
+    <div className="sheet" role="dialog" aria-modal="true" aria-label="設定">
+      <div className="sheet-bar">
+        <button className="ghost" onClick={onClose}>
+          ← 戻る
+        </button>
+        <span className="sheet-name">設定</span>
+        <span />
+      </div>
+
+      <div className="panel">
+        <section>
+          <h2>バックアップ</h2>
+          <p className="muted">
+            ホーム画面に追加すると Safari の 7 日ルールからは外れますが、それで「永続」には
+            なりません。アイコンを消したとき・端末の空き容量が足りないとき・OS の更新では
+            飛びえます。ZIP に書き出しておけば、消えても・機種を変えても戻せます。
+          </p>
+          <p className="muted">
+            最後の書き出し: {lastBackup ? formatDate(lastBackup) : 'まだありません'}
+          </p>
+          <div className="row">
+            <button onClick={doExport} disabled={shots.length === 0}>
+              ZIP に書き出す
+            </button>
+            <label className="button-like">
+              ZIP から戻す
+              <input
+                type="file"
+                accept=".zip,application/zip"
+                onChange={(e) => {
+                  const f = e.target.files?.[0]
+                  e.target.value = ''
+                  if (f) void doImport(f)
+                }}
+              />
+            </label>
+          </div>
+        </section>
+
+        <section>
+          <h2>保存のしかた</h2>
+          <label className="check">
+            <input
+              type="checkbox"
+              checked={settings.reencode}
+              onChange={(e) => onSettings({ ...settings, reencode: e.target.checked })}
+            />
+            <span>
+              取り込み時に JPEG へ変換する
+              <small>
+                iPhone のスクショは 1 枚 3MB 級の PNG です。変換すると 1 枚 300KB 前後、
+                実測でおよそ 1/10 になります。元のまま残したい場合は外してください
+                （既に取り込んだ分は変わりません）。
+              </small>
+            </span>
+          </label>
+        </section>
+
+        <section>
+          <h2>保存領域</h2>
+          <dl className="meta">
+            <div>
+              <dt>枚数</dt>
+              <dd>{shots.length} 枚</dd>
+            </div>
+            <div>
+              <dt>画像の合計</dt>
+              <dd>{formatBytes(totalBytes)}</dd>
+            </div>
+            {estimate && (
+              <div>
+                <dt>ブラウザ全体</dt>
+                <dd>
+                  {formatBytes(estimate.usage)} / {formatBytes(estimate.quota)}
+                </dd>
+              </div>
+            )}
+            <div>
+              <dt>永続化</dt>
+              <dd>{persisted ? '有効' : '未許可'}</dd>
+            </div>
+          </dl>
+          {!persisted && (
+            <button
+              className="ghost"
+              onClick={() => void requestPersistence().then(() => refreshStorage())}
+            >
+              永続化を要求する
+            </button>
+          )}
+        </section>
+
+        <section>
+          <h2>全件を消す</h2>
+          {confirmingClear ? (
+            <div className="row">
+              <button className="danger" onClick={doClear}>
+                本当に全部消す
+              </button>
+              <button className="ghost" onClick={() => setConfirmingClear(false)}>
+                やめる
+              </button>
+            </div>
+          ) : (
+            <button className="ghost" onClick={() => setConfirmingClear(true)} disabled={!shots.length}>
+              全件を消す
+            </button>
+          )}
+        </section>
+
+        {message && <p className="notice">{message}</p>}
+        <p className="build">build {__BUILD_INFO__}</p>
+      </div>
+    </div>
+  )
+}
