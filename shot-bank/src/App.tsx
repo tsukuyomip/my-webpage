@@ -26,6 +26,7 @@ import { needsOcr, recognizeShots, type RecognizeProgress } from './lib/recogniz
 import { gakumas } from './lib/profiles/gakumas'
 import { mergeCharacters, resolveSpeakers, seedRoster } from './lib/roster'
 import { requestPersistence } from './lib/storage'
+import { fetchDeployedBuild } from './lib/version'
 import { DEFAULT_SETTINGS, type Character, type Settings, type Shot } from './lib/types'
 
 export default function App() {
@@ -42,6 +43,7 @@ export default function App() {
   const [showRoster, setShowRoster] = useState(false)
   const [tagging, setTagging] = useState(false)
   const [reading, setReading] = useState<RecognizeProgress | null>(null)
+  const [staleBuild, setStaleBuild] = useState(false)
   const fileInput = useRef<HTMLInputElement>(null)
   const stopReading = useRef(false)
 
@@ -58,28 +60,49 @@ export default function App() {
    * 入れるのは一覧が増えたときだけ。毎回入れ直すと、名簿の画面で消した人が
    * 起動のたびに戻ってきてしまう。
    */
-  const seedKnownNames = useCallback(async (current: Settings) => {
-    const names = gakumas.knownNames
-    if (current.rosterSeed === names.length) return current
-    const { added, promoted } = seedRoster(await getAllCharacters(), names)
-    for (const character of [...added, ...promoted]) await putCharacter(character)
-    const next = { ...current, rosterSeed: names.length }
-    await saveSettings(next)
-    if (added.length || promoted.length) await reload()
-    return next
-  }, [reload])
+  const seedKnownNames = useCallback(
+    async (current: Settings, force = false) => {
+      const names = gakumas.knownNames
+      if (!force && current.rosterSeed === names.length) return current
+      const { added, promoted } = seedRoster(await getAllCharacters(), names)
+      for (const character of [...added, ...promoted]) await putCharacter(character)
+      const next = { ...current, rosterSeed: names.length }
+      await saveSettings(next)
+      if (added.length || promoted.length) await reload()
+      if (force) {
+        setNotice(
+          added.length || promoted.length
+            ? `${added.length} 人を足して、${promoted.length} 人の「仮」を外しました`
+            : '足りない人はいませんでした',
+        )
+      }
+      return next
+    },
+    [reload],
+  )
 
   useEffect(() => {
     void reload()
     void loadSettings()
       .then(async (loaded) => setSettings(await seedKnownNames(loaded)))
       .catch(() => setSettings(DEFAULT_SETTINGS))
+    // 配られている版と読み比べる。画面に戻ってくるたびに見直す。
+    const checkBuild = async () => {
+      const deployed = await fetchDeployedBuild()
+      if (deployed) setStaleBuild(deployed !== __BUILD_INFO__)
+    }
+    void checkBuild()
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void checkBuild()
+    }
+    document.addEventListener('visibilitychange', onVisible)
     // 保存領域を消されにくくする。断られても動作は変わらないので結果は見ない。
     void requestPersistence()
     if (import.meta.env.PROD && 'serviceWorker' in navigator) {
       const base = import.meta.env.BASE_URL
       void navigator.serviceWorker.register(`${base}sw.js`, { scope: base }).catch(() => {})
     }
+    return () => document.removeEventListener('visibilitychange', onVisible)
   }, [reload])
 
   // 取り込み結果の知らせは読めば用済みなので、しばらくしたら引っ込める。
@@ -331,6 +354,8 @@ export default function App() {
       <Banners
         settings={settings}
         shotCount={shots.length}
+        staleBuild={staleBuild}
+        onReload={() => window.location.reload()}
         onOpenSettings={() => setShowSettings(true)}
       />
 
@@ -456,6 +481,7 @@ export default function App() {
             void putCharacter({ ...c, isProducer: !c.isProducer }).then(reload)
           }}
           onDelete={(c) => void deleteCharacter(c.id).then(reload)}
+          onSeed={() => void seedKnownNames(settings, true)}
           onClose={() => setShowRoster(false)}
         />
       )}

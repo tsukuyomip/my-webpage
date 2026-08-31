@@ -17,10 +17,14 @@ const BACKUP_REMINDER_DAYS = 14
 export function Banners({
   settings,
   shotCount,
+  staleBuild,
+  onReload,
   onOpenSettings,
 }: {
   settings: Settings
   shotCount: number
+  staleBuild: boolean
+  onReload: () => void
   onOpenSettings: () => void
 }) {
   const needsInstall = isIOS() && !isStandalone()
@@ -28,10 +32,19 @@ export function Banners({
   const staleBackup =
     shotCount > 0 && (last === undefined || daysSince(last) >= BACKUP_REMINDER_DAYS)
 
-  if (!needsInstall && !staleBackup) return null
+  if (!needsInstall && !staleBackup && !staleBuild) return null
 
   return (
     <div className="banners">
+      {/* ホーム画面のアプリは前の状態から再開することがあり、
+          新しいデプロイを取りに行かない。古いまま動いていると、直したはずのものが
+          いつまでも届かない。気づけるように出して、押せば読み込み直す。 */}
+      {staleBuild && (
+        <button className="banner update" onClick={onReload}>
+          <b>新しい版があります</b>
+          <span>ここを押すと読み込み直します。直したところが反映されます。</span>
+        </button>
+      )}
       {needsInstall && (
         <div className="banner warn">
           <b>ホーム画面に追加してください</b>
