@@ -95,6 +95,8 @@ export function resolveSpeakers(shots: Shot[], roster: Character[]): ResolveResu
   const newNames: Shot[] = []
   const unreadable: Shot[] = []
   for (const shot of shots) {
+    // 手で決めたものは触らない。読み取りより人の判断のほうが確か。
+    if (shot.speakerPicked) continue
     const raw = shot.speakerRaw?.trim()
     if (!raw) {
       unreadable.push(shot)
