@@ -1,16 +1,28 @@
 import fs from 'node:fs'
 import path from 'node:path'
+import jpeg from 'jpeg-js'
 import { PNG } from 'pngjs'
 import { describe, expect, it } from 'vitest'
 import { binarize, cropGray } from '../binarize'
 import { bodyBox, findPanel, findSpeakerChip, scanLayout } from '../layout'
+import type { Pixels } from '../pixels'
 
 /**
- * 実スクショ 10 枚での回帰。ここが壊れると、切り出しから先が全部壊れる。
- * しきい値はこの 10 枚を測って決めたので、境目そのものを固定しておく。
+ * 実スクショでの回帰。ここが壊れると、切り出しから先が全部壊れる。
+ * しきい値はこれらを測って決めたので、境目そのものを固定しておく。
+ *
+ * 11 だけ JPEG。実機から来たものをそのまま置いてある
+ * （PNG に直すと 27MB になる。元の画素を保つほうが回帰として意味がある）。
  */
 const DIR = path.join(import.meta.dirname, '../__fixtures__')
-const load = (name: string): PNG => PNG.sync.read(fs.readFileSync(path.join(DIR, name)))
+const load = (name: string): Pixels => {
+  const bytes = fs.readFileSync(path.join(DIR, name))
+  if (name.endsWith('.jpg')) {
+    const { data, width, height } = jpeg.decode(bytes, { useTArray: true, formatAsRGBA: true })
+    return { data, width, height }
+  }
+  return PNG.sync.read(bytes)
+}
 
 const PORTRAIT_WITH_PANEL = [
   '02-adv-card-kotone.png',
@@ -18,6 +30,9 @@ const PORTRAIT_WITH_PANEL = [
   '04-adv-2dbust-kanae.png',
   '09-adv-opaque-panel.png',
   '10-adv-2dbust-nadeshiko.png',
+  // 実機の 1 枚。話者チップの行がパネルの行と区別できず、帯が上へ 5% 伸びて
+  // 本文にチップの文字が混ざっていた（実測 y/H が 0.699。他の 5 枚は 0.743〜0.757）。
+  '11-adv-tall-kotone.jpg',
 ]
 const PORTRAIT_WITHOUT_PANEL = ['01-plain-two-3d.png', '08-adv-nopanel.png']
 const LANDSCAPE = ['05-landscape-kotone.png', '06-landscape-three.png', '07-landscape-back.png']
@@ -105,5 +120,17 @@ describe('端末による寸法の違い', () => {
     const pb = findPanel(b)!
     // 上端の位置は、画像高に対する比で見ればほぼ同じところに来る。
     expect(Math.abs(pa.y / a.height - pb.y / b.height)).toBeLessThan(0.02)
+  })
+
+  it('3679x8000 まで大きくしても比は変わらない', () => {
+    // 実機から来た 1 枚は 3 倍ほど大きい。画素数で 9 倍あるので、
+    // 画素数に依った定数が紛れ込んでいればここで露見する。
+    const big = load('11-adv-tall-kotone.jpg')
+    const small = load('02-adv-card-kotone.png')
+    expect([big.width, big.height]).toEqual([3679, 8000])
+    const pb = findPanel(big)!
+    const ps = findPanel(small)!
+    expect(Math.abs(pb.y / big.height - ps.y / small.height)).toBeLessThan(0.02)
+    expect(Math.abs(pb.h / big.height - ps.h / small.height)).toBeLessThan(0.02)
   })
 })
