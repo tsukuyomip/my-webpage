@@ -19,10 +19,12 @@ import {
   updateShot,
 } from './lib/db'
 import { applyFacets, collectTags, EMPTY_FACETS, type Facets } from './lib/filter'
+import { normalizeName } from './lib/names'
 import { imageFilesFrom, ingestFiles, type IngestProgress } from './lib/ingest'
 import { allMoods } from './lib/moods'
 import { needsOcr, recognizeShots, type RecognizeProgress } from './lib/recognizeQueue'
-import { mergeCharacters, resolveSpeakers } from './lib/roster'
+import { gakumas } from './lib/profiles/gakumas'
+import { mergeCharacters, resolveSpeakers, seedRoster } from './lib/roster'
 import { requestPersistence } from './lib/storage'
 import { DEFAULT_SETTINGS, type Character, type Settings, type Shot } from './lib/types'
 
@@ -50,9 +52,28 @@ export default function App() {
     setRoster(chars)
   }, [])
 
+  /**
+   * 分かっている主要キャラを名簿に入れる。
+   *
+   * 入れるのは一覧が増えたときだけ。毎回入れ直すと、名簿の画面で消した人が
+   * 起動のたびに戻ってきてしまう。
+   */
+  const seedKnownNames = useCallback(async (current: Settings) => {
+    const names = gakumas.knownNames
+    if (current.rosterSeed === names.length) return current
+    const { added, promoted } = seedRoster(await getAllCharacters(), names)
+    for (const character of [...added, ...promoted]) await putCharacter(character)
+    const next = { ...current, rosterSeed: names.length }
+    await saveSettings(next)
+    if (added.length || promoted.length) await reload()
+    return next
+  }, [reload])
+
   useEffect(() => {
     void reload()
-    void loadSettings().then(setSettings)
+    void loadSettings()
+      .then(async (loaded) => setSettings(await seedKnownNames(loaded)))
+      .catch(() => setSettings(DEFAULT_SETTINGS))
     // 保存領域を消されにくくする。断られても動作は変わらないので結果は見ない。
     void requestPersistence()
     if (import.meta.env.PROD && 'serviceWorker' in navigator) {
@@ -226,18 +247,6 @@ export default function App() {
     [patchShot],
   )
 
-  const renameCharacter = useCallback(
-    async (character: Character, name: string) => {
-      // 元の綴りは別名に残す。過去の読み取り結果が当たらなくなるのを防ぐ。
-      const aliases = character.aliases.includes(character.name)
-        ? character.aliases
-        : [...character.aliases, character.name]
-      await putCharacter({ ...character, name, aliases, provisional: false })
-      await reload()
-    },
-    [reload],
-  )
-
   const mergeInto = useCallback(
     async (keepId: string, dropId: string) => {
       const merged = mergeCharacters(roster, keepId, dropId)
@@ -257,6 +266,28 @@ export default function App() {
       setNotice(`「${merged.keep.name}」にまとめました`)
     },
     [roster, shots, reload],
+  )
+
+  const renameCharacter = useCallback(
+    async (character: Character, name: string) => {
+      // その名前の人がすでにいるなら、名前を付け替えるのではなくまとめる。
+      // 分かっている名前を種として入れてあるので、誤読を直すと必ずここに来る
+      //（「リム」を「広」に直す＝種の「広」に寄せる）。二重に持つと絞り込みが割れる。
+      const existing = roster.find(
+        (c) => c.id !== character.id && normalizeName(c.name) === normalizeName(name),
+      )
+      if (existing) {
+        await mergeInto(existing.id, character.id)
+        return
+      }
+      // 元の綴りは別名に残す。過去の読み取り結果が当たらなくなるのを防ぐ。
+      const aliases = character.aliases.includes(character.name)
+        ? character.aliases
+        : [...character.aliases, character.name]
+      await putCharacter({ ...character, name, aliases, provisional: false })
+      await reload()
+    },
+    [reload, roster, mergeInto],
   )
 
   const visible = useMemo(() => applyFacets(shots, facets), [shots, facets])

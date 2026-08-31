@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import type { Facets } from '../lib/filter'
-import { countByCharacter } from '../lib/roster'
+import { byUse, countByCharacter, countSpeakers } from '../lib/roster'
 import type { Character, Shot } from '../lib/types'
 
 /** 選ばれているかで見た目が変わる、押せるチップ。 */
@@ -45,8 +45,11 @@ export function FilterBar({
 }) {
   const [open, setOpen] = useState(false)
   const counts = countByCharacter(shots)
-  // よく出る人を先に。名簿が増えても、使う人がすぐ手に届く。
-  const sorted = [...roster].sort((a, b) => (counts.get(b.id) ?? 0) - (counts.get(a.id) ?? 0))
+  // 出てくる人だけを、よく出る順に。分かっている主要キャラを名簿に入れてあるので、
+  // 全員を出すと 0 枚のチップが 20 個並んで、使う人が埋もれる。
+  const shown = byUse(roster, counts)
+  const spoken = countSpeakers(shots)
+  const speakers = byUse(roster, spoken)
 
   const toggle = (key: 'speakerIds' | 'characterIds' | 'moods' | 'tags', value: string) => {
     const cur = facets[key]
@@ -92,37 +95,37 @@ export function FilterBar({
 
       {open && (
         <div className="filter-body">
-          {sorted.length > 0 && (
-            <>
-              <div className="filter-group">
-                <span className="filter-label">喋っている</span>
-                <div className="chips-row">
-                  {sorted.map((c) => (
-                    <Chip
-                      key={c.id}
-                      label={`${c.name}${counts.get(c.id) ? ` ${counts.get(c.id)}` : ''}`}
-                      active={facets.speakerIds.includes(c.id)}
-                      color={c.color}
-                      onClick={() => toggle('speakerIds', c.id)}
-                    />
-                  ))}
-                </div>
+          {speakers.length > 0 && (
+            <div className="filter-group">
+              <span className="filter-label">喋っている</span>
+              <div className="chips-row">
+                {speakers.map((c) => (
+                  <Chip
+                    key={c.id}
+                    label={`${c.name} ${spoken.get(c.id)}`}
+                    active={facets.speakerIds.includes(c.id)}
+                    color={c.color}
+                    onClick={() => toggle('speakerIds', c.id)}
+                  />
+                ))}
               </div>
-              <div className="filter-group">
-                <span className="filter-label">写っている</span>
-                <div className="chips-row">
-                  {sorted.map((c) => (
-                    <Chip
-                      key={c.id}
-                      label={c.name}
-                      active={facets.characterIds.includes(c.id)}
-                      color={c.color}
-                      onClick={() => toggle('characterIds', c.id)}
-                    />
-                  ))}
-                </div>
+            </div>
+          )}
+          {shown.length > 0 && (
+            <div className="filter-group">
+              <span className="filter-label">写っている</span>
+              <div className="chips-row">
+                {shown.map((c) => (
+                  <Chip
+                    key={c.id}
+                    label={c.name}
+                    active={facets.characterIds.includes(c.id)}
+                    color={c.color}
+                    onClick={() => toggle('characterIds', c.id)}
+                  />
+                ))}
               </div>
-            </>
+            </div>
           )}
 
           <div className="filter-group">

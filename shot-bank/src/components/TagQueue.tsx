@@ -29,6 +29,7 @@ export function TagQueue({
   onClose: () => void
 }) {
   const [index, setIndex] = useState(0)
+  const [showPeople, setShowPeople] = useState(false)
   const [blob, setBlob] = useState<Blob>()
   const touchStart = useRef<{ x: number; y: number } | null>(null)
   const shot = shots[Math.min(index, shots.length - 1)]
@@ -141,24 +142,38 @@ export function TagQueue({
 
         {roster.length > 0 && (
           <>
-            <span className="filter-label">写っている人</span>
-            <div className="chips-row">
-              {roster.map((c) => {
-                const on = shot.characterIds?.includes(c.id) ?? false
-                return (
-                  <button
-                    key={c.id}
-                    className={on ? 'chip active' : 'chip'}
-                    onClick={() => onToggleCharacter(shot, c.id)}
-                    aria-pressed={on}
-                    style={c.color && !on ? { borderColor: c.color } : undefined}
-                  >
-                    {c.color && <span className="chip-dot" style={{ background: c.color }} />}
-                    {c.name}
-                  </button>
-                )
-              })}
-            </div>
+            {/* 人は畳んでおく。名簿は 20 人を超えるので、開いたままだと表情のタグが
+                画面から押し出される。ここは表情を次々に振るための画面で、
+                話者は読み取りが当てている。並びは名簿の順のまま変えない
+                （枚数順にすると、振るたびにチップの位置が動く）。 */}
+            <button
+              className="ghost small tagq-people"
+              onClick={() => setShowPeople(!showPeople)}
+              aria-expanded={showPeople}
+            >
+              写っている人
+              {(shot.characterIds?.length ?? 0) > 0 && ` (${shot.characterIds?.length})`}{' '}
+              {showPeople ? '▲' : '▼'}
+            </button>
+            {showPeople && (
+              <div className="chips-row">
+                {roster.map((c) => {
+                  const on = shot.characterIds?.includes(c.id) ?? false
+                  return (
+                    <button
+                      key={c.id}
+                      className={on ? 'chip active' : 'chip'}
+                      onClick={() => onToggleCharacter(shot, c.id)}
+                      aria-pressed={on}
+                      style={c.color && !on ? { borderColor: c.color } : undefined}
+                    >
+                      {c.color && <span className="chip-dot" style={{ background: c.color }} />}
+                      {c.name}
+                    </button>
+                  )
+                })}
+              </div>
+            )}
           </>
         )}
       </div>

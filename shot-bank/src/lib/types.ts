@@ -58,9 +58,11 @@ export type OcrStatus = 'queued' | 'done' | 'error'
 /**
  * 名簿の 1 人。
  *
- * ハードコードしない。OCR で読めた話者名がそのまま候補になり、
- * 既存に近ければ寄せ、遠ければ新しい人として仮登録される。
- * ゲーム側にキャラが増えても、アプリを直さずに追随できる。
+ * OCR で読めた話者名がそのまま候補になり、既存に近ければ寄せ、
+ * 遠ければ新しい人として仮登録される。ゲーム側にキャラが増えても、
+ * アプリを直さずに追随できる。
+ * そのうえで、分かっている主要キャラは初回に種として入れておく
+ * （profiles/gakumas.ts の knownNames）。
  */
 export interface Character {
   id: string
@@ -87,6 +89,11 @@ export interface Settings {
   customMoods?: string[]
   /** 最後にバックアップを書き出した日時 */
   lastBackupAt?: number
+  /**
+   * 分かっている名前を名簿へ入れたときの、その一覧の長さ。
+   * 一覧が増えたときだけ入れ直す。毎回入れると、消した人が戻ってきてしまう。
+   */
+  rosterSeed?: number
 }
 
 export const DEFAULT_SETTINGS: Settings = { reencode: true, autoOcr: true }
