@@ -103,8 +103,9 @@ export function SettingsPanel({
         <section>
           <h2>バックアップ</h2>
           <p className="muted">
-            ブラウザの保存領域は消えることがあります。ZIP に書き出しておけば、
-            消えても・機種を変えても戻せます。
+            ホーム画面に追加すると Safari の 7 日ルールからは外れますが、それで「永続」には
+            なりません。アイコンを消したとき・端末の空き容量が足りないとき・OS の更新では
+            飛びえます。ZIP に書き出しておけば、消えても・機種を変えても戻せます。
           </p>
           <p className="muted">
             最後の書き出し: {lastBackup ? formatDate(lastBackup) : 'まだありません'}
