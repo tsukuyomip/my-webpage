@@ -120,28 +120,31 @@ export const gakumas = {
    * 並びと切れ目は教わったまま。意味は聞いていないので解釈はしない。
    */
   knownCharacters: [
-    { name: '咲季', color: '#ff5164' },
-    { name: '手毬', color: '#26b5ea' },
-    { name: 'ことね', color: '#f7d81e' },
+    { name: '咲季', color: '#ff5064' },
+    { name: '手毬', color: '#25b4eb' },
+    { name: 'ことね', color: '#f8d71f' },
     { name: '清夏', color: '#92de5a' },
     { name: 'リーリヤ', color: '#d2e3e5' },
-    { name: '広', color: '#04bddd' },
-    { name: '千奈', color: '#fe8a20' },
-    { name: '佑芽' },
-    { name: '美鈴', color: '#6fa3fb' },
-    { name: '星南', color: '#fcad27' },
-    { name: '莉波', color: '#fc7fc3' },
-    { name: '麻央', color: '#c35ec7' },
-    { name: '燕' },
+    { name: '広', color: '#00bed8' },
+    { name: '千奈', color: '#ff8a20' },
+    { name: '佑芽', color: '#f74b2b' },
+    { name: '美鈴', color: '#6ea4fc' },
+    // 星南だけ 2 色。明るい稽古場と暗い舞台袖で 23 離れる（実測）。
+    { name: '星南', color: '#ffad28', samples: ['#ffb03f'] },
+    { name: '莉波', color: '#fd7ec2' },
+    { name: '麻央', color: '#c45dc9' },
+    { name: '燕', color: '#8874ff' },
 
-    { name: '月花', color: '#978d83' },
-    { name: '四音', color: '#978d83' },
+    { name: '月花', color: '#988d83' },
+    { name: '四音', color: '#988d83' },
+    // 撫子だけ「他はあさり先生と同じグレー」に合わない。
+    // 手元のスクショではチップが濃く、白抜きの字が乗っていた。実測を採る。
     { name: '撫子', color: '#545365' },
-    { name: '燐羽', color: '#978d83' },
+    { name: '燐羽', color: '#988d83' },
 
-    { name: '優', color: '#978d83' },
-    { name: '香名江', color: '#978d83' },
-    { name: 'あさり先生', color: '#978d83' },
+    { name: '優', color: '#988d83' },
+    { name: '香名江', color: '#988d83' },
+    { name: 'あさり先生', color: '#988d83' },
   ] as const,
 
   /**
@@ -149,7 +152,7 @@ export const gakumas = {
    * 名前の数で見ていたが、色を足したときのように**数が変わらない更新**を
    * 拾えなかった。
    */
-  seedVersion: 2,
+  seedVersion: 3,
 } as const
 
 export type GameProfile = typeof gakumas
