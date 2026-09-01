@@ -4,7 +4,7 @@ import jpeg from 'jpeg-js'
 import { PNG } from 'pngjs'
 import { describe, expect, it } from 'vitest'
 import { binarize, cropGray } from '../binarize'
-import { bodyBox, findPanel, findSpeakerChip, scanLayout } from '../layout'
+import { bodyBox, findPanel, findSpeakerChip, scanLayout, speakerChipColor } from '../layout'
 import type { Pixels } from '../pixels'
 
 /**
@@ -33,6 +33,10 @@ const PORTRAIT_WITH_PANEL = [
   // 実機の 1 枚。話者チップの行がパネルの行と区別できず、帯が上へ 5% 伸びて
   // 本文にチップの文字が混ざっていた（実測 y/H が 0.699。他の 5 枚は 0.743〜0.757）。
   '11-adv-tall-kotone.jpg',
+  // 1408x3040 の実機。チップとパネルの隙間が画像高の 1.09% あり
+  //（1206x2622 の枚は 0.84%）、種を 1 点に決め打っていたころは種が隙間に落ちて
+  // チップを丸ごと外していた（本文パネルの生成り #fdf7e3 を測っていた）。
+  '12-adv-rinha-tall.jpg',
 ]
 const PORTRAIT_WITHOUT_PANEL = ['01-plain-two-3d.png', '08-adv-nopanel.png']
 const LANDSCAPE = ['05-landscape-kotone.png', '06-landscape-three.png', '07-landscape-back.png']
@@ -79,6 +83,34 @@ describe('話者名チップ', () => {
     expect(panel.y - (chip.y + chip.h)).toBeLessThan(png.height * 0.03)
     // 幅はチップの実測（38.6%）の内側。はみ出すと二値化の基準がずれる。
     expect(chip.w / png.width).toBeLessThan(0.386)
+  })
+
+  it('12 のチップは濃い色で、本文パネルの生成りではない', () => {
+    // 直す前はここが #fdf7e3（本文パネル）だった。色が本文に化けると、
+    // 撫子たちライバル勢の判定にそのまま効く。
+    const png = load('12-adv-rinha-tall.jpg')
+    const chip = findSpeakerChip(png, findPanel(png)!)
+    const color = speakerChipColor(png, chip)!
+    const rgb = [1, 3, 5].map((i) => parseInt(color.slice(i, i + 2), 16))
+    // ライバル勢の濃い色 #535365 のごく近く
+    expect(Math.max(...rgb.map((v, i) => Math.abs(v - [0x53, 0x53, 0x65][i])))).toBeLessThan(16)
+  })
+
+  it.each(PORTRAIT_WITH_PANEL)('%s は隙間の広さが変わってもチップを見失わない', (name) => {
+    // 隙間は機種で変わる（実測 0.84% と 1.09%）。種を 1 点に決め打つと
+    // 窓が 0.6pp しかなく、次の機種で外れる。何行か試して探すようにしてある。
+    const png = load(name)
+    const panel = findPanel(png)!
+    const want = speakerChipColor(png, findSpeakerChip(png, panel))!
+    // パネルの上端を上下に 14px ずらしても、同じ色にたどり着く
+    for (const dy of [-14, -7, 7, 14]) {
+      const chip = findSpeakerChip(png, { ...panel, y: panel.y + dy })
+      const got = speakerChipColor(png, chip)!
+      const d = [1, 3, 5].map((i) =>
+        Math.abs(parseInt(got.slice(i, i + 2), 16) - parseInt(want.slice(i, i + 2), 16)),
+      )
+      expect(Math.max(...d)).toBeLessThan(16)
+    }
   })
 
   it.each(PORTRAIT_WITH_PANEL)('%s の切り出しにチップの丸い縁が入らない', (name) => {

@@ -121,17 +121,62 @@ export function findSpeakerChip(
   }
 
   const seedX = Math.min(W - 1, panel.x + inset)
-  const seedY = Math.max(0, panel.y - Math.round(H * c.seedAbove))
-  const ref = rgbAt(px, seedX, seedY)
 
-  let top = seedY
-  while (top > 0 && near(rgbAt(px, seedX, top - 1), ref, c.tolerance)) top--
-  let bottom = seedY
-  while (bottom < H - 1 && near(rgbAt(px, seedX, bottom + 1), ref, c.tolerance)) bottom++
-  const scanned = bottom - top + 1
-  if (scanned < H * c.minHeight) return fallback
-  // 伸びすぎたら打ち切る。上端は当たっているので、そこから決め打ちの高さを取る。
-  // 捨てて決め打ちの箱に戻すより、当たっている端を活かすほうが色がよく採れる。
+  /** その高さに種を置いて、同じ色が続く範囲を測る。 */
+  const runAt = (above: number): { top: number; scanned: number } => {
+    const seedY = Math.max(0, panel.y - Math.round(H * above))
+    const ref = rgbAt(px, seedX, seedY)
+    let top = seedY
+    while (top > 0 && near(rgbAt(px, seedX, top - 1), ref, c.tolerance)) top--
+    let bottom = seedY
+    while (bottom < H - 1 && near(rgbAt(px, seedX, bottom + 1), ref, c.tolerance)) bottom++
+    return { top, scanned: bottom - top + 1 }
+  }
+
+  // **種を 1 点に賭けない。**
+  //
+  // チップとパネルのあいだの隙間は機種で変わる（実測 画像高の 0.84% と 1.09%）。
+  // 1 点だと種を置ける窓が 0.0105〜0.0165 の 0.6pp しかなく、次の機種で必ず外れる。
+  // 実際 0.010 で当てていて、1408x3040 の実機スクショでは種が 3px 下に落ち、
+  // 燐羽のチップを丸ごと外して本文パネルの生成りを測っていた。
+  //
+  // パネル上端から上へ何行か試し、**いちばん多くの種が同じ上端に収束した帯**を採る。
+  //
+  // 「もっともらしい最初の 1 つ」ではいけない。チップの下にたまたま同じくらいの
+  // 高さの帯があると、そちらを先に掴む（実測: 画像 04 は下へ 1px ずれただけで
+  // 外れた）。本物のチップは中に種を何行も置けるので票が集まる。まがい物は
+  // 薄いので票が割れる。
+  //
+  // 隙間に落ちた種は、隙間とパネルが地続きなので上限を超えて弾かれる。
+  // チップの上へ抜けた種は、短すぎて弾かれる。
+  const steps: number[] = []
+  for (let a = c.seedFrom; a <= c.seedTo + 1e-9; a += c.seedStep) steps.push(a)
+
+  const runs = steps.map(runAt)
+  const plausible = runs.filter(
+    (r) => r.scanned >= H * c.minHeight && r.scanned <= H * c.maxHeight,
+  )
+
+  let hit: { top: number; scanned: number } | null = null
+  if (plausible.length) {
+    const votes = new Map<number, { count: number; run: { top: number; scanned: number } }>()
+    for (const r of plausible) {
+      const v = votes.get(r.top)
+      if (v) v.count++
+      else votes.set(r.top, { count: 1, run: r })
+    }
+    // 同数なら背の高いほうを採る。チップは字より背が高い。
+    hit = [...votes.values()].sort(
+      (a, b) => b.count - a.count || b.run.scanned - a.run.scanned,
+    )[0].run
+  } else {
+    // どの行でも収まらなかったとき。伸びすぎたぶんは打ち切って使う ──
+    // 上端は当たっているので、決め打ちの箱に戻すより色がよく採れる。
+    const long = runs.find((r) => r.scanned > H * c.maxHeight)
+    if (!long) return fallback
+    hit = long
+  }
+  const { top, scanned } = hit
   const h = Math.min(scanned, Math.round(H * c.maxHeight))
 
   // 幅は測らない。実測すると 1206px 幅で 466px、1179px 幅で 456px
