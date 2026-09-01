@@ -17,6 +17,7 @@ export function DetailSheet({
   shot,
   onClose,
   onDelete,
+  onShare,
   onSaveText,
   onReRecognize,
   onToggleMood,
@@ -30,6 +31,7 @@ export function DetailSheet({
   shot: Shot;
   onClose: () => void;
   onDelete: (shot: Shot) => void;
+  onShare: (shot: Shot) => void;
   onSaveText: (shot: Shot, body: string, speakerRaw: string) => void;
   onReRecognize: (shot: Shot) => void;
   onToggleMood: (shot: Shot, mood: string) => void;
@@ -122,6 +124,14 @@ export function DetailSheet({
         ) : (
           <p className="muted">読み込み中…</p>
         )}
+      </div>
+
+      {/* 絵のすぐ下に置く。上の帯はもう 4 つで埋まっているし、
+          「この 1 枚を送る」は絵を見ている場所で決まるので、ここが近い。 */}
+      <div className="sheet-send">
+        <button onClick={() => onShare(shot)} disabled={!blob || busy}>
+          この 1 枚を送る
+        </button>
       </div>
 
       <section className="text-edit">

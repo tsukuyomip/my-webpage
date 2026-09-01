@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { dialogueText, shareFiles, shareName, shareSize, SHARE_WARN_COUNT } from '../share'
+import {
+  dialogueText,
+  downloadName,
+  shareFiles,
+  shareName,
+  shareSize,
+  SHARE_WARN_COUNT,
+} from '../share'
 import type { Character, Shot } from '../types'
 
 const shot = (over: Partial<Shot>): Shot =>
@@ -57,6 +64,29 @@ describe('送るときのファイル名', () => {
 
   it('拡張子は保存した形式に合わせる', () => {
     expect(shareName(shot({ speakerRaw: '燕', mime: 'image/jpeg' }))).toBe('燕.jpg')
+  })
+})
+
+describe('保存に使う名前', () => {
+  // Chromium は a.download に ASCII 以外が 1 文字でもあると名前ごと捨てる。
+  // 拡張子まで消えて「download」になり、その絵は開けなくなる（実測）。
+  it('日本語が入っていたら日付にする。拡張子を守る', () => {
+    const at = new Date(2026, 8, 1, 9, 5).getTime()
+    const s = shot({ shotAt: at, story: { kind: '親愛度', episode: 18 } })
+    expect(shareName(s, who('1', '月花'))).toBe('月花-親愛度_第18話.png')
+    expect(downloadName(s, who('1', '月花'))).toBe('20260901-0905.png')
+  })
+
+  it('ASCII だけの名前はそのまま使う', () => {
+    // プロデューサー（2943）のように、名前が ASCII で収まる人もいる。
+    expect(downloadName(shot({ speakerRaw: '2943' }))).toBe('2943.png')
+  })
+
+  it('1 文字でも混ざれば日付にする', () => {
+    const at = new Date(2026, 8, 1, 14, 20).getTime()
+    expect(downloadName(shot({ speakerRaw: 'kotone-ことね', createdAt: at }))).toBe(
+      '20260901-1420.png',
+    )
   })
 })
 

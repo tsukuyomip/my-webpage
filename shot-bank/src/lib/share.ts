@@ -107,6 +107,30 @@ export function shareName(shot: Shot, speaker?: Character): string {
   return `${stem}.${extensionFor(shot.mime)}`
 }
 
+/**
+ * 保存（ダウンロード）に使う名前。
+ *
+ * **Chromium は a.download に ASCII 以外が 1 文字でも入っていると、名前ごと捨てる。**
+ * 拡張子まで消えて `download` になり、OS がその絵を開けなくなる。
+ * 実測（画面ありでも同じ。ヘッドレスのせいではない）:
+ *
+ *     "ことね.jpg"        → "download"
+ *     "kotone-ことね.jpg" → "download"
+ *     "café.jpg"          → "download"
+ *     "a_b-c.jpg"         → "a_b-c.jpg"
+ *
+ * 名前と拡張子のどちらかを諦めるなら、拡張子を採る。名前は日付にすれば
+ * 「いつ撮ったか」は残るが、拡張子が無い絵は開くことすらできない。
+ *
+ * 共有シートへ渡すぶんは File が名前を持っていくので、この制限を受けない。
+ * だから shareName はそのまま日本語で、ここだけ ASCII に寄せる。
+ */
+export function downloadName(shot: Shot, speaker?: Character): string {
+  const name = shareName(shot, speaker)
+  if (/^[\x20-\x7E]+$/.test(name)) return name
+  return `${stamp(shot.shotAt ?? shot.createdAt)}.${extensionFor(shot.mime)}`
+}
+
 /** 本文を 1 行に均す。改行はセリフの折り返しなので、つないで空白を詰め直す。 */
 function oneLine(body: string): string {
   return squeezeJapaneseSpaces(body.replace(/\s*\n\s*/g, ' ')).trim()

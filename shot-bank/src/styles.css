@@ -406,6 +406,16 @@ button.icon {
   padding-bottom: 8.5rem;
 }
 
+/* 詳細の「この 1 枚を送る」。絵の直下に、幅いっぱいで。 */
+.sheet-send {
+  /* 左右は下のタグ section（0.75rem）に合わせる。下は区切りが要る ──
+     詰めると「タグ」の見出しがボタンにくっついて、続きの操作に見える。 */
+  padding: 0.7rem 0.75rem 1.1rem;
+}
+.sheet-send button {
+  width: 100%;
+}
+
 /* ---- シート（詳細・設定） ---- */
 .sheet {
   position: fixed;
