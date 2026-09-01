@@ -20,6 +20,7 @@ import {
   saveSettings,
   updateShot,
 } from './lib/db'
+import { saveBlob } from './lib/download'
 import { applyFacets, collectTags, EMPTY_FACETS, type Facets } from './lib/filter'
 import { normalizeName, withColorSample } from './lib/names'
 import {
@@ -32,7 +33,7 @@ import { allMoods } from './lib/moods'
 import { needsOcr, recognizeShots, type RecognizeProgress } from './lib/recognizeQueue'
 import { gakumas } from './lib/profiles/gakumas'
 import { mergeCharacters, resolveSpeakers, seedRoster } from './lib/roster'
-import { dialogueText, filesFor, shareFiles, zipFor, zipName } from './lib/share'
+import { dialogueText, downloadName, filesFor, shareFiles, zipFor, zipName } from './lib/share'
 import { requestPersistence } from './lib/storage'
 import { fetchDeployedBuild } from './lib/version'
 import { DEFAULT_SETTINGS, type Character, type Settings, type Shot } from './lib/types'
@@ -466,14 +467,7 @@ export default function App() {
     if (!picked.length) return
     setBusy(`${picked.length} 枚を ZIP にしています`)
     try {
-      const zip = await zipFor(picked, roster)
-      const url = URL.createObjectURL(zip)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = zipName()
-      a.click()
-      // 保存ダイアログが URL を掴む余地を残してから片付ける。
-      setTimeout(() => URL.revokeObjectURL(url), 60_000)
+      saveBlob(await zipFor(picked, roster), zipName())
       setNotice(`${picked.length} 枚を ZIP にしました`)
     } catch (e) {
       setNotice(`ZIP にできませんでした: ${e}`)
@@ -481,6 +475,38 @@ export default function App() {
       setBusy(null)
     }
   }, [picked, roster])
+
+  /**
+   * 詳細から 1 枚だけ送る。
+   *
+   * 逃げ道は ZIP ではなく、その絵そのものを落とす。1 枚を渡すのに
+   * 開いてもらう手間を足す理由がない。
+   */
+  const shareOne = useCallback(
+    async (shot: Shot) => {
+      setBusy('用意しています')
+      try {
+        const files = await filesFor([shot], roster)
+        setBusy(null)
+        if (!files.length) {
+          setNotice('画像を取り出せませんでした')
+          return
+        }
+        const outcome = await shareFiles(files)
+        if (outcome === 'shared') setNotice('送りました')
+        else if (outcome === 'unsupported') {
+          // 保存の名前は共有と別。理由は downloadName を参照。
+          const name = downloadName(shot, roster.find((c) => c.id === shot.speakerId))
+          saveBlob(files[0], name)
+          setNotice(`共有シートが無いので、${name} を保存しました`)
+        }
+        // 取り消しは何も言わない。詳細は開いたままにしておく。
+      } finally {
+        setBusy(null)
+      }
+    },
+    [roster],
+  )
 
   const copySelectedText = useCallback(async () => {
     const text = dialogueText(picked, roster)
@@ -659,6 +685,7 @@ export default function App() {
           onToggleCharacter={toggleCharacter}
           onSetSpeaker={(shot, id) => void setSpeaker(shot, id)}
           onToggleFavorite={toggleFavorite}
+          onShare={(shot) => void shareOne(shot)}
           roster={roster}
           moods={moods}
           busy={working}

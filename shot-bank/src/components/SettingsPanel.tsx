@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { backupFileName, exportBackup, importBackup } from '../lib/backup'
+import { saveBlob } from '../lib/download'
 import { deleteAllShots } from '../lib/db'
 import { formatBytes, formatDate } from '../lib/format'
 import { isPersisted, requestPersistence, storageEstimate, type Estimate } from '../lib/storage'
@@ -48,13 +49,7 @@ export function SettingsPanel({
       const zip = await exportBackup(shots, (done, total) =>
         onBusy(`バックアップを書き出しています… ${done}/${total}`),
       )
-      const url = URL.createObjectURL(zip)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = backupFileName()
-      a.click()
-      // 保存ダイアログが URL を掴む余地を残してから片付ける。
-      setTimeout(() => URL.revokeObjectURL(url), 60_000)
+      saveBlob(zip, backupFileName())
       onSettings({ ...settings, lastBackupAt: Date.now() })
       setMessage(`${shots.length} 枚を書き出しました（${formatBytes(zip.size)}）`)
     } catch (e) {
