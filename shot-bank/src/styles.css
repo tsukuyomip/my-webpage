@@ -297,6 +297,115 @@ button.icon {
   pointer-events: none;
 }
 
+/* ---- 選んで送る ---- */
+
+/* 一括の入口を横に並べる。ヘッダには入れない ── 402px では 6 つ目を足した時点で
+   題字と「取り込む」が 2 行に折り返した（実測）。 */
+.bulk {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+}
+.bulk button {
+  width: 100%;
+}
+
+/* 選んだタイル。枠だけだと 3 列に並んだとき見分けが付かないので、
+   面の色も変える。チェックは右上に置く（左上はサムネの絵が寄りがち）。 */
+.cell.picked {
+  border-color: var(--accent);
+  background: var(--accent-bg);
+}
+.cell .pick {
+  position: absolute;
+  top: 0.3rem;
+  right: 0.3rem;
+  z-index: 2;
+  width: 1.15rem;
+  height: 1.15rem;
+  border-radius: 50%;
+  border: 2px solid var(--on-accent);
+  background: color-mix(in srgb, #000 35%, transparent);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.4);
+}
+.cell.picked .pick {
+  background: var(--accent);
+}
+.cell.picked .pick::after {
+  content: '';
+  position: absolute;
+  left: 0.3rem;
+  top: 0.12rem;
+  width: 0.24rem;
+  height: 0.5rem;
+  border: solid var(--on-accent);
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+/* チェックを絶対配置で載せるので、タイル側に基準を作る。 */
+.cell {
+  position: relative;
+}
+
+/* 下に貼り付く帯。ボタンが指の届くところに来る。 */
+.tray {
+  position: fixed;
+  left: 50%;
+  bottom: calc(0.7rem + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  z-index: 25;
+  width: min(30rem, calc(100vw - 1.2rem));
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.7rem 0.85rem;
+  border-radius: 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: 0 12px 34px -12px rgba(0, 0, 0, 0.5);
+}
+.tray-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.tray-count {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--text);
+}
+.tray-links {
+  display: flex;
+  gap: 0.3rem;
+}
+.tray-warn {
+  margin: 0;
+  font-size: 0.76rem;
+  line-height: 1.45;
+  color: var(--warn);
+  background: var(--warn-bg);
+  border-radius: 7px;
+  padding: 0.4rem 0.55rem;
+}
+/* 「送る」を主にして、残り 2 つを従にする。3 つ同じ重さだと迷う。 */
+.tray-actions {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr 1fr;
+  gap: 0.4rem;
+}
+.tray-actions button {
+  width: 100%;
+  padding: 0.55rem 0.3rem;
+  font-size: 0.82rem;
+}
+
+/* 帯のぶん、一覧の下に余白を作る。最後の行が隠れると選べない。 */
+.app:has(.tray) main {
+  padding-bottom: 8.5rem;
+}
+
 /* ---- シート（詳細・設定） ---- */
 .sheet {
   position: fixed;

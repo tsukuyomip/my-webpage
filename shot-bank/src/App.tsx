@@ -6,6 +6,7 @@ import { FilterBar } from './components/FilterBar'
 import { RosterPanel } from './components/RosterPanel'
 import { SearchBar } from './components/SearchBar'
 import { SettingsPanel } from './components/SettingsPanel'
+import { SelectionTray } from './components/SelectionTray'
 import { ShotGrid } from './components/ShotGrid'
 import { TagQueue } from './components/TagQueue'
 import { releaseThumb } from './components/Thumb'
@@ -31,6 +32,7 @@ import { allMoods } from './lib/moods'
 import { needsOcr, recognizeShots, type RecognizeProgress } from './lib/recognizeQueue'
 import { gakumas } from './lib/profiles/gakumas'
 import { mergeCharacters, resolveSpeakers, seedRoster } from './lib/roster'
+import { dialogueText, filesFor, shareFiles, zipFor, zipName } from './lib/share'
 import { requestPersistence } from './lib/storage'
 import { fetchDeployedBuild } from './lib/version'
 import { DEFAULT_SETTINGS, type Character, type Settings, type Shot } from './lib/types'
@@ -51,6 +53,8 @@ export default function App() {
   const [reading, setReading] = useState<RecognizeProgress | null>(null)
   const [staleBuild, setStaleBuild] = useState(false)
   const [duplicates, setDuplicates] = useState<DuplicateFile[]>([])
+  const [selecting, setSelecting] = useState(false)
+  const [pickedIds, setPickedIds] = useState<Set<string>>(new Set())
   const fileInput = useRef<HTMLInputElement>(null)
   const stopReading = useRef(false)
 
@@ -407,6 +411,91 @@ export default function App() {
 
   const working = progress !== null || busy !== null || reading !== null
 
+  // --- 選んで送る ---
+
+  /**
+   * 選んでいる枚。**いま出ている順**で返す。
+   * 押した順ではない ── 送った先に並ぶのは一覧で見えていた順のほうが読める。
+   */
+  const picked = useMemo(() => visible.filter((s) => pickedIds.has(s.id)), [visible, pickedIds])
+
+  const togglePick = useCallback((shot: Shot) => {
+    setPickedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(shot.id)) next.delete(shot.id)
+      else next.add(shot.id)
+      return next
+    })
+  }, [])
+
+  const leaveSelecting = useCallback(() => {
+    setSelecting(false)
+    setPickedIds(new Set())
+  }, [])
+
+  // 絞り込みを変えると、選んだ枚が画面から消えることがある。
+  // 見えていないものを送るのは事故なので、見えているものだけに揃える。
+  useEffect(() => {
+    if (!selecting) return
+    setPickedIds((prev) => {
+      const alive = new Set(visible.filter((s) => prev.has(s.id)).map((s) => s.id))
+      return alive.size === prev.size ? prev : alive
+    })
+  }, [selecting, visible])
+
+  const shareSelected = useCallback(async () => {
+    if (!picked.length) return
+    setBusy(`${picked.length} 枚を用意しています`)
+    try {
+      const files = await filesFor(picked, roster)
+      setBusy(null)
+      const outcome = await shareFiles(files, `${picked.length} 枚`)
+      if (outcome === 'shared') {
+        setNotice(`${files.length} 枚を送りました`)
+        leaveSelecting()
+      } else if (outcome === 'unsupported') {
+        setNotice('この環境では共有シートを開けません。「ZIP で保存」から渡してください')
+      }
+      // 取り消しは何も言わない。選んだ状態のまま、もう一度押せるようにしておく。
+    } finally {
+      setBusy(null)
+    }
+  }, [picked, roster, leaveSelecting])
+
+  const saveSelectedZip = useCallback(async () => {
+    if (!picked.length) return
+    setBusy(`${picked.length} 枚を ZIP にしています`)
+    try {
+      const zip = await zipFor(picked, roster)
+      const url = URL.createObjectURL(zip)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = zipName()
+      a.click()
+      // 保存ダイアログが URL を掴む余地を残してから片付ける。
+      setTimeout(() => URL.revokeObjectURL(url), 60_000)
+      setNotice(`${picked.length} 枚を ZIP にしました`)
+    } catch (e) {
+      setNotice(`ZIP にできませんでした: ${e}`)
+    } finally {
+      setBusy(null)
+    }
+  }, [picked, roster])
+
+  const copySelectedText = useCallback(async () => {
+    const text = dialogueText(picked, roster)
+    if (!text) {
+      setNotice('選んだ枚に、まだ読み取ったセリフがありません')
+      return
+    }
+    try {
+      await navigator.clipboard.writeText(text)
+      setNotice(`${picked.length} 枚ぶんのセリフをコピーしました`)
+    } catch {
+      setNotice('コピーできませんでした')
+    }
+  }, [picked, roster])
+
   return (
     <div className="app">
       <header className="bar">
@@ -473,10 +562,15 @@ export default function App() {
         </button>
       )}
 
-      {visible.length > 0 && (
-        <button className="ghost wide" onClick={() => setTagging(true)}>
-          いま出ている {visible.length} 枚にタグを振る
-        </button>
+      {visible.length > 0 && !selecting && (
+        <div className="bulk">
+          <button className="ghost" onClick={() => setTagging(true)}>
+            {visible.length} 枚にタグを振る
+          </button>
+          <button className="ghost" onClick={() => setSelecting(true)}>
+            選んで送る
+          </button>
+        </div>
       )}
 
       <main>
@@ -493,7 +587,15 @@ export default function App() {
         ) : visible.length === 0 ? (
           <p className="muted centered">条件に当たるものはありませんでした。</p>
         ) : (
-          <ShotGrid shots={visible} roster={roster} query={facets.query} onOpen={setSelected} />
+          <ShotGrid
+            shots={visible}
+            roster={roster}
+            query={facets.query}
+            onOpen={setSelected}
+            selecting={selecting}
+            selectedIds={pickedIds}
+            onToggleSelect={togglePick}
+          />
         )}
       </main>
 
@@ -528,6 +630,20 @@ export default function App() {
         <div className="progress" role="status">
           <span>{busy}</span>
         </div>
+      )}
+
+      {selecting && (
+        <SelectionTray
+          selected={picked}
+          visibleCount={visible.length}
+          busy={working}
+          onShare={() => void shareSelected()}
+          onCopyText={() => void copySelectedText()}
+          onSaveZip={() => void saveSelectedZip()}
+          onSelectAll={() => setPickedIds(new Set(visible.map((s) => s.id)))}
+          onClear={() => setPickedIds(new Set())}
+          onExit={leaveSelecting}
+        />
       )}
 
       {dragging && <div className="dropzone">ここに落とすと取り込みます</div>}
