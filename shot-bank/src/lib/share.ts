@@ -115,8 +115,13 @@ function oneLine(body: string): string {
 /**
  * 選んだ枚のセリフを、そのまま貼れる形にする。
  *
- * 画像と一緒に text を渡す手もあるが、iOS では画像を選ぶと text が落ちることが多い。
- * 「送る」と「セリフをコピー」を分けて、どちらも確実に使えるようにする。
+ * 画像と一緒に text を渡す手もあるが、**やらない**。実機で確認したところ、
+ * LINE は付けた文字列をそのまま本文として送る（title に「3 枚」と入れていたら
+ * それが 1 通のメッセージになった）。セリフを常に付けると、要らないときも
+ * 相手のトークに流れてしまう。
+ *
+ * だから「送る」は画像だけ、セリフが要るときは「セリフをコピー」で自分で貼る。
+ * 送るかどうかを決めるのは受け取る相手を知っている人のほうがよい。
  */
 export function dialogueText(shots: Shot[], roster: Character[]): string {
   const byId = new Map(roster.map((c) => [c.id, c]))
@@ -138,15 +143,19 @@ export type ShareOutcome = 'shared' | 'cancelled' | 'unsupported' | 'empty'
 /**
  * 共有シートを開く。
  *
+ * **渡すのは files だけ。** title も text も付けない。以前は title に「3 枚」と
+ * 入れていたら、LINE がそれを本文として一緒に送っていた（実機で確認）。
+ * 送り先はトークなので、要らない一言が混ざるのはそのまま相手に見える。
+ *
  * ユーザの操作から地続きで呼ばないと、ブラウザに拒まれる（await を挟んだあとでも
  * 同じ操作の続きとみなされる実装が多いが、余計な確認は挟まない）。
  * 取り消しは失敗ではないので、そう見えるようにして返す。
  */
-export async function shareFiles(files: File[], title: string): Promise<ShareOutcome> {
+export async function shareFiles(files: File[]): Promise<ShareOutcome> {
   if (!files.length) return 'empty'
   if (!canShareFiles(files)) return 'unsupported'
   try {
-    await navigator.share({ files, title })
+    await navigator.share({ files })
     return 'shared'
   } catch (e) {
     // 取り消しは AbortError で来る。それ以外は環境の都合とみなして ZIP へ誘導する。
