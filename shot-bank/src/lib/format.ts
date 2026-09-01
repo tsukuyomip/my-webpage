@@ -20,11 +20,16 @@ export function formatDate(ts: number): string {
   })
 }
 
-/** バックアップのファイル名などに使う `20260831-1420` 形式。 */
-export function stampNow(): string {
-  const d = new Date()
+/** ファイル名に使う `20260831-1420` 形式。 */
+export function stamp(ts: number): string {
+  const d = new Date(ts)
   const p = (n: number) => String(n).padStart(2, '0')
   return `${d.getFullYear()}${p(d.getMonth() + 1)}${p(d.getDate())}-${p(d.getHours())}${p(d.getMinutes())}`
+}
+
+/** バックアップのファイル名などに使う、いまの時刻の刻印。 */
+export function stampNow(): string {
+  return stamp(Date.now())
 }
 
 export function daysSince(ts: number): number {

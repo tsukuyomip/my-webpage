@@ -20,11 +20,18 @@ export function ShotGrid({
   roster,
   query,
   onOpen,
+  selecting = false,
+  selectedIds,
+  onToggleSelect,
 }: {
   shots: Shot[]
   roster: Character[]
   query: string
   onOpen: (shot: Shot) => void
+  /** 選ぶモード。押すと開くのではなく、選ぶ／外す */
+  selecting?: boolean
+  selectedIds?: Set<string>
+  onToggleSelect?: (shot: Shot) => void
 }) {
   const searching = query.trim().length > 0
   const byId = new Map(roster.map((c) => [c.id, c]))
@@ -40,9 +47,18 @@ export function ShotGrid({
         const name = speaker?.name ?? shot.speakerRaw
         const body = oneLine(shot.body ?? '')
 
+        const picked = selecting && selectedIds?.has(shot.id) === true
+
         return (
           <li key={shot.id}>
-            <button className="cell" onClick={() => onOpen(shot)}>
+            <button
+              className={picked ? 'cell picked' : 'cell'}
+              // 選ぶモードでは、押しても開かない。開きたいときはモードを抜けてもらう。
+              // 同じ押下に 2 つの意味を持たせると、送るつもりが開いてしまう。
+              onClick={() => (selecting ? onToggleSelect?.(shot) : onOpen(shot))}
+              aria-pressed={selecting ? picked : undefined}
+            >
+              {selecting && <span className="pick" aria-hidden="true" />}
               <Thumb id={shot.id} alt={shot.fileName} />
               <div className="caption">
                 {(name || shot.story) && (
