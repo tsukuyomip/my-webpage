@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { dialogueText, shareName, shareSize, SHARE_WARN_COUNT } from '../share'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { dialogueText, shareFiles, shareName, shareSize, SHARE_WARN_COUNT } from '../share'
 import type { Character, Shot } from '../types'
 
 const shot = (over: Partial<Shot>): Shot =>
@@ -94,5 +94,44 @@ describe('セリフのコピー', () => {
   it('名簿の名前を優先する。読み取りの綴りは誤字がある', () => {
     const s = shot({ speakerId: '1', speakerRaw: '月花丸', body: 'あ' })
     expect(dialogueText([s], roster)).toBe('【月花】\nあ')
+  })
+})
+
+describe('共有シートに渡すもの', () => {
+  const png = () => new File([new Uint8Array([1])], 'a.png', { type: 'image/png' })
+
+  /** navigator.share / canShare を差し替えて、渡した中身を覗く。 */
+  const spy = (impl: (data: ShareData) => Promise<void> = () => Promise.resolve()) => {
+    const share = vi.fn(impl)
+    vi.stubGlobal('navigator', { share, canShare: () => true })
+    return share
+  }
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('画像だけを渡す。title も text も付けない', async () => {
+    // 実機で確認: title に「3 枚」と入れていたら、LINE がそれを本文として
+    // 一緒に送っていた。送り先はトークなので、要らない一言が相手に見える。
+    const share = spy()
+    const files = [png()]
+    expect(await shareFiles(files)).toBe('shared')
+    expect(share).toHaveBeenCalledWith({ files })
+    // キーそのものを固定する。title を足しても toHaveBeenCalledWith は通ってしまう。
+    expect(Object.keys(share.mock.calls[0]![0])).toEqual(['files'])
+  })
+
+  it('取り消しは失敗にしない', async () => {
+    spy(() => Promise.reject(new DOMException('cancel', 'AbortError')))
+    expect(await shareFiles([png()])).toBe('cancelled')
+  })
+
+  it('共有シートが無ければ、そう返して ZIP へ誘導できるようにする', async () => {
+    vi.stubGlobal('navigator', {})
+    expect(await shareFiles([png()])).toBe('unsupported')
+  })
+
+  it('1 枚も無ければ開かない', async () => {
+    const share = spy()
+    expect(await shareFiles([])).toBe('empty')
+    expect(share).not.toHaveBeenCalled()
   })
 })

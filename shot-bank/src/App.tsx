@@ -449,7 +449,7 @@ export default function App() {
     try {
       const files = await filesFor(picked, roster)
       setBusy(null)
-      const outcome = await shareFiles(files, `${picked.length} 枚`)
+      const outcome = await shareFiles(files)
       if (outcome === 'shared') {
         setNotice(`${files.length} 枚を送りました`)
         leaveSelecting()
