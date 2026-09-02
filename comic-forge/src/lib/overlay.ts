@@ -1,3 +1,4 @@
+import { handlesFor, type Placed } from './balloon-place'
 import type { BoundaryHandle, LayoutResult } from './layout'
 import { pageQuad } from './layout'
 import type { Page, Pt } from './types'
@@ -13,6 +14,7 @@ import { toScreen, type View } from './view'
 export type Selection =
   | { kind: 'panel'; id: string }
   | { kind: 'boundary'; path: number[]; index: number }
+  | { kind: 'balloon'; id: string }
   | null
 
 export interface OverlayInput {
@@ -20,7 +22,8 @@ export interface OverlayInput {
   result: LayoutResult
   view: View
   selection: Selection
-  mode: 'panel' | 'image'
+  mode: 'panel' | 'image' | 'balloon'
+  balloons: Placed[]
   /** 中身のあるコマの id。空コマだけに目印を出すため */
   filled: Set<string>
   swapFrom?: string | null
@@ -88,6 +91,21 @@ export function paintOverlay(ctx: CanvasRenderingContext2D, o: OverlayInput): vo
     }
   }
 
+  if (sel?.kind === 'balloon') {
+    const item = o.balloons.find((b) => b.balloon.id === sel.id)
+    if (item) {
+      path(ctx, item.pts.map(s))
+      ctx.strokeStyle = ACCENT
+      ctx.lineWidth = 2
+      ctx.setLineDash([5, 4])
+      ctx.stroke()
+      ctx.setLineDash([])
+      const h = handlesFor(item)
+      knob(ctx, s(h.resize), 7)
+      for (const tip of h.tails) knob(ctx, s(tip), 8, '#ffc43d')
+    }
+  }
+
   if (o.swapFrom) {
     const box = o.result.panels.find((p) => p.id === o.swapFrom)
     if (box) {
@@ -127,13 +145,13 @@ function drawBoundary(
   ctx.stroke()
 }
 
-function knob(ctx: CanvasRenderingContext2D, p: Pt, r: number) {
+function knob(ctx: CanvasRenderingContext2D, p: Pt, r: number, color = ACCENT) {
   ctx.beginPath()
   ctx.arc(p.x, p.y, r, 0, Math.PI * 2)
   ctx.fillStyle = '#fff'
   ctx.fill()
-  ctx.strokeStyle = ACCENT
-  ctx.lineWidth = 2
+  ctx.strokeStyle = color
+  ctx.lineWidth = 2.5
   ctx.stroke()
 }
 

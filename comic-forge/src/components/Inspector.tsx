@@ -1,3 +1,14 @@
+import {
+  addBalloon,
+  addTail,
+  newBalloon,
+  removeBalloon,
+  removeTail,
+  reorderBalloon,
+  SHAPES,
+  updateBalloon,
+  updateTail,
+} from '../lib/balloon-edit'
 import { coverScale } from '../lib/render'
 import { layout, normalizeRatios } from '../lib/layout'
 import type { Selection } from '../lib/overlay'
@@ -28,8 +39,11 @@ export default function Inspector(props: Props) {
     if (selection?.kind === 'panel') return <PanelInspector {...props} id={selection.id} />
     return <PageInspector {...props} />
   }
-  if (selection?.kind === 'panel') return <ImageInspector {...props} id={selection.id} />
-  return <p className="empty">コマをタップして選ぶと、画像を入れられます。</p>
+  if (mode === 'image') {
+    if (selection?.kind === 'panel') return <ImageInspector {...props} id={selection.id} />
+    return <p className="empty">コマをタップして選ぶと、画像を入れられます。</p>
+  }
+  return <BalloonInspector {...props} />
 }
 
 /* ── コマ ──────────────────────────────── */
@@ -407,6 +421,240 @@ function ImageInspector(props: Props & { id: PanelId }) {
           </button>
         </div>
       </div>
+    </>
+  )
+}
+
+/* ── 吹き出し ───────────────────────────── */
+
+function BalloonInspector(props: Props) {
+  const { doc, selection } = props
+  const selected = selection?.kind === 'balloon' ? doc.balloons.find((b) => b.id === selection.id) : null
+  const panelId = selection?.kind === 'panel' ? selection.id : undefined
+
+  if (!selected) {
+    return (
+      <>
+        <div className="group">
+          <div className="label">
+            {panelId ? 'このコマに吹き出しを置く' : 'コマをタップして選ぶと、そのコマに置けます'}
+          </div>
+          <button
+            className="btn primary grow"
+            style={{ width: '100%' }}
+            onClick={() => {
+              const b = newBalloon(doc, layout(doc), panelId)
+              props.commit(addBalloon(doc, b))
+              props.onSelect({ kind: 'balloon', id: b.id })
+            }}
+          >
+            吹き出しを足す
+          </button>
+        </div>
+        {doc.balloons.length > 0 && (
+          <div className="group">
+            <div className="label">置いてある吹き出し（{doc.balloons.length}）</div>
+            <p className="note" style={{ marginTop: 0 }}>
+              吹き出しをタップすると選べます。奥にあるものは「前へ」で手前に出せます。
+            </p>
+          </div>
+        )}
+      </>
+    )
+  }
+
+  const b = selected
+  const set = (patch: Parameters<typeof updateBalloon>[2]) => updateBalloon(doc, b.id, patch)
+
+  return (
+    <>
+      <div className="group">
+        <div className="label">形</div>
+        <div className="chips">
+          {SHAPES.map((s) => (
+            <button key={s.id} aria-pressed={b.shape === s.id} onClick={() => props.commit(set({ shape: s.id }))}>
+              {s.label}
+            </button>
+          ))}
+        </div>
+        {(b.shape === 'cloud' || b.shape === 'burst') && (
+          <>
+            <Field
+              label="数"
+              value={b.shapeParams.count ?? (b.shape === 'cloud' ? 9 : 14)}
+              min={3}
+              max={30}
+              onChange={(v) => props.live(set({ shapeParams: { ...b.shapeParams, count: v } }))}
+              onCommit={props.endGesture}
+            />
+            <Field
+              label="ふくらみ"
+              value={(b.shapeParams.amplitude ?? (b.shape === 'cloud' ? 0.14 : 0.18)) * 100}
+              min={2}
+              max={45}
+              suffix="%"
+              onChange={(v) => props.live(set({ shapeParams: { ...b.shapeParams, amplitude: v / 100 } }))}
+              onCommit={props.endGesture}
+            />
+          </>
+        )}
+        {b.shape === 'round' && (
+          <Field
+            label="角の丸み"
+            value={b.shapeParams.radius ?? Math.min(b.w, b.h) * 0.275}
+            min={0}
+            max={Math.min(b.w, b.h) / 2}
+            onChange={(v) => props.live(set({ shapeParams: { ...b.shapeParams, radius: v } }))}
+            onCommit={props.endGesture}
+          />
+        )}
+      </div>
+
+      <div className="group">
+        <div className="label">大きさと向き</div>
+        <Field
+          label="幅"
+          value={b.w}
+          min={30}
+          max={doc.page.width}
+          onChange={(v) => props.live(set({ w: v }))}
+          onCommit={props.endGesture}
+        />
+        <Field
+          label="高さ"
+          value={b.h}
+          min={24}
+          max={doc.page.height}
+          onChange={(v) => props.live(set({ h: v }))}
+          onCommit={props.endGesture}
+        />
+        <Field
+          label="角度"
+          value={b.rotate}
+          min={-45}
+          max={45}
+          step={0.5}
+          digits={1}
+          suffix="°"
+          onChange={(v) => props.live(set({ rotate: v }))}
+          onCommit={props.endGesture}
+        />
+        <NudgePad onNudge={(dx, dy) => props.commit(set({ x: b.x + dx, y: b.y + dy }))} />
+      </div>
+
+      <div className="group">
+        <div className="label">しっぽ（{b.tails.length}）</div>
+        {b.tails.map((t, i) => (
+          <div key={i} style={{ marginBottom: 10 }}>
+            <div className="row" style={{ justifyContent: 'space-between' }}>
+              <span style={{ fontSize: 12, color: 'var(--muted)' }}>{i + 1} 本目</span>
+              <button className="btn danger" onClick={() => props.commit(removeTail(doc, b.id, i))}>
+                消す
+              </button>
+            </div>
+            <Field
+              label="向き"
+              value={t.at * 360}
+              min={0}
+              max={359}
+              suffix="°"
+              onChange={(v) => props.live(updateTail(doc, b.id, i, { at: v / 360 }))}
+              onCommit={props.endGesture}
+            />
+            <Field
+              label="長さ"
+              value={t.len}
+              min={0}
+              max={Math.max(300, b.h * 3)}
+              onChange={(v) => props.live(updateTail(doc, b.id, i, { len: v }))}
+              onCommit={props.endGesture}
+            />
+            <Field
+              label="根元の幅"
+              value={t.spread * 100}
+              min={1}
+              max={35}
+              suffix="%"
+              onChange={(v) => props.live(updateTail(doc, b.id, i, { spread: v / 100 }))}
+              onCommit={props.endGesture}
+            />
+            <Field
+              label="曲がり"
+              value={t.bend * 100}
+              min={-80}
+              max={80}
+              suffix="%"
+              onChange={(v) => props.live(updateTail(doc, b.id, i, { bend: v / 100 }))}
+              onCommit={props.endGesture}
+            />
+          </div>
+        ))}
+        <button className="btn grow" style={{ width: '100%' }} onClick={() => props.commit(addTail(doc, b.id))}>
+          しっぽを足す
+        </button>
+      </div>
+
+      <div className="group">
+        <div className="label">色と線</div>
+        <Field
+          label="線の太さ"
+          value={b.strokeWidth}
+          min={0}
+          max={20}
+          step={0.5}
+          digits={1}
+          onChange={(v) => props.live(set({ strokeWidth: v }))}
+          onCommit={props.endGesture}
+        />
+        <div className="row">
+          <label className="row" style={{ gap: 8, margin: 0 }}>
+            <span style={{ fontSize: 13, color: 'var(--muted)' }}>塗り</span>
+            <input type="color" value={b.fill} onChange={(e) => props.commit(set({ fill: e.target.value }))} />
+          </label>
+          <label className="row" style={{ gap: 8, margin: 0 }}>
+            <span style={{ fontSize: 13, color: 'var(--muted)' }}>線</span>
+            <input type="color" value={b.stroke} onChange={(e) => props.commit(set({ stroke: e.target.value }))} />
+          </label>
+        </div>
+      </div>
+
+      <div className="group">
+        <div className="label">置き方</div>
+        <div className="row">
+          <button className="btn grow" onClick={() => props.commit(reorderBalloon(doc, b.id, -1))}>
+            ↓ 奥へ
+          </button>
+          <button className="btn grow" onClick={() => props.commit(reorderBalloon(doc, b.id, 1))}>
+            ↑ 手前へ
+          </button>
+        </div>
+        {b.anchor && (
+          <div className="row">
+            <button
+              className={`btn grow ${b.clip ? 'on' : ''}`}
+              onClick={() => props.commit(set({ clip: !b.clip }))}
+            >
+              {b.clip ? 'コマからはみ出さない' : 'コマをはみ出してよい'}
+            </button>
+          </div>
+        )}
+        <div className="row">
+          <button
+            className="btn danger grow"
+            onClick={() => {
+              props.onSelect(null)
+              props.commit(removeBalloon(doc, b.id))
+            }}
+          >
+            この吹き出しを消す
+          </button>
+        </div>
+      </div>
+      <p className="note">
+        {b.anchor
+          ? 'このコマに付いているので、割を動かすと一緒に動きます。'
+          : 'ページに直接置いてあります。'}
+      </p>
     </>
   )
 }

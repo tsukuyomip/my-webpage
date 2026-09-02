@@ -241,6 +241,7 @@ export default function App() {
       {([
         ['panel', '▦ コマ割り'],
         ['image', '🖼 画像'],
+        ['balloon', '🗯 吹き出し'],
       ] as const).map(([m, label]) => (
         <button
           key={m}

@@ -1,3 +1,4 @@
+import { placeAll } from './balloon-place'
 import { isDegenerate, roundPolygon } from './geom'
 import { layout, pageQuad } from './layout'
 import type { DrawOp } from './draw'
@@ -21,7 +22,8 @@ export function render(doc: Project): DrawOp[] {
     fill: page.background,
   })
 
-  const { panels } = layout(doc)
+  const result = layout(doc)
+  const { panels } = result
   for (const box of panels) {
     if (isDegenerate(box.quad)) continue
     const panel = doc.panels[box.id]
@@ -41,6 +43,25 @@ export function render(doc: Project): DrawOp[] {
     if (frame && frame.width > 0) {
       ops.push({ t: 'poly', pts: outline, closed: true, stroke: frame.color, width: frame.width })
     }
+  }
+
+  // 吹き出しはコマの枠より手前。コマをまたいで置けるように、ページの層として扱う。
+  for (const item of placeAll(doc, result)) {
+    const b = item.balloon
+    if (b.shape === 'none' || item.pts.length < 3) continue
+    if (item.clipTo) {
+      ops.push({ t: 'save' })
+      ops.push({ t: 'clip', pts: item.clipTo })
+    }
+    ops.push({
+      t: 'poly',
+      pts: item.pts,
+      closed: true,
+      fill: b.fill,
+      stroke: b.strokeWidth > 0 ? b.stroke : undefined,
+      width: b.strokeWidth,
+    })
+    if (item.clipTo) ops.push({ t: 'restore' })
   }
 
   return ops

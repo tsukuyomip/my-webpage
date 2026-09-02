@@ -97,7 +97,8 @@ body {
   font-size: 12px;
   color: var(--muted);
   pointer-events: none;
-  white-space: nowrap;
+  max-width: calc(100% - 24px);
+  text-align: center;
 }
 
 /* ── モードバー ──────────────────────── */
