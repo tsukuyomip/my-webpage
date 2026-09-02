@@ -406,6 +406,45 @@ button.icon {
   padding-bottom: 8.5rem;
 }
 
+/* ---- 写真アプリから取り込む ---- */
+
+/* 空のときの入口を横に並べる */
+.empty-actions {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+/* ショートカットから来たときだけ出る呼び込み。ふだんは画面に無い。 */
+.paste-call {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.6rem;
+  padding: 0.75rem 0.85rem;
+  border-radius: 10px;
+  background: var(--accent-bg);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line));
+}
+.paste-call p {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--text-mid);
+}
+
+/* 設定の手順書き */
+.steps {
+  margin: 0;
+  padding-left: 1.2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.steps code {
+  overflow-wrap: anywhere;
+}
+
 /* ---- 顔の枠 ---- */
 
 /* 絵と枠を重ねる。枠は % で置くので、表示倍率が変わっても一緒に動く。 */
