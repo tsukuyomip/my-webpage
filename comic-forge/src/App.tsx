@@ -25,7 +25,9 @@ import { NewerFileError, exportProject, projectFileName, readProjectFile } from 
 import { deliver } from './lib/share'
 import { swapPanels } from './lib/tree'
 import type { PanelId, Project } from './lib/types'
-import { fetchDeployedBuild } from './lib/version'
+import { describeError, selfTest, StepError } from './lib/decode'
+import { describeFile } from './lib/ingest'
+import { forceUpdate, isStale } from './lib/update'
 import { fitView, type View } from './lib/view'
 
 type Menu = null | 'main' | 'projects' | 'export' | 'page' | 'new'
@@ -42,6 +44,8 @@ export default function App() {
   const [toast, setToast] = useState<{ msg: string; bad?: boolean } | null>(null)
   const [revision, setRevision] = useState(0)
   const [stale, setStale] = useState(false)
+  /** 直近の失敗の詳細。トーストは短くて消えるので、読み返せるところにも置く。 */
+  const [lastError, setLastError] = useState<string | null>(null)
   const [sheetOpen, setSheetOpen] = useState(true)
 
   const docRef = useRef<Project | null>(null)
@@ -104,10 +108,10 @@ export default function App() {
   }, [fontKey])
 
   // 動いているページが古いままになっていないか、刻印だけを読み比べる。
+  // ホーム画面のアプリは前の状態から再開して新しい index.html を取りに行かないので、
+  // 直したはずのものが端末に届かない。目立つところに出して、その場で入れ替えられるようにする。
   useEffect(() => {
-    void fetchDeployedBuild().then((b) => {
-      if (b && BUILD !== 'dev' && b !== BUILD) setStale(true)
-    })
+    void isStale().then(setStale)
   }, [])
 
   /* ── 自動保存 ───────────────────────── */
@@ -177,7 +181,11 @@ export default function App() {
     if (!file || !target || !doc) return
     try {
       const { meta, blob } = await ingestImage(file)
-      await putAsset(meta, blob)
+      try {
+        await putAsset(meta, blob)
+      } catch (e) {
+        throw new Error(`端末に保存できませんでした: ${describeError(e)}`)
+      }
       const box = layout(doc).panels.find((p) => p.id === target)
       const panel = doc.panels[target]
       if (!panel || !box) return
@@ -200,8 +208,11 @@ export default function App() {
       })
       setMode('image')
     } catch (e) {
-      // 何が起きたかを出す。「読めませんでした」だけだと、次に何をすればよいか分からない。
-      say(e instanceof Error ? e.message : 'この画像は読めませんでした', true)
+      // 何が起きたかを残す。「読めませんでした」だけだと、次に何をすればよいか分からない。
+      setLastError(`${describeError(e)}\n対象: ${describeFile(file)}\nbuild ${BUILD}`)
+      // トーストは短い。要点だけ出して、詳しい理由はメニューに残す。
+      const gist = e instanceof StepError ? e.step : describeError(e).slice(0, 60)
+      say(`${gist}（メニュー ⋯ に詳しい理由があります）`, true)
     }
   }
 
@@ -301,6 +312,14 @@ export default function App() {
 
   return (
     <div className="app">
+      {stale && (
+        <div className="banner">
+          <span>新しい版が配られています。古いままだと直したところが届きません。</span>
+          <button className="btn primary" onClick={() => void forceUpdate()}>
+            入れ替える
+          </button>
+        </div>
+      )}
       <div className="topbar">
         <input
           className="title"
@@ -379,6 +398,12 @@ export default function App() {
           onSave={saveZip}
           onExport={() => setMenu('export')}
           onPage={() => setMenu('page')}
+          lastError={lastError}
+          onSelfTest={async () => {
+            const report = await selfTest()
+            setLastError(report)
+            say('調べました。メニューの下に出しています')
+          }}
           onFit={() => {
             const stage = document.querySelector('.stage') as HTMLElement | null
             if (stage) setView(fitView(doc.page, stage.clientWidth, stage.clientHeight))
@@ -456,6 +481,8 @@ function MainMenu(props: {
   onPage: () => void
   onFit: () => void
   stale: boolean
+  lastError: string | null
+  onSelfTest: () => void
 }) {
   return (
     <Modal onClose={props.onClose}>
@@ -482,15 +509,21 @@ function MainMenu(props: {
         <button className="btn" onClick={props.onNew}>
           新しく作る
         </button>
+        <button className="btn" onClick={props.onSelfTest}>
+          画像まわりの動作を調べる
+        </button>
       </div>
       <p className="note">
         編集内容はこの端末に自動保存されますが、ブラウザの保存領域は消えることがあります。
         大事なものは .zip で書き出してください。
       </p>
-      <p className="note">
-        build {BUILD}
-        {props.stale && ' — 新しい版が配られています。再読み込みしてください。'}
-      </p>
+      <p className="note">build {BUILD}</p>
+      {props.lastError && (
+        <div className="group">
+          <div className="label">直近のつまずき</div>
+          <pre className="detail">{props.lastError}</pre>
+        </div>
+      )}
     </Modal>
   )
 }

@@ -40,6 +40,41 @@ body {
   padding-top: env(safe-area-inset-top);
 }
 
+/* 古い版が動いているときの警告帯。メニューの奥の 1 行では見落とす */
+.banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: color-mix(in srgb, var(--warn) 22%, var(--panel));
+  border-bottom: 1px solid var(--warn);
+  font-size: 13px;
+  flex: none;
+}
+
+.banner span {
+  flex: 1;
+  min-width: 0;
+}
+
+.banner button {
+  flex: none;
+  min-height: 34px;
+  padding: 6px 12px;
+}
+
+.detail {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  max-height: 40vh;
+  overflow: auto;
+}
+
 /* ── 上バー ─────────────────────────── */
 .topbar {
   display: flex;
