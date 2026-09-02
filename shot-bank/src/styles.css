@@ -406,6 +406,93 @@ button.icon {
   padding-bottom: 8.5rem;
 }
 
+/* ---- 顔の枠 ---- */
+
+/* 絵と枠を重ねる。枠は % で置くので、表示倍率が変わっても一緒に動く。 */
+.shot-stage {
+  position: relative;
+  display: inline-block;
+  max-width: 100%;
+  line-height: 0;
+}
+.faces {
+  position: absolute;
+  inset: 0;
+  touch-action: none;
+}
+/* 「枠を足す」あいだは絵の上をなぞれるようにする */
+.faces.adding {
+  cursor: crosshair;
+}
+.face {
+  position: absolute;
+  border: 3px solid var(--accent);
+  border-radius: 4px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45);
+  touch-action: none;
+}
+.face.picked {
+  border-width: 4px;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.45),
+    0 0 0 4px color-mix(in srgb, var(--accent) 35%, transparent);
+}
+/* 名前は枠の上に。枠の中に出すと顔が隠れる。 */
+.face-tag {
+  position: absolute;
+  left: -3px;
+  bottom: 100%;
+  padding: 0.05rem 0.3rem;
+  border-radius: 4px 4px 0 0;
+  background: var(--accent);
+  color: var(--on-accent);
+  font-size: 0.62rem;
+  line-height: 1.5;
+  white-space: nowrap;
+}
+/* 右下のつまみ。指で掴める大きさにする（枠より外へはみ出させる）。 */
+.face-grip {
+  position: absolute;
+  right: -13px;
+  bottom: -13px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--on-accent);
+  box-shadow: 0 1px 5px rgba(0, 0, 0, 0.45);
+}
+
+.face-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.8rem 0.75rem 0;
+}
+.face-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.small {
+  font-size: 0.78rem;
+  line-height: 1.5;
+  margin: 0;
+}
+button.tiny.on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+/* 小さいほうの「消す」。button.danger は地を赤くするので、
+   重ねると赤地に赤字で読めなくなる（実測）。地は戻して字だけ赤にする。 */
+button.tiny.danger {
+  background: var(--surface);
+  color: var(--risk);
+  border-color: color-mix(in srgb, var(--risk) 45%, var(--line));
+}
+
 /* 詳細の「この 1 枚を送る」。絵の直下に、幅いっぱいで。 */
 .sheet-send {
   /* 左右は下のタグ section（0.75rem）に合わせる。下は区切りが要る ──

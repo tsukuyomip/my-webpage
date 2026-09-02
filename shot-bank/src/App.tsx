@@ -36,7 +36,13 @@ import { mergeCharacters, resolveSpeakers, seedRoster } from './lib/roster'
 import { dialogueText, downloadName, filesFor, shareFiles, zipFor, zipName } from './lib/share'
 import { requestPersistence } from './lib/storage'
 import { fetchDeployedBuild } from './lib/version'
-import { DEFAULT_SETTINGS, type Character, type Settings, type Shot } from './lib/types'
+import {
+  DEFAULT_SETTINGS,
+  type Character,
+  type Face,
+  type Settings,
+  type Shot,
+} from './lib/types'
 
 export default function App() {
   const [shots, setShots] = useState<Shot[]>([])
@@ -482,6 +488,21 @@ export default function App() {
    * 逃げ道は ZIP ではなく、その絵そのものを落とす。1 枚を渡すのに
    * 開いてもらう手間を足す理由がない。
    */
+  /**
+   * 顔の枠を書き換える。
+   *
+   * 名前を付けた枠は「写っている人」にも足す。枠と characterIds を別々に持つと
+   * 必ずずれるので、枠のほうを唯一の出どころにして毎回組み直す。
+   * 話者は別扱い ── 喋っていなくても写っていることはあるし、その逆もある。
+   */
+  const setFaces = useCallback(
+    async (shot: Shot, faces: Face[]) => {
+      const named = [...new Set(faces.map((f) => f.characterId).filter((v): v is string => !!v))]
+      await patchShot(shot, { faces, facesScanned: true, characterIds: named })
+    },
+    [patchShot],
+  )
+
   const shareOne = useCallback(
     async (shot: Shot) => {
       setBusy('用意しています')
@@ -686,6 +707,7 @@ export default function App() {
           onSetSpeaker={(shot, id) => void setSpeaker(shot, id)}
           onToggleFavorite={toggleFavorite}
           onShare={(shot) => void shareOne(shot)}
+          onFaces={(shot, faces) => void setFaces(shot, faces)}
           roster={roster}
           moods={moods}
           busy={working}

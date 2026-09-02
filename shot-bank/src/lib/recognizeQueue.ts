@@ -1,6 +1,8 @@
 import { getImage } from './db'
+import { detectFaces, loadCascade } from './faces'
+import { newId } from './ids'
 import { recognize, toPixels } from './ocr'
-import type { Shot } from './types'
+import type { Face, Shot } from './types'
 
 export interface RecognizeProgress {
   done: number
@@ -43,6 +45,18 @@ export async function recognizeShots(
       const r = await recognize(px, (detail) =>
         options.onProgress?.({ done: i, total: shots.length, detail }),
       )
+      // 顔も同じ 1 枚から拾う。画像のデコードを二度やらずに済む。
+      // 検出が落ちても読み取りは残したいので、ここは別に囲う。
+      let faces = shot.faces
+      let facesScanned = shot.facesScanned
+      try {
+        options.onProgress?.({ done: i, total: shots.length, detail: '顔を探しています' })
+        faces = mergeFaces(shot.faces, await scanFaces(px))
+        facesScanned = true
+      } catch {
+        // 検出器を読めないだけで読み取りまで捨てない。次の 1 枚でやり直す。
+      }
+
       const updated: Shot = {
         ...shot,
         layout: r.layout,
@@ -52,6 +66,8 @@ export async function recognizeShots(
         headerRaw: r.headerRaw,
         story: r.story ?? undefined,
         speakerChipColor: r.speakerChipColor,
+        faces,
+        facesScanned,
         ocr: 'done',
         ocrError: undefined,
       }
@@ -69,4 +85,39 @@ export async function recognizeShots(
 /** まだ読んでいない、または失敗したものを拾う。手で直したものは触らない。 */
 export function needsOcr(shots: Shot[]): Shot[] {
   return shots.filter((s) => !s.textEdited && s.ocr !== 'done')
+}
+
+/** 1 枚から顔を拾って、保存する形にする。 */
+async function scanFaces(px: Parameters<typeof detectFaces>[0]): Promise<Face[]> {
+  const cascade = await loadCascade()
+  return detectFaces(px, cascade).map((b) => ({
+    id: newId(),
+    x: b.x,
+    y: b.y,
+    w: b.w,
+    h: b.h,
+  }))
+}
+
+/**
+ * 読み直しても、手で足した／動かした枠は消さない。
+ *
+ * 検出は完璧にならない（後ろ姿と大きなボケは原理的に拾えない）ので、手で直した
+ * ぶんが読み直しのたびに消えると、直す気がなくなる。手のぶんは必ず残し、
+ * 自動のぶんだけ入れ替える。名前を付けた枠も手のぶんとみなす。
+ */
+export function mergeFaces(before: Face[] | undefined, found: Face[]): Face[] {
+  const kept = (before ?? []).filter((f) => f.manual || f.characterId)
+  // 手のぶんと重なる自動の枠は捨てる。同じ顔に枠が 2 つ並ぶのを防ぐ。
+  const fresh = found.filter((f) => !kept.some((k) => overlaps(k, f)))
+  return [...kept, ...fresh]
+}
+
+/** 面積のどちらかから見て半分以上重なっていれば、同じ顔とみなす。 */
+function overlaps(a: Face, b: Face): boolean {
+  const w = Math.min(a.x + a.w, b.x + b.w) - Math.max(a.x, b.x)
+  const h = Math.min(a.y + a.h, b.y + b.h) - Math.max(a.y, b.y)
+  if (w <= 0 || h <= 0) return false
+  const inter = w * h
+  return inter / Math.min(a.w * a.h, b.w * b.h) >= 0.5
 }

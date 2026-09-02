@@ -1,6 +1,19 @@
 import type { Layout } from './layout'
 import type { Story } from './story'
 
+/** 1 枚の中の顔 1 つ。座標は元画像の画素。 */
+export interface Face {
+  id: string
+  x: number
+  y: number
+  w: number
+  h: number
+  /** 誰の顔か。決まっていなければ空 */
+  characterId?: string
+  /** 手で足した／動かした枠。検出し直しても消さない印 */
+  manual?: boolean
+}
+
 /**
  * 保存済みスクショ1枚のメタ情報。
  * 画像本体とサムネは別ストアに置くので、一覧を開いても Blob はメモリに乗らない。
@@ -52,6 +65,14 @@ export interface Shot {
   speakerPicked?: boolean
   /** 誰が写っているか。話者とは別物なので分けて持つ */
   characterIds?: string[]
+  /**
+   * 顔の枠。検出したものと、手で足したものが混ざる。
+   * 検出が原理的に届かない絵（完全な後ろ姿・大きなボケ）があるので、
+   * 手で足せることが前提。詳しくは docs/shot-bank-plan.md の Phase 4。
+   */
+  faces?: Face[]
+  /** 顔を一度でも探したか。0 個だったのか、まだ探していないのかを分ける */
+  facesScanned?: boolean
   /** 表情。複数付く（ドヤ顔かつ楽、はある） */
   moods?: string[]
   /** 自由タグ */
