@@ -43,6 +43,10 @@ export function SettingsPanel({
   }
   useEffect(refreshStorage, [shots.length])
 
+  // ショートカットに貼る行き先。いま開いている場所から作るので、
+  // 配信元が変わっても書き換えずに済む。
+  const pasteUrl = `${window.location.origin}${window.location.pathname}?paste=1`
+
   const doExport = async () => {
     onBusy('バックアップを書き出しています…')
     try {
@@ -132,6 +136,42 @@ export function SettingsPanel({
                 }}
               />
             </label>
+          </div>
+        </section>
+
+        <section>
+          <h2>写真アプリから取り込む</h2>
+          <p className="muted">
+            <b>iOS の共有シートにこのアプリを直接出すことはできません。</b>
+            共有先にアプリを並べる仕組み（Web Share Target）は Android の Chrome だけで、
+            Safari は実装していません。
+          </p>
+          <p className="muted">
+            代わりに、共有シートに出せる<b>ショートカット</b>を 1 つ作ると近い動線になります。
+            ショートカットアプリで新規作成し、詳細で「共有シートに表示」を入にして、
+            受け取る種類を「イメージ」に絞ってから、この 2 つを並べます。
+          </p>
+          <ol className="muted steps">
+            <li>クリップボードにコピー（入力: ショートカットの入力）</li>
+            <li>
+              URL を開く: <code>{pasteUrl}</code>
+            </li>
+          </ol>
+          <p className="muted">
+            あとは写真アプリで選んで共有 → そのショートカット。開いたこのアプリに
+            「クリップボードから取り込む」が出るので、押せば入ります。
+          </p>
+          <div className="row">
+            <button
+              onClick={() => {
+                void navigator.clipboard
+                  .writeText(pasteUrl)
+                  .then(() => setMessage('ショートカットに貼る URL をコピーしました'))
+                  .catch(() => setMessage('コピーできませんでした'))
+              }}
+            >
+              URL をコピー
+            </button>
           </div>
         </section>
 

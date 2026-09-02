@@ -20,6 +20,7 @@ import {
   saveSettings,
   updateShot,
 } from './lib/db'
+import { canReadClipboard, readClipboardImages } from './lib/clipboardImages'
 import { saveBlob } from './lib/download'
 import { applyFacets, collectTags, EMPTY_FACETS, type Facets } from './lib/filter'
 import { normalizeName, withColorSample } from './lib/names'
@@ -305,6 +306,41 @@ export default function App() {
       window.removeEventListener('drop', onDrop)
     }
   }, [importFiles])
+
+  /**
+   * クリップボードの画像を取り込む。
+   *
+   * iOS の共有シートに Web アプリは出せないので、ショートカット経由で来る道の
+   * 受け口。押した流れの中で読まないと、iOS の許可の確認で弾かれる。
+   */
+  const pasteFromClipboard = useCallback(async () => {
+    const r = await readClipboardImages()
+    if (r.kind === 'files') {
+      await importFiles(r.files)
+      return
+    }
+    if (r.kind === 'empty') setNotice('クリップボードに画像がありませんでした')
+    else if (r.kind === 'denied') setNotice('貼り付けを許可されませんでした。もう一度どうぞ')
+    else setNotice('この環境ではクリップボードから読めません')
+  }, [importFiles])
+
+  /**
+   * ショートカットから来たか。
+   *
+   * 共有シートのショートカットは「コピー → URL を開く」までしかできないので、
+   * 最後のひと押しはアプリ側で受ける。来た合図があるときだけ大きく出す ──
+   * ふだんは要らないボタンで画面を埋めたくない。
+   */
+  const [fromShortcut, setFromShortcut] = useState(false)
+  useEffect(() => {
+    const u = new URL(window.location.href)
+    if (u.searchParams.get('paste') === null && u.hash !== '#paste') return
+    setFromShortcut(true)
+    // 合図は 1 回きり。読み込み直したときに残っていると、いつまでも出続ける。
+    u.searchParams.delete('paste')
+    u.hash = ''
+    window.history.replaceState(null, '', u.pathname + u.search)
+  }, [])
 
   const removeShot = useCallback(
     async (shot: Shot) => {
@@ -601,6 +637,21 @@ export default function App() {
         </>
       )}
 
+      {fromShortcut && canReadClipboard() && (
+        <div className="paste-call">
+          <p>写真アプリからコピーしてきましたか？</p>
+          <button
+            onClick={() => {
+              setFromShortcut(false)
+              void pasteFromClipboard()
+            }}
+            disabled={working}
+          >
+            クリップボードから取り込む
+          </button>
+        </div>
+      )}
+
       {notice && <p className="notice">{notice}</p>}
 
       {unread.length > 0 && reading === null && (
@@ -627,9 +678,20 @@ export default function App() {
             <p className="muted">
               スクショを選ぶか、ここにドラッグ＆ドロップ、または貼り付け（⌘V）で取り込めます。
             </p>
-            <button onClick={() => fileInput.current?.click()} disabled={working}>
-              スクショを選ぶ
-            </button>
+            <div className="empty-actions">
+              <button onClick={() => fileInput.current?.click()} disabled={working}>
+                スクショを選ぶ
+              </button>
+              {canReadClipboard() && (
+                <button
+                  className="ghost"
+                  onClick={() => void pasteFromClipboard()}
+                  disabled={working}
+                >
+                  貼り付け
+                </button>
+              )}
+            </div>
           </div>
         ) : visible.length === 0 ? (
           <p className="muted centered">条件に当たるものはありませんでした。</p>
