@@ -12,6 +12,11 @@ export interface Face {
   characterId?: string
   /** 手で足した／動かした枠。検出し直しても消さない印 */
   manual?: boolean
+  /**
+   * 誰の顔かを当てるための数の並び（36 個）。詳しくは lib/embed.ts。
+   * 枠を動かしたら取り直す ── 動かした先の絵で計算し直さないと意味が変わる。
+   */
+  embed?: number[]
 }
 
 /**

@@ -15,12 +15,14 @@ import {
   deleteShot,
   getAllCharacters,
   getAllShots,
+  getImage,
   loadSettings,
   putCharacter,
   saveSettings,
   updateShot,
 } from './lib/db'
 import { canReadClipboard, readClipboardImages } from './lib/clipboardImages'
+import { embedFace } from './lib/embed'
 import { saveBlob } from './lib/download'
 import { applyFacets, collectTags, EMPTY_FACETS, type Facets } from './lib/filter'
 import { normalizeName, withColorSample } from './lib/names'
@@ -32,6 +34,7 @@ import {
 } from './lib/ingest'
 import { allMoods } from './lib/moods'
 import { needsOcr, recognizeShots, type RecognizeProgress } from './lib/recognizeQueue'
+import { toPixels } from './lib/ocr'
 import { gakumas } from './lib/profiles/gakumas'
 import { mergeCharacters, resolveSpeakers, seedRoster } from './lib/roster'
 import { dialogueText, downloadName, filesFor, shareFiles, zipFor, zipName } from './lib/share'
@@ -525,6 +528,32 @@ export default function App() {
    * 開いてもらう手間を足す理由がない。
    */
   /**
+   * 動かした枠の埋め込みを採り直す。
+   *
+   * 枠が変われば見ている絵が変わるので、並びも取り直さないと意味がずれる。
+   * ただしドラッグ中に呼ぶわけにいかない（画像のデコードが要る）ので、
+   * 手が止まってからまとめて 1 回。
+   */
+  const embedTimer = useRef<number>()
+  const scheduleEmbed = useCallback((shotId: string) => {
+    window.clearTimeout(embedTimer.current)
+    embedTimer.current = window.setTimeout(() => {
+      void (async () => {
+        const shot = (await getAllShots()).find((s) => s.id === shotId)
+        if (!shot?.faces?.length) return
+        const blob = await getImage(shot.id)
+        if (!blob) return
+        const px = await toPixels(blob)
+        // 全部まとめて採り直す。どれが動いたかを覚えるより、1 回デコードして
+        // ぜんぶ計算し直すほうが確かで速い（1 枚あたり数ミリ秒）。
+        const faces = shot.faces.map((f) => ({ ...f, embed: embedFace(px, f) }))
+        await updateShot({ ...shot, faces })
+        await reload()
+      })()
+    }, 500)
+  }, [reload])
+
+  /**
    * 顔の枠を書き換える。
    *
    * 名前を付けた枠は「写っている人」にも足す。枠と characterIds を別々に持つと
@@ -535,8 +564,11 @@ export default function App() {
     async (shot: Shot, faces: Face[]) => {
       const named = [...new Set(faces.map((f) => f.characterId).filter((v): v is string => !!v))]
       await patchShot(shot, { faces, facesScanned: true, characterIds: named })
+      // 埋め込みは落ち着いてから採り直す。ドラッグ中は 1 秒に何度も来るので、
+      // そのたびに画像をデコードしていたら指が止まる。
+      scheduleEmbed(shot.id)
     },
-    [patchShot],
+    [patchShot, scheduleEmbed],
   )
 
   const shareOne = useCallback(
@@ -786,6 +818,7 @@ export default function App() {
           onToggleFavorite={toggleFavorite}
           onShare={(shot) => void shareOne(shot)}
           onFaces={(shot, faces) => void setFaces(shot, faces)}
+          allShots={shots}
           roster={roster}
           moods={moods}
           busy={working}
