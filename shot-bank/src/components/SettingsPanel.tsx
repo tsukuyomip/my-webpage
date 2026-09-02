@@ -87,8 +87,13 @@ export function SettingsPanel({
       )
       await onReload()
       const parts = [`${r.added} 枚を追加`]
+      if (r.characters) parts.push(`名簿に ${r.characters} 人`)
       if (r.skipped) parts.push(`${r.skipped} 枚は既にあるので飛ばしました`)
       if (r.missing) parts.push(`${r.missing} 枚は画像が入っていませんでした`)
+      // 古い控えには名簿が入っていない。黙っていると「名前がぜんぶ消えた」に見える。
+      if (r.rosterMissing && r.added) {
+        parts.push('この控えには名簿が入っていないため、人物の札が外れています')
+      }
       setMessage(parts.join(' / '))
     } catch (e) {
       setMessage(`読み込みに失敗しました: ${e}`)

@@ -1,7 +1,8 @@
-import { getImage, getThumb, putShot } from './db'
+import { getAllCharacters, getImage, getThumb, putCharacter, putShot } from './db'
 import { extensionFor } from './encode'
+import { normalizeName } from './names'
 import { stampNow } from './format'
-import type { BackupManifest, Shot } from './types'
+import type { BackupManifest, Character, Shot } from './types'
 import { makeZip, readZip, type ZipEntry } from './zip'
 
 const MANIFEST = 'manifest.json'
@@ -25,7 +26,11 @@ export async function exportBackup(
   shots: Shot[],
   onProgress?: (done: number, total: number) => void,
 ): Promise<Blob> {
-  const manifest: BackupManifest = { version: 1, exportedAt: Date.now(), shots }
+  // **名簿も入れる。** スクショは人を id で指しているだけなので、名簿が無いと
+  // 戻した先で誰も指さなくなる。名簿は入れ直しで別の id が振られるため、
+  // 「同じ名前だから繋がる」ということも起きない。
+  const characters = await getAllCharacters()
+  const manifest: BackupManifest = { version: 2, exportedAt: Date.now(), shots, characters }
   const entries: ZipEntry[] = [
     {
       path: MANIFEST,
@@ -51,6 +56,10 @@ export interface RestoreResult {
   skipped: number
   /** 目録にあるのに画像が入っていなかった件数 */
   missing: number
+  /** 名簿に足した人数 */
+  characters: number
+  /** 名簿が入っていない古い形式（v1）だったか。人物の札が外れるので、呼ぶ側が断る */
+  rosterMissing: boolean
 }
 
 /**
@@ -67,7 +76,7 @@ export async function importBackup(
   if (!manifestBlob) throw new Error('バックアップの目録 (manifest.json) が見つかりません')
 
   const manifest = JSON.parse(await manifestBlob.text()) as BackupManifest
-  if (manifest.version !== 1) {
+  if (manifest.version !== 1 && manifest.version !== 2) {
     throw new Error(`未知のバックアップ形式です (version ${manifest.version})`)
   }
 
@@ -80,7 +89,64 @@ export async function importBackup(
     return undefined
   }
 
-  const result: RestoreResult = { added: 0, skipped: 0, missing: 0 }
+  const result: RestoreResult = {
+    added: 0,
+    skipped: 0,
+    missing: 0,
+    characters: 0,
+    rosterMissing: !manifest.characters,
+  }
+
+  // **名簿を先に戻す。** スクショより後だと、書いた直後の一瞬だけ
+  // 誰も指していない状態ができる。
+  //
+  // 同じ人が別の id で既に居ることがある ── 全消しのあとは種が入れ直され、
+  // 同じ 20 人に新しい id が振られる。そのまま足すと同じ名前が 2 つずつ並ぶ
+  //（実測で 20 人 → 41 人）。**名前で引き当てて、控えの id を手元の id に読み替える。**
+  // 手元の名前・色はそのまま（手で直したものを古い控えで潰さない）、
+  // 控えが覚えていた別名だけ足す。
+  const local = await getAllCharacters()
+  const byId = new Set(local.map((c) => c.id))
+  const byName = new Map<string, Character>()
+  for (const c of local) for (const n of [c.name, ...c.aliases]) byName.set(normalizeName(n), c)
+
+  /** 控えの id → 手元の id。読み替えの要らないものは入れない。 */
+  const remap = new Map<string, string>()
+  for (const character of manifest.characters ?? ([] as Character[])) {
+    if (byId.has(character.id)) continue
+    const found = [character.name, ...character.aliases]
+      .map((n) => byName.get(normalizeName(n)))
+      .find(Boolean)
+    if (found) {
+      remap.set(character.id, found.id)
+      const known = new Set([found.name, ...found.aliases].map(normalizeName))
+      const extra = [character.name, ...character.aliases].filter(
+        (a) => !known.has(normalizeName(a)),
+      )
+      const colors = [...new Set([...(found.colorSamples ?? []), ...(character.colorSamples ?? [])])]
+      if (extra.length || colors.length !== (found.colorSamples ?? []).length) {
+        await putCharacter({ ...found, aliases: [...found.aliases, ...extra], colorSamples: colors })
+      }
+      continue
+    }
+    await putCharacter(character)
+    byId.add(character.id)
+    for (const n of [character.name, ...character.aliases]) byName.set(normalizeName(n), character)
+    result.characters++
+  }
+
+  /** 控えの中の「誰か」を、手元の id に読み替える。 */
+  const rewrite = (shot: Shot): Shot => {
+    if (!remap.size) return shot
+    const at = (id?: string) => (id ? (remap.get(id) ?? id) : id)
+    return {
+      ...shot,
+      speakerId: at(shot.speakerId),
+      characterIds: shot.characterIds && [...new Set(shot.characterIds.map((i) => at(i)!))],
+      faces: shot.faces?.map((f) => ({ ...f, characterId: at(f.characterId) })),
+    }
+  }
+
   for (const [i, shot] of manifest.shots.entries()) {
     onProgress?.(i + 1, manifest.shots.length)
     if (existingIds.has(shot.id)) {
@@ -95,7 +161,7 @@ export async function importBackup(
     }
     // ZIP を通ると MIME が落ちるので、目録と拡張子から付け直す。
     await putShot(
-      shot,
+      rewrite(shot),
       new Blob([image.blob], { type: shot.mime }),
       new Blob([thumb.blob], { type: mimeForExtension(thumb.ext) }),
     )

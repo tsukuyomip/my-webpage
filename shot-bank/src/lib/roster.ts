@@ -193,6 +193,28 @@ export function mergeCharacters(
   }
 }
 
+/**
+ * まとめられて消える人を指している所を、残るほうへ付け替える。
+ *
+ * **指している所は 3 つある**（話者・写っている人・顔の枠）。
+ * どれか 1 つでも忘れると、消えた人を指したまま残る ── 名前は「？」になるのに
+ * 「名前あり」として扱われ、顔の見本にも化けて混ざる。
+ * 1 か所にまとめておかないと、また忘れる。
+ *
+ * 直す所が無ければ null。書き込みを起こさないため。
+ */
+export function repointShot(shot: Shot, keepId: string, dropId: string): Partial<Shot> | null {
+  const patch: Partial<Shot> = {}
+  if (shot.speakerId === dropId) patch.speakerId = keepId
+  if (shot.characterIds?.includes(dropId)) {
+    patch.characterIds = [...new Set(shot.characterIds.map((i) => (i === dropId ? keepId : i)))]
+  }
+  if (shot.faces?.some((f) => f.characterId === dropId)) {
+    patch.faces = shot.faces.map((f) => (f.characterId === dropId ? { ...f, characterId: keepId } : f))
+  }
+  return Object.keys(patch).length ? patch : null
+}
+
 /** 何枚に出てくるか。名簿の画面で、よく出る順に並べるのに使う。 */
 export function countByCharacter(shots: Shot[]): Map<string, number> {
   const counts = new Map<string, number>()

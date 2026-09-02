@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { countByCharacter, mergeCharacters, resolveSpeakers } from '../roster'
+import { countByCharacter, mergeCharacters, repointShot, resolveSpeakers } from '../roster'
 import type { Character, Shot } from '../types'
 
 const shot = (over: Partial<Shot>): Shot => ({
@@ -142,5 +142,50 @@ describe('登場回数', () => {
     ])
     expect(counts.get('k')).toBe(1)
     expect(counts.get('c')).toBe(2)
+  })
+})
+
+describe('まとめた人を指している所を付け替える', () => {
+  it('話者・写っている人・顔の枠、3 つとも付け替える', () => {
+    // どれか 1 つ忘れると、消えた人を指したまま残る。
+    const s = shot({
+      speakerId: 'drop',
+      characterIds: ['drop', 'other'],
+      faces: [
+        { id: 'f1', x: 0, y: 0, w: 1, h: 1, characterId: 'drop' },
+        { id: 'f2', x: 0, y: 0, w: 1, h: 1, characterId: 'other' },
+      ],
+    })
+    const patch = repointShot(s, 'keep', 'drop')!
+    expect(patch.speakerId).toBe('keep')
+    expect(patch.characterIds).toEqual(['keep', 'other'])
+    expect(patch.faces?.map((f) => f.characterId)).toEqual(['keep', 'other'])
+  })
+
+  it('もともと残るほうを指していたら、二重にしない', () => {
+    const s = shot({ characterIds: ['keep', 'drop'] })
+    expect(repointShot(s, 'keep', 'drop')!.characterIds).toEqual(['keep'])
+  })
+
+  it('顔の枠のほかの中身は触らない', () => {
+    const s = shot({
+      faces: [{ id: 'f1', x: 3, y: 4, w: 5, h: 6, characterId: 'drop', assigned: 'speaker',
+        manual: true, embed: [0.5] }],
+    })
+    expect(repointShot(s, 'keep', 'drop')!.faces![0]).toEqual({
+      id: 'f1', x: 3, y: 4, w: 5, h: 6, characterId: 'keep', assigned: 'speaker',
+      manual: true, embed: [0.5],
+    })
+  })
+
+  it('指していなければ null。書き込みを起こさない', () => {
+    expect(repointShot(shot({ speakerId: 'other' }), 'keep', 'drop')).toBeNull()
+    expect(repointShot(shot({}), 'keep', 'drop')).toBeNull()
+  })
+
+  it('顔の枠だけが指している場合も拾う', () => {
+    // Phase 4 で枠が増えたとき、ここが抜けていた。
+    const s = shot({ faces: [{ id: 'f1', x: 0, y: 0, w: 1, h: 1, characterId: 'drop' }] })
+    expect(repointShot(s, 'keep', 'drop')?.faces?.[0]!.characterId).toBe('keep')
   })
 })

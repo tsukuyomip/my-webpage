@@ -36,7 +36,7 @@ import { allMoods } from './lib/moods'
 import { needsOcr, recognizeShots, type RecognizeProgress } from './lib/recognizeQueue'
 import { toPixels } from './lib/ocr'
 import { gakumas } from './lib/profiles/gakumas'
-import { mergeCharacters, resolveSpeakers, seedRoster } from './lib/roster'
+import { mergeCharacters, repointShot, resolveSpeakers, seedRoster } from './lib/roster'
 import { dialogueText, downloadName, filesFor, shareFiles, zipFor, zipName } from './lib/share'
 import { autoAssign } from './lib/suggest'
 import { isIOS, isStandalone, requestPersistence } from './lib/storage'
@@ -419,12 +419,8 @@ export default function App() {
       await deleteCharacter(dropId)
       // まとめられた側を指していたスクショを、残るほうへ付け替える。
       for (const shot of shots) {
-        const patch: Partial<Shot> = {}
-        if (shot.speakerId === dropId) patch.speakerId = keepId
-        if (shot.characterIds?.includes(dropId)) {
-          patch.characterIds = [...new Set(shot.characterIds.map((i) => (i === dropId ? keepId : i)))]
-        }
-        if (Object.keys(patch).length) await updateShot({ ...shot, ...patch })
+        const patch = repointShot(shot, keepId, dropId)
+        if (patch) await updateShot({ ...shot, ...patch })
       }
       await reload()
       setNotice(`「${merged.keep.name}」にまとめました`)

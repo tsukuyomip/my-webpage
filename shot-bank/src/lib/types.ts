@@ -167,7 +167,17 @@ export const DEFAULT_SETTINGS: Settings = {
 
 /** バックアップ ZIP に入れる目録。 */
 export interface BackupManifest {
-  version: 1
+  /**
+   * 1 … スクショだけ。**名簿が入っていない。**
+   * 2 … 名簿も入る。
+   *
+   * v1 を新しい端末で戻すと、スクショの中の `speakerId` と `faces[].characterId` が
+   * どこも指さなくなる（名簿は入れ直しで別の id が振られるため）。
+   * 手で付けた人物の札が丸ごと外れる ── 読めるが、直しようがない。
+   */
+  version: 1 | 2
   exportedAt: number
   shots: Shot[]
+  /** v2 から。スクショが指している人そのもの。 */
+  characters?: Character[]
 }
