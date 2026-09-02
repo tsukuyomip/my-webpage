@@ -51,7 +51,18 @@ export function SettingsPanel({
 
   // ショートカットに貼る行き先。いま開いている場所から作るので、
   // 配信元が変わっても書き換えずに済む。
-  const pasteUrl = `${window.location.origin}${window.location.pathname}?paste=1`
+  /**
+   * ショートカットに貼る行き先。
+   *
+   * **https ではなく webapp スキームで書く。** https だとブラウザが開き、
+   * iOS ではホーム画面のアプリとブラウザで保存場所が分かれることがあるので、
+   * そちらで取り込んだぶんがここに出てこない。
+   *
+   * ?paste=1 はこの経路では抜け落ちる（実機で確認済み）。それでも付けておくのは、
+   * 抜けなかったときに呼び込みが出るぶん親切なため。抜けても貼り付けは
+   * 一括の列からいつでも押せるので、動線は途切れない。
+   */
+  const webappUrl = `webapp://${window.location.host}${window.location.pathname}?paste=1`
   // どちらで開いているかを出す。iOS はこの 2 つで保存場所が分かれることがあるので、
   // 「入れたはずのものが無い」の切り分けに要る。
   const standalone = isStandalone()
@@ -151,43 +162,33 @@ export function SettingsPanel({
         <section>
           <h2>写真アプリから取り込む</h2>
           <p className="muted">
-            <b>iOS の共有シートにこのアプリを直接出すことはできません。</b>
-            共有先にアプリを並べる仕組み（Web Share Target）は Android の Chrome だけで、
-            Safari は実装していません。
-          </p>
-          <p className="muted">
-            代わりに、共有シートに出せる<b>ショートカット</b>を 1 つ作ると近い動線になります。
-            ショートカットアプリで新規作成し、詳細で「共有シートに表示」を入にして、
-            受け取る種類を「イメージ」に絞ってから、この 2 つを並べます。
+            共有シートに出せる<b>ショートカット</b>を 1 つ作ると、写真アプリから直接
+            渡せます。ショートカットアプリで新規作成し、詳細で「共有シートに表示」を
+            入、受け取る種類を「イメージ」にして、この 2 つを並べます。
           </p>
           <ol className="muted steps">
-            <li>クリップボードにコピー（入力: ショートカットの入力）</li>
+            <li>「ショートカットの入力」をクリップボードにコピー</li>
             <li>
-              <b>アプリを開く</b> → 一覧から Shot Bank
+              URL を開く: <code>{webappUrl}</code>
             </li>
           </ol>
           <p className="muted">
+            <b>
+              先頭は <code>https</code> ではなく <code>webapp</code> です。
+            </b>
+            こう書くとホーム画面のアプリが開きます。<code>https</code> にすると
+            ブラウザが開き、iOS ではそちらと保存場所が分かれることがあるので、
+            取り込んだぶんがここに出てきません。
+          </p>
+          <p className="muted">
             あとは写真アプリで選んで共有 → そのショートカット。開いたこのアプリで
             「貼り付け」を押せば入ります。
-          </p>
-          <p className="muted">
-            <b>「URL を開く」は使わないでください。</b>iOS はホーム画面のアプリに
-            http の行き先を振り向けないので、ブラウザのほうが開きます。iOS では
-            ホーム画面のアプリとブラウザで保存場所が分かれることがあり、
-            そちらで取り込んだぶんはここに出てきません。
-          </p>
-          <p className="muted">
-            一覧に Shot Bank が出ないときだけ、次の URL で代用してください
-            （ブラウザが開くので、上の但し書きのとおりです）。
-          </p>
-          <p className="muted">
-            <code>{pasteUrl}</code>
           </p>
           <div className="row">
             <button
               onClick={() => {
                 void navigator.clipboard
-                  .writeText(pasteUrl)
+                  .writeText(webappUrl)
                   .then(() => setMessage('ショートカットに貼る URL をコピーしました'))
                   .catch(() => setMessage('コピーできませんでした'))
               }}
@@ -196,9 +197,7 @@ export function SettingsPanel({
             </button>
           </div>
           <p className="muted">
-            いまは
-            <b>{standalone ? 'ホーム画面のアプリ' : 'ブラウザ'}</b>
-            で開いています。
+            いまは<b>{standalone ? 'ホーム画面のアプリ' : 'ブラウザ'}</b>で開いています。
           </p>
         </section>
 
