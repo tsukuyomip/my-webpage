@@ -1,0 +1,104 @@
+name: CI
+
+# プルリクと master への push で、触ったアプリだけを検査する。
+#
+# このリポジトリは 1 つの中に独立したアプリが 9 つ入っているので、毎回ぜんぶ回すと
+# 1 行直しただけで 9 回の npm ci が走る。変更のあったところだけを選んで回す
+# （.github/ が変わったときだけは、仕組みそのものが変わったとみなして全部回す）。
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# 同じブランチで続けて push したら、前のものは止める。
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  plan:
+    name: 回す対象を決める
+    runs-on: ubuntu-latest
+    outputs:
+      apps: ${{ steps.pick.outputs.apps }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # merge-base を取るために履歴を全部持ってくる
+          fetch-depth: 0
+
+      - name: 変更のあったアプリを選ぶ
+        id: pick
+        env:
+          GITHUB_EVENT_BEFORE: ${{ github.event.before }}
+        run: node .github/scripts/changed-apps.mjs
+
+      # アプリを増やしたのに deploy-pages.yml へ足し忘れると、検査は通ったまま
+      # 「公開だけされない」という形で外れる。ここで止める。
+      - name: デプロイの配線を確かめる
+        run: node .github/scripts/check-deploy-wiring.mjs
+
+  check:
+    name: ${{ matrix.app }}
+    needs: plan
+    if: needs.plan.outputs.apps != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      # 1 つ落ちても他を最後まで見たい。まとめて直せる。
+      fail-fast: false
+      matrix:
+        app: ${{ fromJson(needs.plan.outputs.apps) }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: ${{ matrix.app }}/package-lock.json
+
+      - name: 依存を入れる
+        working-directory: ${{ matrix.app }}
+        run: npm ci
+
+      # build には tsc --noEmit が入っているので、型検査もここで通る。
+      - name: ビルド（型検査こみ）
+        working-directory: ${{ matrix.app }}
+        run: npm run build
+
+      # test を持っているアプリだけ走らせる。持っていないものは飛ばす。
+      # yt-rhythm の test:e2e は実ブラウザが要るので、ここでは回さない。
+      - name: テスト
+        working-directory: ${{ matrix.app }}
+        run: |
+          if node -e "process.exit(require('./package.json').scripts?.test ? 0 : 1)"; then
+            npm test
+          else
+            echo "test スクリプトが無いので飛ばす"
+          fi
+
+  # ブランチ保護から見るときのために、結果を 1 つにまとめる。
+  # matrix はジョブ名が増えるので、必須チェックに指定しづらい。
+  result:
+    name: CI
+    if: always()
+    needs: [plan, check]
+    runs-on: ubuntu-latest
+    steps:
+      - name: まとめ
+        run: |
+          echo "plan:  ${{ needs.plan.result }}"
+          echo "check: ${{ needs.check.result }}"
+          if [ "${{ needs.plan.result }}" != "success" ]; then
+            echo "対象を決めるところで落ちている"
+            exit 1
+          fi
+          # 回すものが無ければ check は skipped になる。それは通ったものとして扱う。
+          case "${{ needs.check.result }}" in
+            success|skipped) echo "OK" ;;
+            *) echo "検査が通っていない"; exit 1 ;;
+          esac
