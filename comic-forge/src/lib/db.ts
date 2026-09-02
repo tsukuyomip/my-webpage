@@ -1,3 +1,4 @@
+import { describeError } from './decode'
 import type { AssetHash, AssetMeta, Project } from './types'
 
 /**
@@ -36,6 +37,47 @@ function toPromise<T>(req: IDBRequest<T>): Promise<T> {
   })
 }
 
+/**
+ * トランザクションの完了を待つ。**個々のリクエストの `onerror` も併せて見る。**
+ *
+ * `tx.onerror` だけを見ると、実機の Safari で `tx.error` が `null` のまま
+ * abort されることがある（「理由の分からない失敗」としてしか報告できなくなる）。
+ * put/delete などのリクエスト自身が先に `onerror` を出すことが多いので、
+ * そちらの `request.error` を先に掴んでおいて、無ければ `tx.error` へ落ちる。
+ */
+function txDone(tx: IDBTransaction, requests: IDBRequest[] = []): Promise<void> {
+  let requestError: unknown = null
+  for (const req of requests) {
+    req.onerror = () => {
+      requestError = req.error
+    }
+  }
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve()
+    tx.onabort = () => reject(requestError ?? tx.error ?? new Error('トランザクションが中断されました（理由不明）'))
+    tx.onerror = () => reject(requestError ?? tx.error ?? new Error('トランザクションが失敗しました（理由不明）'))
+  })
+}
+
+/**
+ * 書き込みの失敗に、切り分けの材料を添える。
+ *
+ * 「理由の分からない失敗（null）」だけでは、容量が尽きたのか、Blob を
+ * 保存できない端末なのか、プライベートブラウジングで書き込み自体を
+ * 拒まれているのかが分からない。使用量を添えて、次に何を疑うべきか出す。
+ */
+async function annotateWriteError(e: unknown): Promise<Error> {
+  const name = e instanceof DOMException ? e.name : ''
+  const usage = await storageEstimate().catch(() => null)
+  const usageNote = usage
+    ? `使用量 ${Math.round(usage.usage / 1024 / 1024)}MB / 上限 ${Math.round(usage.quota / 1024 / 1024)}MB`
+    : '使用量を取得できず'
+  if (name === 'QuotaExceededError') {
+    return new Error(`保存領域がいっぱいです（${usageNote}）。作品ファイルへ書き出して空き容量を作ってください`)
+  }
+  return new Error(`${describeError(e)}（${usageNote}）`)
+}
+
 interface ProjectRow {
   id: string
   title: string
@@ -58,11 +100,12 @@ export async function saveProject(doc: Project): Promise<void> {
     updatedAt: doc.meta.updatedAt,
     doc,
   }
-  tx.objectStore('projects').put(row)
-  await new Promise<void>((resolve, reject) => {
-    tx.oncomplete = () => resolve()
-    tx.onerror = () => reject(tx.error)
-  })
+  const req = tx.objectStore('projects').put(row)
+  try {
+    await txDone(tx, [req])
+  } catch (e) {
+    throw await annotateWriteError(e)
+  }
 }
 
 export async function loadProject(id: string): Promise<Project | null> {
@@ -92,20 +135,39 @@ export async function deleteProject(id: string): Promise<void> {
   })
 }
 
+/**
+ * 画素は Blob ではなく ArrayBuffer + mime で持つ。
+ *
+ * 実機の Safari で「Blob を IndexedDB に保存すると、理由の分からない失敗で
+ * トランザクションごと落ちる」不具合が確認できた（構造化クローンの実装差らしい）。
+ * ArrayBuffer は素直な生データなので、この経路を丸ごと避けられる。
+ * 読み出すときに Blob へ組み直す（`blob` フィールドは前の版の名残。あれば拾う）。
+ */
 interface AssetRow {
   hash: AssetHash
-  blob: Blob
+  data?: ArrayBuffer
+  mime?: string
+  blob?: Blob
   meta: AssetMeta
 }
 
 export async function putAsset(meta: AssetMeta, blob: Blob): Promise<void> {
+  let data: ArrayBuffer
+  try {
+    data = await blob.arrayBuffer()
+  } catch (e) {
+    throw new Error(`画像を保存できる形にできませんでした: ${describeError(e)}`)
+  }
+
   const db = await openDb()
   const tx = db.transaction('assets', 'readwrite')
-  tx.objectStore('assets').put({ hash: meta.hash, blob, meta } satisfies AssetRow)
-  await new Promise<void>((resolve, reject) => {
-    tx.oncomplete = () => resolve()
-    tx.onerror = () => reject(tx.error)
-  })
+  const row: AssetRow = { hash: meta.hash, data, mime: blob.type || 'application/octet-stream', meta }
+  const req = tx.objectStore('assets').put(row)
+  try {
+    await txDone(tx, [req])
+  } catch (e) {
+    throw await annotateWriteError(e)
+  }
 }
 
 export async function getAsset(hash: AssetHash): Promise<Blob | null> {
@@ -113,7 +175,9 @@ export async function getAsset(hash: AssetHash): Promise<Blob | null> {
   const row = await toPromise<AssetRow | undefined>(
     db.transaction('assets').objectStore('assets').get(hash),
   )
-  return row?.blob ?? null
+  if (!row) return null
+  if (row.data) return new Blob([row.data], { type: row.mime || 'application/octet-stream' })
+  return row.blob ?? null
 }
 
 export async function getKv<T>(key: string): Promise<T | null> {
