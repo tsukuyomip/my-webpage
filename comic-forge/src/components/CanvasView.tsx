@@ -251,6 +251,9 @@ export default function CanvasView(props: Props) {
       const hit = hitBalloon(placedRef.current, pagePt)
       if (hit) {
         props.onGestureStart()
+        // 押した時点で選ぶ。離した時点の当たり判定に任せると、
+        // 「動かさずに離した＝つまみを掴んだだけ」の扱いに巻き込まれて選び直せない。
+        props.onSelect({ kind: 'balloon', id: hit.id })
         drag.current = {
           ...base,
           kind: 'balloon',

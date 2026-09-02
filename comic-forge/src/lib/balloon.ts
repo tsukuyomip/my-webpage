@@ -147,12 +147,14 @@ interface Cut {
 }
 
 const MAX_SPREAD = 0.35
+/** これ以上細くすると、縁取りの太さに埋もれて線が 1 本に見える。 */
+const MIN_SPREAD = 0.004
 const CURVE_STEPS = 10
 
 function tailCut(pts: Pt[], acc: number[], tail: Tail, center: Pt): Cut | null {
   const perim = acc[pts.length]
   if (perim <= 0 || tail.len <= 0) return null
-  const spread = Math.min(MAX_SPREAD, Math.max(0.01, tail.spread))
+  const spread = Math.min(MAX_SPREAD, Math.max(MIN_SPREAD, tail.spread))
   const s0 = wrap(tail.at, 1) * perim
   const hw = (spread * perim) / 2
   const A = pointAtLength(pts, acc, s0 - hw).p

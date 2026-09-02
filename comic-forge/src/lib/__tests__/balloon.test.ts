@@ -183,3 +183,32 @@ describe('置き場所と当たり', () => {
     expect(pointInPolygon({ x: 1000, y: 0 }, pts)).toBe(false)
   })
 })
+
+describe('しっぽの根元の幅', () => {
+  it('既定は輪郭の 5% 未満（吹き出しの幅の 2 割ほど）', () => {
+    // 0.1 だと吹き出しの幅の 4 割を占めて、間の抜けた形になっていた
+    expect(defaultTail(200).spread).toBeLessThan(0.05)
+  })
+
+  it('細くすると根元が狭くなる', () => {
+    const width = (spread: number) => {
+      const b = base({ tails: [{ ...defaultTail(200), spread, len: 120 }] })
+      const pts = balloonPath(b)
+      // まっすぐなしっぽは [根元の片側, 先, 根元のもう片側] の 3 点で入る。
+      // 先を挟む 2 点の距離が根元の幅そのもの。
+      let tip = 0
+      for (let i = 1; i < pts.length; i++) if (pts[i].y > pts[tip].y) tip = i
+      const a = pts[(tip - 1 + pts.length) % pts.length]
+      const c = pts[(tip + 1) % pts.length]
+      return Math.hypot(c.x - a.x, c.y - a.y)
+    }
+    expect(width(0.02)).toBeLessThan(width(0.1))
+    expect(width(0.1)).toBeLessThan(width(0.25))
+  })
+
+  it('極端に細くしても、しっぽ自体は残る', () => {
+    const b = base({ tails: [{ ...defaultTail(200), spread: 0.001, len: 120 }] })
+    const pts = balloonPath(b)
+    expect(Math.max(...pts.map((p) => p.y))).toBeGreaterThan(200)
+  })
+})
