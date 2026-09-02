@@ -1,3 +1,4 @@
+import { decodeAt } from './decode'
 import type { AssetHash } from './types'
 
 /**
@@ -8,8 +9,9 @@ import type { AssetHash } from './types'
  */
 
 interface Entry {
-  bitmap: ImageBitmap
+  source: CanvasImageSource
   width: number
+  close: () => void
 }
 
 export class ImageStore {
@@ -23,12 +25,12 @@ export class ImageStore {
   ) {}
 
   /** いま持っているものを返す。無ければ裏で用意して、できたら onReady で呼び戻す。 */
-  get(hash: AssetHash, wantWidth: number): ImageBitmap | null {
+  get(hash: AssetHash, wantWidth: number): CanvasImageSource | null {
     const hit = this.cache.get(hash)
     // 2 倍まで開いたら取り直す。少し粗いくらいなら拡大して使う（毎フレーム復号しないため）。
-    if (hit && hit.width >= wantWidth / 2) return hit.bitmap
+    if (hit && hit.width >= wantWidth / 2) return hit.source
     void this.load(hash, wantWidth)
-    return hit?.bitmap ?? null
+    return hit?.source ?? null
   }
 
   private async load(hash: AssetHash, wantWidth: number): Promise<void> {
@@ -37,10 +39,9 @@ export class ImageStore {
     try {
       const blob = await this.fetchBlob(hash)
       if (!blob) return
-      const bitmap = await decodeAt(blob, wantWidth)
-      const old = this.cache.get(hash)
-      old?.bitmap.close()
-      this.cache.set(hash, { bitmap, width: bitmap.width })
+      const decoded = await decodeAt(blob, wantWidth)
+      this.cache.get(hash)?.close()
+      this.cache.set(hash, { source: decoded.source, width: decoded.width, close: decoded.close })
       this.evict()
       this.onReady()
     } catch {
@@ -54,23 +55,13 @@ export class ImageStore {
     while (this.cache.size > this.limit) {
       const oldest = this.cache.keys().next().value as AssetHash | undefined
       if (oldest === undefined) return
-      this.cache.get(oldest)?.bitmap.close()
+      this.cache.get(oldest)?.close()
       this.cache.delete(oldest)
     }
   }
 
   dispose(): void {
-    for (const e of this.cache.values()) e.bitmap.close()
+    for (const e of this.cache.values()) e.close()
     this.cache.clear()
   }
-}
-
-/** 指定した幅を超えないところまで縮めて復号する。 */
-export async function decodeAt(blob: Blob, wantWidth: number): Promise<ImageBitmap> {
-  const probe = await createImageBitmap(blob)
-  if (probe.width <= wantWidth) return probe
-  const w = Math.max(1, Math.round(wantWidth))
-  const h = Math.max(1, Math.round((probe.height * w) / probe.width))
-  probe.close()
-  return createImageBitmap(blob, { resizeWidth: w, resizeHeight: h, resizeQuality: 'high' })
 }

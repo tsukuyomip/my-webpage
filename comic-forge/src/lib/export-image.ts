@@ -1,6 +1,6 @@
 import { canvasLimit, maxWidthFor, type CanvasLimit } from './canvas-limit'
 import { ensureFontsFor } from './fonts'
-import { decodeAt } from './images'
+import { decodeAt, type Decoded } from './decode'
 import { layout } from './layout'
 import { browserMeasure } from './measure'
 import { paint } from './paint'
@@ -76,12 +76,12 @@ export async function exportImage(
 
   // 画像は「実際に描かれる大きさ」までしか復号しない。原本の画素数で持つと iOS が落ちる。
   const need = neededWidths(doc, scale)
-  const bitmaps = new Map<AssetHash, ImageBitmap>()
+  const decoded = new Map<AssetHash, Decoded>()
   try {
     for (const [hash, px] of need) {
       const blob = await getAssetBlob(hash)
       if (!blob) continue
-      bitmaps.set(hash, await decodeAt(blob, px))
+      decoded.set(hash, await decodeAt(blob, px))
     }
 
     const canvas = document.createElement('canvas')
@@ -96,14 +96,14 @@ export async function exportImage(
       ctx.fillRect(0, 0, canvas.width, canvas.height)
     }
     ctx.setTransform(scale, 0, 0, scale, 0, 0)
-    paint(ctx, ops, { scale, image: (h) => bitmaps.get(h) ?? null })
+    paint(ctx, ops, { scale, image: (h) => decoded.get(h)?.source ?? null })
 
     const blob = await toBlob(canvas, `image/${format}`, quality)
     canvas.width = 0
     canvas.height = 0
     return { blob, width: Math.round(width), height }
   } finally {
-    for (const b of bitmaps.values()) b.close()
+    for (const d of decoded.values()) d.close()
   }
 }
 
