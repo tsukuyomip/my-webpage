@@ -4,7 +4,7 @@ import jpeg from 'jpeg-js'
 import { PNG } from 'pngjs'
 import { describe, expect, it } from 'vitest'
 import { parseCascade, toJson } from '../../../scripts/build-cascade.mjs'
-import { embedDistance, embedFace, EMBED_SIZE } from '../embed'
+import { embedDistance, embedFace, EMBED_SIZE, EMBED_VERSION } from '../embed'
 import { detectFaces, toCascade } from '../faces'
 import type { Pixels } from '../pixels'
 import {
@@ -78,7 +78,7 @@ const real = samples.filter((s) => s.label !== '×失敗')
 
 describe('顔を数の並びにする', () => {
   it('決まった長さで、長さ 1 に揃っている', () => {
-    expect(EMBED_SIZE).toBe(36)
+    expect(EMBED_SIZE).toBe(54)
     for (const s of samples) {
       expect(s.embed).toHaveLength(EMBED_SIZE)
       const len = Math.sqrt(s.embed.reduce((a, x) => a + x * x, 0))
@@ -125,33 +125,32 @@ describe('同じ人が近くに来る（実スクショ）', () => {
     }
   })
 
-  it('淡い髪の 3 人は、同じ人どうしより離れている', () => {
+  it('淡い髪の 3 人は、いまでも紛らわしい', () => {
     // 香名江（銀・オリーブ目）／リーリヤ（白・青目）／F（淡・橙目）。
-    // 髪がどれも淡く、目の色でしか分かれない。いちばん紛らわしい組。
+    //
+    // **版 2 でここは悪くなった。** 明るさの段を足したぶん、彩度の低い 3 人が
+    // 互いに近づく（版 1: 0.338 > 同じ人の最大 0.297 ／ 版 2: 0.297 < 0.338）。
+    // それでも版 2 を採ったのは、実機 106 顔で 73.6% → 89.6% と大きく上がるから。
+    // 淡い髪どうしは、その代わりに払ったもの。
+    //
+    // 実データでもリーリヤは 5/8 で、よく写る人のなかでいちばん弱い
+    // （real-faces.test.ts）。**ここを直すのが次の伸びしろ。**
     const pale = ['香名江', 'リーリヤ', 'F'].map((l) => real.find((s) => s.label === l)!)
     let closest = Infinity
     for (let a = 0; a < pale.length; a++)
       for (let b = a + 1; b < pale.length; b++)
         closest = Math.min(closest, embedDistance(pale[a]!.embed, pale[b]!.embed))
-
-    const sameMax = Math.max(
-      ...['ことね', '清夏'].flatMap((l) => {
-        const g = real.filter((s) => s.label === l)
-        const ds: number[] = []
-        for (let a = 0; a < g.length; a++)
-          for (let b = a + 1; b < g.length; b++) ds.push(embedDistance(g[a]!.embed, g[b]!.embed))
-        return ds
-      }),
-    )
-    expect(closest).toBeGreaterThan(sameMax)
+    // 近すぎる（0.2 を切る）ようだと、もう別人として扱えない。そこが下限。
+    expect(closest).toBeGreaterThan(0.2)
   })
+
 })
 
 // --- 提案 ---
 
 const shotWith = (id: string, faces: Face[]): Shot => ({ id, faces }) as Shot
 const face = (id: string, embed: number[], characterId?: string): Face =>
-  ({ id, x: 0, y: 0, w: 10, h: 10, embed, characterId }) as Face
+  ({ id, x: 0, y: 0, w: 10, h: 10, embed, embedV: EMBED_VERSION, characterId }) as Face
 
 describe('たぶんこの人', () => {
   const kotone = real.filter((s) => s.label === 'ことね')
@@ -260,13 +259,14 @@ describe('仮で付ける', () => {
     expect(got[0]!.assigned).toBe('guess')
   })
 
-  it('外しそうな顔には付けない', () => {
-    // 07 は後ろ姿のことね。この見本だと清夏を指すが、確信 0.047（実測）。
-    // 線の役目はここ ── 外れを黙って書き込まない。
-    const back = real.find((s) => s.file === '07-landscape-back.png')!
-    const shots = [twoExamples(), shotWith('1', [face('a', back.embed)])]
-    const s = suggestFace(face('a', back.embed), collectExamples(shots))!
-    expect(s.characterId).toBe('s')
+  it('見本に無い人の顔では、確信が上がらない', () => {
+    // 07 は後ろ姿のことね。版 1 ではここで清夏を指していた（版 2 は当てる）。
+    // 代わりに、見本を持たない人で確かめる ── 撫子はこの見本 2 人ぶんの中に
+    // 居ないので、いちばん近いのは必ず別人になる。確信が線を越えないことが要る。
+    const nadeshiko = real.find((s) => s.label === '撫子')!
+    const shots = [twoExamples(), shotWith('1', [face('a', nadeshiko.embed)])]
+    const s = suggestFace(face('a', nadeshiko.embed), collectExamples(shots))!
+    expect(['k', 's']).toContain(s.characterId)
     expect(s.confidence).toBeLessThan(AUTO_CONFIDENCE)
     expect(autoAssign(shots).has('1')).toBe(false)
   })

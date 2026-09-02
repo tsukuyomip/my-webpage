@@ -22,7 +22,7 @@ import {
   updateShot,
 } from './lib/db'
 import { canReadClipboard, readClipboardImages } from './lib/clipboardImages'
-import { embedFace } from './lib/embed'
+import { embedFace, EMBED_VERSION, isCurrentEmbed } from './lib/embed'
 import { saveBlob } from './lib/download'
 import { applyFacets, collectTags, EMPTY_FACETS, type Facets } from './lib/filter'
 import { normalizeName, withColorSample } from './lib/names'
@@ -557,6 +557,49 @@ export default function App() {
    * ただしドラッグ中に呼ぶわけにいかない（画像のデコードが要る）ので、
    * 手が止まってからまとめて 1 回。
    */
+  /**
+   * 古い版の並びを、絵から採り直す。
+   *
+   * 記述子を変えると、溜まっている並びは意味が変わって使えなくなる。
+   * 捨てるわけにはいかない ── 手で付けた名前ごと見本が消えることになる。
+   * だから起動時に、古いものだけ静かに採り直す。
+   *
+   * **1 枚ずつ、間を空けて回す。** 1 枚のデコードは数十ミリ秒だが、
+   * 100 枚を続けて回すと指が止まる。採り直した端から使えるようになるので、
+   * 全部終わるのを待つ必要もない。
+   */
+  const migrating = useRef(false)
+  const reembedStale = useCallback(async () => {
+    if (migrating.current) return
+    migrating.current = true
+    try {
+      const all = await getAllShots()
+      const stale = all.filter((s) => s.faces?.some((f) => f.embed && !isCurrentEmbed(f)))
+      if (!stale.length) return
+      for (const shot of stale) {
+        const blob = await getImage(shot.id)
+        if (!blob) continue
+        const px = await toPixels(blob)
+        await updateShot({
+          ...shot,
+          faces: shot.faces!.map((f) => ({ ...f, embed: embedFace(px, f), embedV: EMBED_VERSION })),
+        })
+        // 1 枚ごとに手を離す。まとめて回すと画面が固まる。
+        await new Promise((r) => setTimeout(r, 0))
+      }
+      await applyAutoAssign()
+      await reload()
+    } finally {
+      migrating.current = false
+    }
+  }, [reload, applyAutoAssign])
+
+  // 起動して落ち着いてから始める。取り込みや読み取りと重なると、どちらも遅くなる。
+  useEffect(() => {
+    const t = setTimeout(() => void reembedStale(), 3000)
+    return () => clearTimeout(t)
+  }, [reembedStale])
+
   const embedTimer = useRef<number>()
   const scheduleEmbed = useCallback((shotId: string) => {
     window.clearTimeout(embedTimer.current)
@@ -569,7 +612,7 @@ export default function App() {
         const px = await toPixels(blob)
         // 全部まとめて採り直す。どれが動いたかを覚えるより、1 回デコードして
         // ぜんぶ計算し直すほうが確かで速い（1 枚あたり数ミリ秒）。
-        const faces = shot.faces.map((f) => ({ ...f, embed: embedFace(px, f) }))
+        const faces = shot.faces.map((f) => ({ ...f, embed: embedFace(px, f), embedV: EMBED_VERSION }))
         await updateShot({ ...shot, faces })
         await reload()
       })()

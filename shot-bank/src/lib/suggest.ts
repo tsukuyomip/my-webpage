@@ -1,4 +1,4 @@
-import { embedDistance } from './embed'
+import { embedDistance, isCurrentEmbed } from './embed'
 import type { Face, Shot } from './types'
 
 /**
@@ -37,6 +37,9 @@ export interface Example {
  * **推しただけの顔（assigned === 'guess'）は入れない。**
  * 推したものを見本にすると、外れが外れを呼んで雪だるまになる。
  * 手で決めたものと、話者から決めたものだけを信じる。
+ *
+ * **古い版の並びも入れない。** 版が違えば長さも意味も違うので、混ぜたら嘘になる。
+ * 絵から採り直されるまで、その顔は黙って外れる。
  */
 export function collectExamples(shots: Shot[], exclude?: string): Example[] {
   const out: Example[] = []
@@ -44,7 +47,7 @@ export function collectExamples(shots: Shot[], exclude?: string): Example[] {
     for (const f of shot.faces ?? []) {
       if (f.id === exclude) continue
       if (f.assigned === 'guess') continue
-      if (f.characterId && f.embed) out.push({ characterId: f.characterId, embed: f.embed })
+      if (f.characterId && isCurrentEmbed(f)) out.push({ characterId: f.characterId, embed: f.embed })
     }
   }
   return out
@@ -57,7 +60,7 @@ export function collectExamples(shots: Shot[], exclude?: string): Example[] {
  * （どんな顔でもその 1 人がいちばん近くなるため）。
  */
 export function suggestFace(face: Face, examples: Example[]): Suggestion | null {
-  if (!face.embed || !examples.length) return null
+  if (!isCurrentEmbed(face) || !examples.length) return null
 
   // 人ごとに、いちばん近い見本までの距離。
   const best = new Map<string, { d: number; n: number }>()
@@ -91,25 +94,24 @@ export const SUGGEST_MIN_CONFIDENCE = 0.15
 /**
  * これを超えたら、押してもらわずに仮で付ける。
  *
- * **一度 0.5 に置いて、実データで測り直したら緩すぎた。**
- * 最初の 0.5 は見本 17 個で測ったもので、そこでの「外れ」は
- * *その人の見本がまだ無い* 場合しかなかった。本物の取り違え
- * ── 見本がある別人に吸われる ── が試験に入っていなかった。
+ * **この線は記述子の出来で決まる。** 記述子を版 2 に変えて（lib/embed.ts）、
+ * 実機 108 顔・14 人で測り直したもの:
  *
- * 実機の 124 枚・手で名前を付けた 77 顔・9 人で 1 つ抜き（__fixtures__/labelled-faces.json）:
+ *     しきい  仮確定  正  誤   誤り率        版 1 のとき
+ *      0.20     85   84   1   1.2%
+ *      0.30     72   72   0   0.0%
+ *      0.40     61   61   0   0.0%   ←採用
+ *      0.50     50   50   0   0.0%          （ここで誤り 9.7%）
+ *      0.70     18   18   0   0.0%          （ここでやっと誤り 0、20 件）
  *
- *     しきい  仮確定  正  誤   誤り率
- *      0.50     31   28   3   9.7%   ← 前の設定。10 件に 1 件まちがえる
- *      0.60     29   27   2   6.9%
- *      0.65     26   25   1   3.8%
- *      0.70     20   20   0   0.0%   ← ここから誤りが消える
- *      0.80     12   12   0   0.0%
+ * **外れた提案の確信は最大 0.275。** 0.40 はその 1.45 倍で、余裕がある。
+ * 0.30 でも実測の誤りは 0 だが、いちばん際どい外れとの差が 0.025 しかない。
+ * 見たことのない場面が 1 つ来れば越える。**測って 0 だったから安全、ではない。**
  *
- * **0.70 に上げた。** 仮とはいえ、黙って書き込むものが 10 件に 1 件まちがっていては、
- * 見直す気が失せる ── 点線で出す意味が無くなる。0.70 なら実測で誤り 0 件、
- * 正解 52 件のうち 20 件を拾う。残りは提案のまま出して、押してもらう。
+ * 0.40 なら 106 件のうち 61 件（58%）が押さずに決まる。版 1 では 76 件のうち
+ * 20 件（26%）だった。
  */
-export const AUTO_CONFIDENCE = 0.7
+export const AUTO_CONFIDENCE = 0.4
 
 /**
  * 名前の付いていない顔にだけ提案を付ける。
@@ -122,7 +124,7 @@ export function suggestFor(
   shots: Shot[],
 ): Map<string, Suggestion> {
   const out = new Map<string, Suggestion>()
-  const faces = (shot.faces ?? []).filter((f) => !f.characterId && f.embed)
+  const faces = (shot.faces ?? []).filter((f) => !f.characterId && isCurrentEmbed(f))
   if (!faces.length) return out
   const examples = collectExamples(shots)
   for (const f of faces) {
