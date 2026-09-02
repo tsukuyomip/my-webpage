@@ -18,5 +18,6 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src", "vite.config.ts"]
+  // scripts は素の JS だが、テストが build-cascade.mjs を読むので型定義を拾わせる。
+  "include": ["src", "scripts", "vite.config.ts"]
 }

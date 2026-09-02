@@ -2,8 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { getImage } from "../lib/db";
 import { formatBytes, formatDate } from "../lib/format";
 import { formatStory } from "../lib/story";
-import type { Character, Shot } from "../lib/types";
+import type { Character, Face, Shot } from "../lib/types";
 import { BlobImage } from "./BlobImage";
+import { FaceBoxes } from "./FaceBoxes";
 import { useEdgeSwipeBack } from "./useEdgeSwipeBack";
 
 const LAYOUT_LABEL: Record<string, string> = {
@@ -18,6 +19,7 @@ export function DetailSheet({
   onClose,
   onDelete,
   onShare,
+  onFaces,
   onSaveText,
   onReRecognize,
   onToggleMood,
@@ -32,6 +34,8 @@ export function DetailSheet({
   onClose: () => void;
   onDelete: (shot: Shot) => void;
   onShare: (shot: Shot) => void;
+  /** 顔の枠を書き換える */
+  onFaces: (shot: Shot, faces: Face[]) => void;
   onSaveText: (shot: Shot, body: string, speakerRaw: string) => void;
   onReRecognize: (shot: Shot) => void;
   onToggleMood: (shot: Shot, mood: string) => void;
@@ -45,6 +49,10 @@ export function DetailSheet({
 }) {
   const [blob, setBlob] = useState<Blob>();
   const [confirming, setConfirming] = useState(false);
+  const [addingFace, setAddingFace] = useState(false);
+  const [pickedFace, setPickedFace] = useState<string>();
+  const faces = shot.faces ?? [];
+  const selectedFace = faces.find((f) => f.id === pickedFace);
   const sheet = useRef<HTMLDivElement>(null);
   const [body, setBody] = useState(shot.body ?? "");
   const [speaker, setSpeaker] = useState(shot.speakerRaw ?? "");
@@ -120,7 +128,19 @@ export function DetailSheet({
 
       <div className="sheet-body">
         {blob ? (
-          <BlobImage blob={blob} alt={shot.fileName} />
+          <div className="shot-stage">
+            <BlobImage blob={blob} alt={shot.fileName} />
+            <FaceBoxes
+              faces={faces}
+              width={shot.width}
+              height={shot.height}
+              roster={roster}
+              adding={addingFace}
+              selectedId={pickedFace}
+              onSelect={setPickedFace}
+              onChange={(next) => onFaces(shot, next)}
+            />
+          </div>
         ) : (
           <p className="muted">読み込み中…</p>
         )}
@@ -133,6 +153,85 @@ export function DetailSheet({
           この 1 枚を送る
         </button>
       </div>
+
+      <section className="face-tools">
+        <div className="face-head">
+          <span className="filter-label">
+            顔 {faces.length} 個
+            {shot.facesScanned === false || shot.facesScanned === undefined
+              ? '（まだ探していません）'
+              : ''}
+          </span>
+          <button
+            className={addingFace ? "ghost tiny on" : "ghost tiny"}
+            onClick={() => {
+              setAddingFace(!addingFace);
+              setPickedFace(undefined);
+            }}
+            aria-pressed={addingFace}
+          >
+            {addingFace ? "足すのをやめる" : "枠を足す"}
+          </button>
+        </div>
+
+        {addingFace && (
+          <p className="muted small">
+            絵の上をなぞると枠になります。後ろ姿やぼけて写っている人も、頭のあたりを
+            囲めば数に入れられます。
+          </p>
+        )}
+
+        {selectedFace && !addingFace && (
+          <>
+            <div className="face-head">
+              <span className="filter-label">
+                この枠は誰？
+                {selectedFace.characterId
+                  ? ""
+                  : "（押して選ぶ。もう一度押すと外れる）"}
+              </span>
+              <button
+                className="ghost tiny danger"
+                onClick={() => {
+                  onFaces(shot, faces.filter((f) => f.id !== selectedFace.id));
+                  setPickedFace(undefined);
+                }}
+              >
+                この枠を消す
+              </button>
+            </div>
+            <div className="chips-row">
+              {roster.map((c) => {
+                const on = selectedFace.characterId === c.id;
+                return (
+                  <button
+                    key={c.id}
+                    className={on ? "chip active" : "chip"}
+                    onClick={() =>
+                      onFaces(
+                        shot,
+                        faces.map((f) =>
+                          f.id === selectedFace.id
+                            ? { ...f, characterId: on ? undefined : c.id }
+                            : f,
+                        ),
+                      )
+                    }
+                    aria-pressed={on}
+                    style={c.color && !on ? { borderColor: c.color } : undefined}
+                  >
+                    {c.color && (
+                      <span className="chip-dot" style={{ background: c.color }} />
+                    )}
+                    {c.name}
+                  </button>
+                );
+              })}
+            </div>
+          </>
+        )}
+      </section>
+
 
       <section className="text-edit">
         <h2>タグ</h2>

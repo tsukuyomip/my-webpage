@@ -1,7 +1,8 @@
 // tesseract.js の実行資材を node_modules から public/vendor へ写す。
 // 配信元を自分のオリジンに揃えるため（実行時に CDN を見に行かない）。
 // media-vault と同じ流儀。Whisper は使わないので ONNX Runtime は写さない。
-import { cpSync, mkdirSync, rmSync } from 'node:fs'
+import { cpSync, mkdirSync, rmSync, readFileSync, writeFileSync } from 'node:fs'
+import { parseCascade, toJson } from './build-cascade.mjs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -32,4 +33,12 @@ for (const [from, to] of copies) {
   cpSync(join(nm, from), dest)
 }
 
+// アニメ顔の検出器（lbpcascade_animeface、MIT）。原本の XML は vendor/ に置いてある。
+// 241KB の XML を実行時に解くのは無駄なので、数値の並びに畳んでから配る（87KB）。
+const cascade = parseCascade(readFileSync(join(root, 'vendor/lbpcascade_animeface.xml'), 'utf8'))
+const cascadeOut = join(out, 'animeface/cascade.json')
+mkdirSync(dirname(cascadeOut), { recursive: true })
+writeFileSync(cascadeOut, toJson(cascade))
+
 console.log(`copied ${copies.length} vendor assets to public/vendor`)
+console.log(`built animeface cascade (${cascade.stageCount.length} stages)`)
