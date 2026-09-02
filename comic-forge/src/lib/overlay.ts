@@ -22,7 +22,7 @@ export interface OverlayInput {
   result: LayoutResult
   view: View
   selection: Selection
-  mode: 'panel' | 'image' | 'balloon'
+  mode: 'panel' | 'image' | 'balloon' | 'text'
   balloons: Placed[]
   /** 中身のあるコマの id。空コマだけに目印を出すため */
   filled: Set<string>

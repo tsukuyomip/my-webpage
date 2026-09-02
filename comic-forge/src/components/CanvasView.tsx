@@ -7,12 +7,12 @@ import type { ImageStore } from '../lib/images'
 import { layout, positionToRatio, type BoundaryHandle, type LayoutResult } from '../lib/layout'
 import { paintOverlay, type Selection } from '../lib/overlay'
 import { paint } from '../lib/paint'
-import { render } from '../lib/render'
+import { render, type MeasureFactory } from '../lib/render'
 import { setBoundary } from '../lib/tree'
 import type { PanelId, Project, Pt } from '../lib/types'
 import { clampView, fitView, toPage, type View } from '../lib/view'
 
-export type Mode = 'panel' | 'image' | 'balloon'
+export type Mode = 'panel' | 'image' | 'balloon' | 'text'
 
 interface Props {
   doc: Project
@@ -30,6 +30,7 @@ interface Props {
   onTapPanel: (id: PanelId) => void
   /** 再描画のきっかけ。画像が復号できたときなどに増える */
   revision: number
+  measure: MeasureFactory
 }
 
 interface DragState {
@@ -104,7 +105,7 @@ export default function CanvasView(props: Props) {
     const k = dpr * view.scale
     ctx.setTransform(k, 0, 0, k, dpr * view.tx, dpr * view.ty)
     const filled = new Set<string>()
-    paint(ctx, render(doc), {
+    paint(ctx, render(doc, props.measure), {
       scale: k,
       image: (hash) => {
         // コマの中で実際に見えている大きさぶんだけ復号する。
@@ -128,7 +129,7 @@ export default function CanvasView(props: Props) {
       balloons: placedRef.current,
       swapFrom: props.swapFrom,
     })
-  }, [doc, view, selection, mode, images, props.swapFrom])
+  }, [doc, view, selection, mode, images, props.swapFrom, props.measure])
 
   useLayoutEffect(() => {
     draw()
@@ -227,7 +228,7 @@ export default function CanvasView(props: Props) {
         return
       }
     }
-    if (mode === 'balloon') {
+    if (mode === 'balloon' || mode === 'text') {
       // つまみ（しっぽの先 → 大きさ）を先に見る。本体より手前で拾わないと掴めない。
       if (selection?.kind === 'balloon') {
         const item = placedRef.current.find((x) => x.balloon.id === selection.id)
@@ -416,7 +417,7 @@ export default function CanvasView(props: Props) {
 
     // 動かなかった＝タップ。選択を切り替える。
     const pagePt = toPage(view, p)
-    if (mode === 'balloon') {
+    if (mode === 'balloon' || mode === 'text') {
       const hit = hitBalloon(placedRef.current, pagePt)
       if (hit) {
         props.onSelect({ kind: 'balloon', id: hit.id })
@@ -453,7 +454,9 @@ export default function CanvasView(props: Props) {
             ? '青い線をドラッグで割を動かす・コマをタップで選ぶ'
             : mode === 'image'
               ? 'コマをタップ → 画像を入れる。指でずらす／2 本指で拡大・回転'
-              : 'コマをタップ →「吹き出しを足す」。黄色いつまみでしっぽを引っぱる'}
+              : mode === 'balloon'
+                ? 'コマをタップ →「吹き出しを足す」。黄色いつまみでしっぽを引っぱる'
+                : '吹き出しをタップ → セリフを打つ。｜漢字《かんじ》でルビ'}
         </div>
       )}
     </div>

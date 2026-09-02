@@ -17,6 +17,7 @@ import type { Panel, PanelId, Project } from '../lib/types'
 import Field from './Field'
 import NudgePad from './NudgePad'
 import type { Mode } from './CanvasView'
+import TextInspector from './TextInspector'
 
 interface Props {
   doc: Project
@@ -43,7 +44,16 @@ export default function Inspector(props: Props) {
     if (selection?.kind === 'panel') return <ImageInspector {...props} id={selection.id} />
     return <p className="empty">コマをタップして選ぶと、画像を入れられます。</p>
   }
-  return <BalloonInspector {...props} />
+  if (mode === 'balloon') return <BalloonInspector {...props} />
+  return (
+    <TextInspector
+      doc={props.doc}
+      selection={selection}
+      commit={props.commit}
+      live={props.live}
+      endGesture={props.endGesture}
+    />
+  )
 }
 
 /* ── コマ ──────────────────────────────── */
