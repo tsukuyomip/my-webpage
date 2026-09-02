@@ -307,6 +307,14 @@ button.icon {
   gap: 0.4rem;
   margin-top: 0.5rem;
 }
+.bulk.three {
+  grid-template-columns: 1fr 1fr 0.8fr;
+}
+.bulk button {
+  padding-left: 0.3rem;
+  padding-right: 0.3rem;
+  font-size: 0.82rem;
+}
 .bulk button {
   width: 100%;
 }
@@ -431,6 +439,15 @@ button.icon {
   margin: 0;
   font-size: 0.85rem;
   color: var(--text-mid);
+}
+/* 保存場所が分かれる話は、押す前に読ませたい。 */
+.paste-warn {
+  padding: 0.5rem 0.6rem;
+  border-radius: 8px;
+  background: var(--warn-bg);
+  color: var(--warn) !important;
+  font-size: 0.78rem !important;
+  line-height: 1.55;
 }
 
 /* 設定の手順書き */

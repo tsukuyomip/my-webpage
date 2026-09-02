@@ -3,7 +3,13 @@ import { backupFileName, exportBackup, importBackup } from '../lib/backup'
 import { saveBlob } from '../lib/download'
 import { deleteAllShots } from '../lib/db'
 import { formatBytes, formatDate } from '../lib/format'
-import { isPersisted, requestPersistence, storageEstimate, type Estimate } from '../lib/storage'
+import {
+  isPersisted,
+  isStandalone,
+  requestPersistence,
+  storageEstimate,
+  type Estimate,
+} from '../lib/storage'
 import type { Settings, Shot } from '../lib/types'
 import { releaseAllThumbs } from './Thumb'
 import { useEdgeSwipeBack } from './useEdgeSwipeBack'
@@ -46,6 +52,9 @@ export function SettingsPanel({
   // ショートカットに貼る行き先。いま開いている場所から作るので、
   // 配信元が変わっても書き換えずに済む。
   const pasteUrl = `${window.location.origin}${window.location.pathname}?paste=1`
+  // どちらで開いているかを出す。iOS はこの 2 つで保存場所が分かれることがあるので、
+  // 「入れたはずのものが無い」の切り分けに要る。
+  const standalone = isStandalone()
 
   const doExport = async () => {
     onBusy('バックアップを書き出しています…')
@@ -154,12 +163,25 @@ export function SettingsPanel({
           <ol className="muted steps">
             <li>クリップボードにコピー（入力: ショートカットの入力）</li>
             <li>
-              URL を開く: <code>{pasteUrl}</code>
+              <b>アプリを開く</b> → 一覧から Shot Bank
             </li>
           </ol>
           <p className="muted">
-            あとは写真アプリで選んで共有 → そのショートカット。開いたこのアプリに
-            「クリップボードから取り込む」が出るので、押せば入ります。
+            あとは写真アプリで選んで共有 → そのショートカット。開いたこのアプリで
+            「貼り付け」を押せば入ります。
+          </p>
+          <p className="muted">
+            <b>「URL を開く」は使わないでください。</b>iOS はホーム画面のアプリに
+            http の行き先を振り向けないので、ブラウザのほうが開きます。iOS では
+            ホーム画面のアプリとブラウザで保存場所が分かれることがあり、
+            そちらで取り込んだぶんはここに出てきません。
+          </p>
+          <p className="muted">
+            一覧に Shot Bank が出ないときだけ、次の URL で代用してください
+            （ブラウザが開くので、上の但し書きのとおりです）。
+          </p>
+          <p className="muted">
+            <code>{pasteUrl}</code>
           </p>
           <div className="row">
             <button
@@ -173,6 +195,11 @@ export function SettingsPanel({
               URL をコピー
             </button>
           </div>
+          <p className="muted">
+            いまは
+            <b>{standalone ? 'ホーム画面のアプリ' : 'ブラウザ'}</b>
+            で開いています。
+          </p>
         </section>
 
         <section>

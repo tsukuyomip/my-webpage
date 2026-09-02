@@ -35,7 +35,7 @@ import { needsOcr, recognizeShots, type RecognizeProgress } from './lib/recogniz
 import { gakumas } from './lib/profiles/gakumas'
 import { mergeCharacters, resolveSpeakers, seedRoster } from './lib/roster'
 import { dialogueText, downloadName, filesFor, shareFiles, zipFor, zipName } from './lib/share'
-import { requestPersistence } from './lib/storage'
+import { isIOS, isStandalone, requestPersistence } from './lib/storage'
 import { fetchDeployedBuild } from './lib/version'
 import {
   DEFAULT_SETTINGS,
@@ -639,6 +639,14 @@ export default function App() {
 
       {fromShortcut && canReadClipboard() && (
         <div className="paste-call">
+          {isIOS() && !isStandalone() && (
+            <p className="paste-warn">
+              <b>ホーム画面のアプリではなく、ブラウザで開いています。</b>
+              iOS ではこの 2 つで保存場所が分かれることがあります。ここで取り込むと
+              ホーム画面のアプリに出てこないかもしれません。ショートカットの
+              「URL を開く」を「アプリを開く」に変えると、ホーム画面のほうが開きます。
+            </p>
+          )}
           <p>写真アプリからコピーしてきましたか？</p>
           <button
             onClick={() => {
@@ -661,13 +669,20 @@ export default function App() {
       )}
 
       {visible.length > 0 && !selecting && (
-        <div className="bulk">
+        <div className={canReadClipboard() ? 'bulk three' : 'bulk'}>
           <button className="ghost" onClick={() => setTagging(true)}>
-            {visible.length} 枚にタグを振る
+            {visible.length} 枚にタグ
           </button>
           <button className="ghost" onClick={() => setSelecting(true)}>
             選んで送る
           </button>
+          {/* ショートカットが「アプリを開く」で来ると URL に合図が付かない。
+              いつでも押せる場所に置いておかないと、そこで行き止まりになる。 */}
+          {canReadClipboard() && (
+            <button className="ghost" onClick={() => void pasteFromClipboard()} disabled={working}>
+              貼り付け
+            </button>
+          )}
         </div>
       )}
 
@@ -676,7 +691,8 @@ export default function App() {
           <div className="empty">
             <p className="empty-title">まだ 1 枚もありません</p>
             <p className="muted">
-              スクショを選ぶか、ここにドラッグ＆ドロップ、または貼り付け（⌘V）で取り込めます。
+              スクショを選ぶか、コピーしてから「貼り付け」で取り込めます。
+              パソコンならドラッグ＆ドロップと ⌘V も使えます。
             </p>
             <div className="empty-actions">
               <button onClick={() => fileInput.current?.click()} disabled={working}>
