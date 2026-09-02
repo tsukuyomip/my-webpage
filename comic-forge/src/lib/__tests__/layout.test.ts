@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { rectQuad, quadArea } from '../geom'
 import { boundaryParams, layout, positionToRatio, splitQuad } from '../layout'
 import { newProject, defaultPage } from '../defaults'
-import { panelIds } from '../tree'
+import { panelIds, setBoundary, setTilt, splitPanel } from '../tree'
 import type { Quad } from '../types'
 
 const R: Quad = rectQuad(0, 0, 300, 600)
@@ -33,12 +33,16 @@ describe('分割', () => {
     expect(quadArea(quads[0]) + quadArea(quads[1])).toBeCloseTo(quadArea(R))
   })
 
-  it('傾けすぎても分割線は追い越さない', () => {
+  it('傾けすぎても分割線は追い越さない（端で重なるのは可）', () => {
+    // 端まで届くのは許す。届いた先のコマが三角になるだけで、順序は崩れない。
     const { a, b } = boundaryParams([1, 1, 1], [0.4, -0.4])
     for (let i = 1; i < a.length; i++) {
-      expect(a[i]).toBeGreaterThan(a[i - 1])
-      expect(b[i]).toBeGreaterThan(b[i - 1])
+      expect(a[i]).toBeGreaterThanOrEqual(a[i - 1])
+      expect(b[i]).toBeGreaterThanOrEqual(b[i - 1])
     }
+    // 内側の境界どうしは離れたまま（重なると、あいだのコマが消える）
+    expect(a[2]).toBeGreaterThan(a[1])
+    expect(b[2]).toBeGreaterThan(b[1])
   })
 
   it('縦割りは左右に並ぶ', () => {
@@ -110,5 +114,80 @@ describe('ドラッグ位置 → 取り分', () => {
     const t = positionToRatio(h, { x: doc.page.width / 2, y: doc.page.height * 0.25 })
     expect(t).toBeGreaterThan(0.15)
     expect(t).toBeLessThan(0.3)
+  })
+})
+
+describe('斜めに割ってもコマが消えない', () => {
+  // 実機で出た不具合。左右を割る線を傾けていくと、線が上辺（または下辺）に届いた
+  // ところで、その辺を共有していたコマが画面から消えた。木にはいるのに描かれず
+  // 選べもしないので、利用者からは「コマが消えた」としか見えない。
+  /** 割の位置を at にしてから t だけ傾けた、左右 2 コマのページ。 */
+  function tilted(t: number, at = 0.5) {
+    const doc = newProject('single')
+    const split = splitPanel(doc, panelIds(doc.layout)[0], 'col')
+    return setTilt(setBoundary(split, [], 0, at), [], 0, t)
+  }
+
+  it('端まで傾けても、どのコマも面積を持ったまま', () => {
+    for (const t of [0, 0.1, 0.2, 0.3, 0.4, -0.4]) {
+      const doc = tilted(t, 0.85)
+      const boxes = layout(doc).panels
+      expect(boxes, `tilt=${t}`).toHaveLength(2)
+      for (const box of boxes) {
+        expect(Math.abs(quadArea(box.quad)), `tilt=${t} ${box.id}`).toBeGreaterThan(1)
+      }
+    }
+  })
+
+  it('端に届いたコマは三角になる（細い切れ端を残さない）', () => {
+    // 割を右端寄りに置いてから傾けると、線の上端が親の右上の角に届く
+    const doc = tilted(0.4, 0.85)
+    const boxes = layout(doc).panels
+    // どちらかのコマは、角が 2 つ重なった三角になっている
+    const hasTriangle = boxes.some((box) => {
+      for (let i = 0; i < 4; i++) {
+        const a = box.quad[i]
+        const b = box.quad[(i + 1) % 4]
+        if (Math.hypot(a.x - b.x, a.y - b.y) < 1) return true
+      }
+      return false
+    })
+    expect(hasTriangle).toBe(true)
+  })
+
+  it('溝を大きくしてもコマは消えない', () => {
+    const base = tilted(0.35, 0.85)
+    const doc = { ...base, page: { ...base.page, gutter: 140 } }
+    for (const box of layout(doc).panels) {
+      expect(Math.abs(quadArea(box.quad))).toBeGreaterThan(1)
+    }
+  })
+
+  it('コマの余白を目一杯にしてもコマは消えない', () => {
+    const doc = newProject('rows4')
+    const id = panelIds(doc.layout)[0]
+    const fat = {
+      ...doc,
+      panels: {
+        ...doc.panels,
+        [id]: { ...doc.panels[id], inset: { top: 200, right: 200, bottom: 200, left: 200 } },
+      },
+    }
+    const box = layout(fat).panels.find((p) => p.id === id)!
+    expect(Math.abs(quadArea(box.quad))).toBeGreaterThan(0)
+  })
+})
+
+describe('掴んだところに線が来る', () => {
+  it('溝があっても、指の位置と線の位置がずれない', () => {
+    const doc = { ...newProject('rows2'), page: { ...newProject('rows2').page, gutter: 80 } }
+    const handle = layout(doc).boundaries[0]
+    // ページの上から 30% のところを掴む
+    const grabbed = { x: doc.page.width / 2, y: doc.page.height * 0.3 }
+    const next = setBoundary(doc, handle.path, handle.index, positionToRatio(handle, grabbed))
+    const moved = layout(next).boundaries[0]
+    // 引いた線の中心が、掴んだ高さの近くに来る（溝の半分ぶんずれない）
+    const midY = (moved.a.y + moved.b.y) / 2
+    expect(Math.abs(midY - grabbed.y)).toBeLessThan(8)
   })
 })

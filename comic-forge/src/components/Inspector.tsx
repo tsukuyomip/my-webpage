@@ -582,8 +582,10 @@ function BalloonInspector(props: Props) {
             <Field
               label="根元の幅"
               value={t.spread * 100}
-              min={1}
+              min={0.5}
               max={35}
+              step={0.5}
+              digits={1}
               suffix="%"
               onChange={(v) => props.live(updateTail(doc, b.id, i, { spread: v / 100 }))}
               onCommit={props.endGesture}

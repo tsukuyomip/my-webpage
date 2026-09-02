@@ -1,4 +1,4 @@
-import { insetQuad, lerpPt, projectOnSegment, rotateQuad } from './geom'
+import { insetQuad, insetQuadClamped, lerpPt, projectOnSegment, rotateQuad } from './geom'
 import type { LayoutNode, Page, PanelId, Project, Pt, Quad, SplitNode } from './types'
 
 /**
@@ -100,16 +100,44 @@ export function boundaryParams(
     a.push(pa[i] + t)
     b.push(pb[i] - t)
   }
-  const gap = 0.01
   a[0] = 0
   b[0] = 0
   a[n] = 1
   b[n] = 1
-  for (let i = 1; i < n; i++) {
-    a[i] = Math.min(Math.max(a[i], a[i - 1] + gap), 1 - gap * (n - i))
-    b[i] = Math.min(Math.max(b[i], b[i - 1] + gap), 1 - gap * (n - i))
-  }
+  clampBoundaries(a, n)
+  clampBoundaries(b, n)
   return { a, b }
+}
+
+/** 内側の境界どうしが空けておく最小の間隔。 */
+const BOUNDARY_GAP = 0.02
+/** これより端に寄ったら、端ちょうどに寄せる。 */
+const EDGE_SNAP = 0.02
+
+/**
+ * 分割線が交差しないように押さえる。
+ *
+ * **端まで届くのは許す。** 傾けた線が親の角に当たると、その先のコマは三角になる。
+ * 三角のコマは漫画では普通なので、止める理由がない。むしろ手前で止めると
+ * 髪の毛のように細いコマが残り、溝を引いた時点で消える（木にはいるのに描かれず
+ * 選べもしないので、利用者からは「コマが消えた」としか見えない）。
+ * だから、細く残すくらいなら端まで寄せて三角にしてしまう。
+ */
+function clampBoundaries(v: number[], n: number): void {
+  // 前から：ひとつ前を追い越さない（端どうしは重なってよい）
+  for (let i = 1; i < n; i++) {
+    const lo = i === 1 ? 0 : v[i - 1] + BOUNDARY_GAP
+    v[i] = Math.max(v[i], lo)
+  }
+  // 後ろから：ひとつ後ろを追い越さない
+  for (let i = n - 1; i >= 1; i--) {
+    const hi = i === n - 1 ? 1 : v[i + 1] - BOUNDARY_GAP
+    v[i] = Math.min(v[i], hi)
+  }
+  for (let i = 1; i < n; i++) {
+    if (v[i] < EDGE_SNAP) v[i] = 0
+    else if (v[i] > 1 - EDGE_SNAP) v[i] = 1
+  }
 }
 
 function edgeLengths(q: Quad, dir: 'row' | 'col'): [number, number] {
@@ -176,7 +204,7 @@ export function layout(doc: Project): LayoutResult {
     if (node.kind === 'leaf') {
       const panel = doc.panels[node.panel]
       const slot = quad
-      const withInset = panel ? insetQuad(slot, panel.inset) : slot
+      const withInset = panel ? insetQuadClamped(slot, panel.inset) : slot
       const final = panel?.rotate ? rotateQuad(withInset, panel.rotate) : withInset
       panels.push({ id: node.panel, slot, quad: final, path })
       return
@@ -188,7 +216,7 @@ export function layout(doc: Project): LayoutResult {
       boundaries.push({ path, index: i, dir: split.dir, a: line.a, b: line.b, parent: quad, gf, avail })
     })
     quads.forEach((child, i) => {
-      const inner = insetQuad(child, gutterInset(split.dir, i, quads.length, g))
+      const inner = insetQuadClamped(child, gutterInset(split.dir, i, quads.length, g))
       walk(split.children[i], inner, [...path, i])
     })
   }
@@ -198,13 +226,18 @@ export function layout(doc: Project): LayoutResult {
 }
 
 /**
- * ドラッグ中の指の位置を、その分割の中での位置（0〜1）に戻す。
+ * ドラッグ中の指の位置を「その境界までの取り分の合計」に戻す。
+ *
  * 傾いた四辺形でも破綻しないよう、向かい合う 2 辺への射影の平均を取る。
+ * 溝は取り分の外側にあるので、指の位置からその手前までの溝を引いてから割り戻す。
+ * これを忘れると、掴んだところより溝の半分ぶん先に線が来る。
  */
 export function positionToRatio(handle: BoundaryHandle, p: Pt): number {
   const q = handle.parent
   const [s1, e1, s2, e2] =
     handle.dir === 'row' ? [q[0], q[3], q[1], q[2]] : [q[0], q[1], q[3], q[2]]
   const t = (projectOnSegment(p, s1, e1) + projectOnSegment(p, s2, e2)) / 2
-  return Math.max(0, Math.min(1, t))
+  if (handle.avail <= 0) return Math.max(0, Math.min(1, t))
+  const c = (t - handle.gf * (handle.index + 0.5)) / handle.avail
+  return Math.max(0, Math.min(1, c))
 }

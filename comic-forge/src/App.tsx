@@ -164,6 +164,9 @@ export default function App() {
   /* ── 画像 ─────────────────────────── */
   const pickImage = (id: PanelId) => {
     pendingPanel.current = id
+    // 選び直せるように、開く前に空にしておく。
+    // 選んだ **あと** に空にすると、iOS では手にした File の中身まで読めなくなる。
+    if (imageInput.current) imageInput.current.value = ''
     imageInput.current?.click()
   }
 
@@ -196,8 +199,9 @@ export default function App() {
         },
       })
       setMode('image')
-    } catch {
-      say('この画像は読めませんでした', true)
+    } catch (e) {
+      // 何が起きたかを出す。「読めませんでした」だけだと、次に何をすればよいか分からない。
+      say(e instanceof Error ? e.message : 'この画像は読めませんでした', true)
     }
   }
 
@@ -346,25 +350,20 @@ export default function App() {
         {sheetOpen && <div className="sheet">{inspector}</div>}
       </div>
 
+      {/* value を空にするのは「開く前」。読み終わる前に空にすると iOS で中身が消える。 */}
       <input
         ref={imageInput}
         type="file"
         accept="image/*"
         hidden
-        onChange={(e) => {
-          void onImageChosen(e.target.files)
-          e.target.value = ''
-        }}
+        onChange={(e) => void onImageChosen(e.target.files)}
       />
       <input
         ref={fileInput}
         type="file"
         accept=".zip,application/zip"
         hidden
-        onChange={(e) => {
-          void openZip(e.target.files)
-          e.target.value = ''
-        }}
+        onChange={(e) => void openZip(e.target.files)}
       />
 
       {menu === 'main' && (
@@ -372,7 +371,10 @@ export default function App() {
           doc={doc}
           onClose={() => setMenu(null)}
           onNew={() => setMenu('new')}
-          onOpen={() => fileInput.current?.click()}
+          onOpen={() => {
+            if (fileInput.current) fileInput.current.value = ''
+            fileInput.current?.click()
+          }}
           onProjects={() => setMenu('projects')}
           onSave={saveZip}
           onExport={() => setMenu('export')}

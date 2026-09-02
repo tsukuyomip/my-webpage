@@ -1,5 +1,14 @@
 import { describe, expect, it } from 'vitest'
-import { insetQuad, pointInQuad, quadArea, quadCenter, rectQuad, roundPolygon, rotateQuad } from '../geom'
+import {
+  insetQuad,
+  insetQuadClamped,
+  pointInQuad,
+  quadArea,
+  quadCenter,
+  rectQuad,
+  roundPolygon,
+  rotateQuad,
+} from '../geom'
 import type { Quad } from '../types'
 
 const R = rectQuad(0, 0, 100, 200)
@@ -91,5 +100,52 @@ describe('角の丸め', () => {
       expect(p.x).toBeGreaterThanOrEqual(-1e-9)
       expect(p.x).toBeLessThanOrEqual(20 + 1e-9)
     }
+  })
+})
+
+describe('三角（角が重なった四辺形）', () => {
+  // 斜めのコマ割りで分割線が親の角に届くと、その先のコマは三角になる。
+  // 漫画では普通の形なので、そのまま扱えないといけない。
+  const tri: Quad = [
+    { x: 0, y: 0 },
+    { x: 100, y: 0 },
+    { x: 100, y: 100 },
+    { x: 100, y: 100 },
+  ]
+
+  it('痩せさせても三角のまま。無い辺は隣の辺どうしを伸ばして交わらせる', () => {
+    const q = insetQuad(tri, { top: 10, right: 10, bottom: 10, left: 10 })
+    expect(quadArea(q)).toBeGreaterThan(0)
+    expect(quadArea(q)).toBeLessThan(quadArea(tri))
+    // 重なっていた角は重なったまま
+    expect(q[2].x).toBeCloseTo(q[3].x)
+    expect(q[2].y).toBeCloseTo(q[3].y)
+    // 元の三角の内側に収まっている
+    for (const p of q) expect(pointInQuad(p, tri)).toBe(true)
+  })
+
+  it('内外判定も効く', () => {
+    expect(pointInQuad({ x: 60, y: 20 }, tri)).toBe(true)
+    expect(pointInQuad({ x: 20, y: 60 }, tri)).toBe(false)
+  })
+})
+
+describe('痩せさせられるところまで痩せさせる', () => {
+  it('入る量まで減らして、コマを消さない', () => {
+    const q = insetQuadClamped(R, { top: 200, right: 200, bottom: 200, left: 200 })
+    expect(quadArea(q)).toBeGreaterThan(0)
+    // 元より小さくはなっている
+    expect(quadArea(q)).toBeLessThan(quadArea(R))
+  })
+
+  it('入るなら、そのまま入れる（減らさない）', () => {
+    const ins = { top: 10, right: 10, bottom: 10, left: 10 }
+    expect(insetQuadClamped(R, ins)).toEqual(insetQuad(R, ins))
+  })
+
+  it('細長いコマでも消えない', () => {
+    const thin = rectQuad(0, 0, 300, 6)
+    const q = insetQuadClamped(thin, { top: 12, right: 0, bottom: 12, left: 0 })
+    expect(quadArea(q)).toBeGreaterThan(0)
   })
 })

@@ -93,21 +93,41 @@ function lineIntersect(p1: Pt, d1: Pt, p2: Pt, d2: Pt): Pt | null {
 export function insetQuad(q: Quad, ins: Inset): Quad {
   // 辺 0 = 上（q0→q1）, 1 = 右（q1→q2）, 2 = 下（q2→q3）, 3 = 左（q3→q0）
   const amount = [ins.top, ins.right, ins.bottom, ins.left]
-  const lines: { p: Pt; d: Pt }[] = []
+  const lines: ({ p: Pt; d: Pt } | null)[] = []
   for (let i = 0; i < 4; i++) {
     const a = q[i]
     const b = q[(i + 1) % 4]
     const dx = b.x - a.x
     const dy = b.y - a.y
     const len = Math.hypot(dx, dy)
-    if (len < 1e-9) return q
+    // 長さ 0 の辺は「そこに辺が無い」＝三角。角が 2 つ重なっているだけなので、
+    // その辺は数えず、隣の辺どうしを引き伸ばして交わらせる。
+    if (len < 1e-9) {
+      lines.push(null)
+      continue
+    }
     // 時計回り（y 下向き）なので、内向き法線は (-dy, dx) を正規化したもの。
     const nx = -dy / len
     const ny = dx / len
     lines.push({ p: { x: a.x + nx * amount[i], y: a.y + ny * amount[i] }, d: { x: dx, y: dy } })
   }
-  const corner = (i: number, j: number): Pt | null =>
-    lineIntersect(lines[i].p, lines[i].d, lines[j].p, lines[j].d)
+  if (lines.every((l) => !l)) return degenerate(q)
+
+  /** 無い辺は読み飛ばして、その向きに最初に見つかる辺を使う。 */
+  const at = (i: number, step: number) => {
+    for (let k = 0; k < 4; k++) {
+      const line = lines[(((i + step * k) % 4) + 4) % 4]
+      if (line) return line
+    }
+    return null
+  }
+  const corner = (i: number, j: number): Pt | null => {
+    const a = at(i, -1)
+    const b = at(j, 1)
+    if (!a || !b) return null
+    if (a === b) return { ...q[j] } // 辺が 1 本しか残っていない＝形として意味がない
+    return lineIntersect(a.p, a.d, b.p, b.d)
+  }
   const c0 = corner(3, 0)
   const c1 = corner(0, 1)
   const c2 = corner(1, 2)
@@ -118,11 +138,47 @@ export function insetQuad(q: Quad, ins: Inset): Quad {
   // 面積だけでは気づけない。各辺の向きが元と逆を向いていないかで見る。
   for (let i = 0; i < 4; i++) {
     const od = { x: q[(i + 1) % 4].x - q[i].x, y: q[(i + 1) % 4].y - q[i].y }
+    // 元から長さ 0 の辺（＝三角の重なった角）は、向きを比べようがないので飛ばす
+    if (Math.hypot(od.x, od.y) < 1e-9) continue
     const nd = { x: out[(i + 1) % 4].x - out[i].x, y: out[(i + 1) % 4].y - out[i].y }
     if (od.x * nd.x + od.y * nd.y <= 0) return degenerate(q)
   }
   if (quadArea(out) <= 0) return degenerate(q)
   return out
+}
+
+/**
+ * 痩せさせられるところまで痩せさせる。潰れるくらいなら、入る量まで減らす。
+ *
+ * 溝やコマの余白を素直に当てると、細くなったコマが丸ごと消える。木にはいるのに
+ * 描かれず選べもしないので、利用者から見ると「コマが消えた」としか見えない。
+ * 消すより、細くても残すほうがよい。
+ */
+export function insetQuadClamped(q: Quad, ins: Inset): Quad {
+  const full = insetQuad(q, ins)
+  if (!isDegenerate(full)) return full
+  if (isDegenerate(q)) return full
+
+  // 入る割合を二分探索する。8 回も回せば 1/256 まで詰まる。
+  let lo = 0
+  let hi = 1
+  let best = q
+  for (let i = 0; i < 8; i++) {
+    const mid = (lo + hi) / 2
+    const tried = insetQuad(q, {
+      top: ins.top * mid,
+      right: ins.right * mid,
+      bottom: ins.bottom * mid,
+      left: ins.left * mid,
+    })
+    if (isDegenerate(tried)) {
+      hi = mid
+    } else {
+      lo = mid
+      best = tried
+    }
+  }
+  return best
 }
 
 function degenerate(q: Quad): Quad {
