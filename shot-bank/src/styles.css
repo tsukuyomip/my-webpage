@@ -450,16 +450,12 @@ button.icon {
   line-height: 1.55;
 }
 
-/* 設定の手順書き */
-.steps {
-  margin: 0;
-  padding-left: 1.2rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.25rem;
-}
-.steps code {
-  overflow-wrap: anywhere;
+/* 設定の中のリンク。既定の青は暗い地では読みにくいので、アクセントに寄せる。 */
+.panel a {
+  color: var(--accent);
+  /* 指で押せる高さを確保する。行の中の文字リンクは、そのままだと細すぎる。 */
+  display: inline-block;
+  padding: 0.35rem 0;
 }
 
 /* ---- 顔の枠 ---- */
@@ -486,6 +482,13 @@ button.icon {
   border-radius: 4px;
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45);
   touch-action: none;
+}
+/* 仮で付いたもの。確定と見分けが付かないと、確かめる気にならない。 */
+.face.tentative {
+  border-style: dashed;
+}
+.face.tentative .face-tag {
+  background: color-mix(in srgb, var(--accent) 55%, var(--surface));
 }
 .face.picked {
   border-width: 4px;
@@ -593,6 +596,9 @@ button.tiny.danger {
 .sheet-bar {
   position: sticky;
   top: 0;
+  /* 層を持たせる。sticky だけだと、あとに来る positioned 要素（顔の枠を載せる
+     .shot-stage）のほうが前に描かれ、絵が帯の上に乗る（実測）。 */
+  z-index: 1;
   display: flex;
   align-items: center;
   gap: 0.6rem;

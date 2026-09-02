@@ -170,6 +170,8 @@ export function DetailSheet({
         <div className="face-head">
           <span className="filter-label">
             顔 {faces.length} 個
+            {faces.filter((f) => f.assigned).length > 0 &&
+              `（うち ${faces.filter((f) => f.assigned).length} 個は仮）`}
             {shot.facesScanned === false || shot.facesScanned === undefined
               ? '（まだ探していません）'
               : ''}
@@ -212,6 +214,31 @@ export function DetailSheet({
                 この枠を消す
               </button>
             </div>
+            {selectedFace.assigned && (
+              <div className="face-guess">
+                <span className="muted small">
+                  <b>{roster.find((c) => c.id === selectedFace.characterId)?.name}</b>
+                  {selectedFace.assigned === 'speaker'
+                    ? " と仮置き（話者が読めていて顔が 1 つ）"
+                    : " と仮置き（似ている顔から）"}
+                </span>
+                <button
+                  className="tiny"
+                  onClick={() =>
+                    onFaces(
+                      shot,
+                      faces.map((f) =>
+                        f.id === selectedFace.id
+                          ? { ...f, assigned: undefined, namePicked: true }
+                          : f,
+                      ),
+                    )
+                  }
+                >
+                  確定
+                </button>
+              </div>
+            )}
             {suggested && suggestedName && (
               <div className="face-guess">
                 <span className="muted small">
@@ -230,7 +257,12 @@ export function DetailSheet({
                       shot,
                       faces.map((f) =>
                         f.id === selectedFace.id
-                          ? { ...f, characterId: suggested.characterId }
+                          ? {
+                              ...f,
+                              characterId: suggested.characterId,
+                              assigned: undefined,
+                              namePicked: true,
+                            }
                           : f,
                       ),
                     )
@@ -252,7 +284,12 @@ export function DetailSheet({
                         shot,
                         faces.map((f) =>
                           f.id === selectedFace.id
-                            ? { ...f, characterId: on ? undefined : c.id }
+                            ? {
+                                ...f,
+                                characterId: on ? undefined : c.id,
+                                assigned: undefined,
+                                namePicked: true,
+                              }
                             : f,
                         ),
                       )

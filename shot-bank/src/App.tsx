@@ -38,6 +38,7 @@ import { toPixels } from './lib/ocr'
 import { gakumas } from './lib/profiles/gakumas'
 import { mergeCharacters, resolveSpeakers, seedRoster } from './lib/roster'
 import { dialogueText, downloadName, filesFor, shareFiles, zipFor, zipName } from './lib/share'
+import { autoAssign } from './lib/suggest'
 import { isIOS, isStandalone, requestPersistence } from './lib/storage'
 import { fetchDeployedBuild } from './lib/version'
 import {
@@ -171,6 +172,9 @@ export default function App() {
         const id = resolved.assignments.get(shot.id)
         if (id && shot.speakerId !== id) await updateShot({ ...shot, speakerId: id })
       }
+      // 話者が決まったところで、顔にも仮の名前を振る。
+      // 話者が読めていて顔が 1 つなら、その人。ここで見本が溜まりはじめる。
+      await applyAutoAssign()
       await reload()
       if (result.stopped) setNotice('読み取りを止めました')
       else if (result.failed) setNotice(`${result.done} 枚を読み取り、${result.failed} 枚は失敗しました`)
@@ -528,6 +532,29 @@ export default function App() {
    * 開いてもらう手間を足す理由がない。
    */
   /**
+   * 押してもらわなくても決まるぶんを、仮で付ける。
+   *
+   * 手で決めたものは触らない。決まった顔が増えるほど、次に推せる顔も増えるので
+   * 何度か回す ── ただし回るたびに増えなくなるので、止まったら抜ける。
+   */
+  const applyAutoAssign = useCallback(async () => {
+    for (let round = 0; round < 4; round++) {
+      const all = await getAllShots()
+      const changed = autoAssign(all)
+      if (!changed.size) break
+      for (const shot of all) {
+        const faces = changed.get(shot.id)
+        if (!faces) continue
+        // 「写っている人」は足すだけ。ここは名前を付けるだけで外さないので、
+        // 枠から組み直すと、枠を持たない手入力（後ろ姿など）が消える。
+        const named = new Set(shot.characterIds ?? [])
+        for (const f of faces) if (f.characterId) named.add(f.characterId)
+        await updateShot({ ...shot, faces, characterIds: [...named] })
+      }
+    }
+  }, [])
+
+  /**
    * 動かした枠の埋め込みを採り直す。
    *
    * 枠が変われば見ている絵が変わるので、並びも取り直さないと意味がずれる。
@@ -564,11 +591,13 @@ export default function App() {
     async (shot: Shot, faces: Face[]) => {
       const named = [...new Set(faces.map((f) => f.characterId).filter((v): v is string => !!v))]
       await patchShot(shot, { faces, facesScanned: true, characterIds: named })
+      // 手で触ったぶんが見本に加わったので、まだ決まっていない顔を推し直す。
+      void applyAutoAssign().then(reload)
       // 埋め込みは落ち着いてから採り直す。ドラッグ中は 1 秒に何度も来るので、
       // そのたびに画像をデコードしていたら指が止まる。
       scheduleEmbed(shot.id)
     },
-    [patchShot, scheduleEmbed],
+    [patchShot, scheduleEmbed, applyAutoAssign, reload],
   )
 
   const shareOne = useCallback(

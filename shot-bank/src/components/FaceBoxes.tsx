@@ -126,7 +126,14 @@ export function FaceBoxes({
         return (
           <div
             key={f.id}
-            className={picked ? 'face picked' : 'face'}
+            className={[
+              'face',
+              picked ? 'picked' : '',
+              // 仮で付いたものは点線。確定と見分けが付かないと、確かめる気にならない。
+              f.characterId && f.assigned ? 'tentative' : '',
+            ]
+              .filter(Boolean)
+              .join(' ')}
             style={{
               left: pct(f.x, width),
               top: pct(f.y, height),
@@ -147,6 +154,7 @@ export function FaceBoxes({
             {(person || f.manual) && (
               <span className="face-tag">
                 {person?.name ?? '？'}
+                {f.assigned ? '（仮）' : ''}
               </span>
             )}
             {picked && !adding && (
