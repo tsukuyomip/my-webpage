@@ -31,12 +31,19 @@ export interface Example {
   embed: readonly number[]
 }
 
-/** 名前と埋め込みの両方を持つ顔を、見本として集める。 */
+/**
+ * 見本を集める。
+ *
+ * **推しただけの顔（assigned === 'guess'）は入れない。**
+ * 推したものを見本にすると、外れが外れを呼んで雪だるまになる。
+ * 手で決めたものと、話者から決めたものだけを信じる。
+ */
 export function collectExamples(shots: Shot[], exclude?: string): Example[] {
   const out: Example[] = []
   for (const shot of shots) {
     for (const f of shot.faces ?? []) {
       if (f.id === exclude) continue
+      if (f.assigned === 'guess') continue
       if (f.characterId && f.embed) out.push({ characterId: f.characterId, embed: f.embed })
     }
   }
@@ -82,6 +89,21 @@ export function suggestFace(face: Face, examples: Example[]): Suggestion | null 
 export const SUGGEST_MIN_CONFIDENCE = 0.15
 
 /**
+ * これを超えたら、押してもらわずに仮で付ける。
+ *
+ * 見本 17 個で 1 つ抜きの実測:
+ *
+ *     正解した提案の確信    0.350 〜 0.892
+ *     外れた提案の確信      0.004 〜 0.477   ← その人の見本が無い場合
+ *
+ * **重なっている**ので、1 本の線で「正解だけ」は取れない。
+ * 仮で付けるほうは外さないことを優先して 0.5 に置いた。実測でこの線なら
+ * 外れは 1 つも入らず、正解 7 件のうち 4 件が拾える。
+ * 残り（0.35〜0.49）は提案のまま出して、押してもらう。
+ */
+export const AUTO_CONFIDENCE = 0.5
+
+/**
  * 名前の付いていない顔にだけ提案を付ける。
  *
  * 自分自身を見本から外す ── 入れると距離 0 で必ず自分を指し、
@@ -100,4 +122,47 @@ export function suggestFor(
     if (s && s.confidence >= SUGGEST_MIN_CONFIDENCE) out.set(f.id, s)
   }
   return out
+}
+
+/**
+ * 押してもらわなくても決まるぶんを、仮で付ける。
+ *
+ * **話者が読めていて顔が 1 つなら、その人。** 実機の感触で「大体合っている」。
+ * これがいちばん効く ── 手を動かさずに見本が溜まり、そこから推せるようになる。
+ * 顔が 2 つ以上あるときは、どちらが話者か分からないので何もしない。
+ *
+ * 似ている顔からの推測は、確信が AUTO_CONFIDENCE を超えたぶんだけ。
+ * こちらは見本には使わない（collectExamples 参照）。
+ *
+ * すでに名前の付いている顔と、手が入った顔には触らない。
+ * 手で外したものを付け直すと、「違う」と言ったものが戻ってきて、直す気が失せる。
+ */
+export function autoAssign(shots: Shot[]): Map<string, Face[]> {
+  const changed = new Map<string, Face[]>()
+  const examples = collectExamples(shots)
+
+  for (const shot of shots) {
+    const faces = shot.faces ?? []
+    if (!faces.length) continue
+    let touched = false
+    const next = faces.map((f) => {
+      if (f.characterId || f.namePicked) return f
+
+      // 話者が読めていて、顔が 1 つ。
+      if (shot.speakerId && faces.length === 1) {
+        touched = true
+        return { ...f, characterId: shot.speakerId, assigned: 'speaker' as const }
+      }
+
+      // 似ている顔から。確信が足りなければ触らない。
+      const s = suggestFace(f, examples)
+      if (s && s.confidence >= AUTO_CONFIDENCE) {
+        touched = true
+        return { ...f, characterId: s.characterId, assigned: 'guess' as const }
+      }
+      return f
+    })
+    if (touched) changed.set(shot.id, next)
+  }
+  return changed
 }

@@ -7,7 +7,13 @@ import { parseCascade, toJson } from '../../../scripts/build-cascade.mjs'
 import { embedDistance, embedFace, EMBED_SIZE } from '../embed'
 import { detectFaces, toCascade } from '../faces'
 import type { Pixels } from '../pixels'
-import { collectExamples, suggestFace, SUGGEST_MIN_CONFIDENCE } from '../suggest'
+import {
+  AUTO_CONFIDENCE,
+  autoAssign,
+  collectExamples,
+  suggestFace,
+  SUGGEST_MIN_CONFIDENCE,
+} from '../suggest'
 import type { Face, Shot } from '../types'
 
 const DIR = path.join(import.meta.dirname, '../__fixtures__')
@@ -192,5 +198,106 @@ describe('たぶんこの人', () => {
 
   it('確からしさの下限は 0 より上。当てずっぽうは出さない', () => {
     expect(SUGGEST_MIN_CONFIDENCE).toBeGreaterThan(0)
+  })
+})
+
+// --- 押してもらわずに決まるぶん ---
+
+/** 話者付きの 1 枚。 */
+const spoken = (id: string, speakerId: string, faces: Face[]): Shot =>
+  ({ id, speakerId, faces }) as Shot
+
+describe('仮で付ける', () => {
+  const kotone = real.filter((s) => s.label === 'ことね')
+  const kiyo = real.filter((s) => s.label === '清夏')
+
+  it('話者が読めていて顔が 1 つなら、その人を仮で付ける', () => {
+    const shots = [spoken('1', 'k', [face('a', kotone[0]!.embed)])]
+    const next = autoAssign(shots).get('1')!
+    expect(next[0]!.characterId).toBe('k')
+    expect(next[0]!.assigned).toBe('speaker')
+  })
+
+  it('顔が 2 つあるときは、話者からは付けない', () => {
+    // どちらが喋ったのか分からない。当てずっぽうで付けると、直す手間だけ増える。
+    const shots = [
+      spoken('1', 'k', [
+        { id: 'a', x: 0, y: 0, w: 10, h: 10 } as Face,
+        { id: 'b', x: 0, y: 0, w: 10, h: 10 } as Face,
+      ]),
+    ]
+    expect(autoAssign(shots).has('1')).toBe(false)
+  })
+
+  it('話者が読めていなければ、何もしない', () => {
+    const shots = [shotWith('1', [{ id: 'a', x: 0, y: 0, w: 10, h: 10 } as Face])]
+    expect(autoAssign(shots).has('1')).toBe(false)
+  })
+
+  it('すでに名前の付いている顔は上書きしない', () => {
+    // 手で決めたものを、推しで塗り替えない。
+    const shots = [spoken('1', 'k', [face('a', kotone[0]!.embed, 's')])]
+    expect(autoAssign(shots).has('1')).toBe(false)
+  })
+
+  /** ことねと清夏の見本を 1 枚ずつ。2 番手がいる＝開きで確信が決まる形。 */
+  const twoExamples = () =>
+    shotWith('見本', [face('k1', kotone[0]!.embed, 'k'), face('s1', kiyo[0]!.embed, 's')])
+
+  it('手で外した顔には、付け直さない', () => {
+    // 「違う」と言ったものが自動で戻ってくると、直す気が失せる。
+    const shots = [
+      spoken('1', 'k', [{ ...face('a', kotone[0]!.embed), namePicked: true } as Face]),
+    ]
+    expect(autoAssign(shots).has('1')).toBe(false)
+  })
+
+  it('似ている顔から付いたものは guess になる', () => {
+    // 05 のことねは、この見本で確信 0.902（実測）。線を大きく超える。
+    const shots = [twoExamples(), shotWith('1', [face('a', kotone[1]!.embed)])]
+    const got = autoAssign(shots).get('1')!
+    expect(got[0]!.characterId).toBe('k')
+    expect(got[0]!.assigned).toBe('guess')
+  })
+
+  it('外しそうな顔には付けない', () => {
+    // 07 は後ろ姿のことね。この見本だと清夏を指すが、確信 0.047（実測）。
+    // 線の役目はここ ── 外れを黙って書き込まない。
+    const back = real.find((s) => s.file === '07-landscape-back.png')!
+    const shots = [twoExamples(), shotWith('1', [face('a', back.embed)])]
+    const s = suggestFace(face('a', back.embed), collectExamples(shots))!
+    expect(s.characterId).toBe('s')
+    expect(s.confidence).toBeLessThan(AUTO_CONFIDENCE)
+    expect(autoAssign(shots).has('1')).toBe(false)
+  })
+
+  it('推しただけの顔は、次の見本に使わない', () => {
+    // 外れが外れを呼ぶのを止める。話者から付いたぶんは信じて使う。
+    const shots = [
+      shotWith('1', [
+        { ...face('a', kotone[0]!.embed, 'k'), assigned: 'guess' } as Face,
+        { ...face('b', kiyo[0]!.embed, 's'), assigned: 'speaker' } as Face,
+        face('c', kotone[1]!.embed, 'k'),
+      ]),
+    ]
+    const ex = collectExamples(shots)
+    expect(ex).toHaveLength(2)
+    expect(ex.map((e) => e.characterId).sort()).toEqual(['k', 's'])
+  })
+
+  it('仮で付ける線は、提案を出す線より高い', () => {
+    // 提案として出すだけのものを、黙って付けてしまわない。
+    expect(AUTO_CONFIDENCE).toBeGreaterThan(SUGGEST_MIN_CONFIDENCE)
+  })
+
+  it('話者から付いたぶんが、次の推しの見本になる', () => {
+    // これが効き目の本体。手を動かさずに見本が溜まる。
+    const shots = [
+      spoken('1', 'k', [face('a', kotone[0]!.embed)]),
+      spoken('2', 's', [face('b', kiyo[0]!.embed)]),
+    ]
+    const first = autoAssign(shots)
+    const seeded = shots.map((s) => ({ ...s, faces: first.get(s.id) ?? s.faces }))
+    expect(collectExamples(seeded)).toHaveLength(2)
   })
 })
