@@ -50,6 +50,9 @@ export function newBalloon(doc: Project, result: LayoutResult, panel?: PanelId):
     stroke: '#111111',
     strokeWidth: 4,
     tails: [defaultTail(Math.max(40, h))],
+    // 最初から空のテキスト枠を持たせる。文字モードに移ったとき「文字を入れる」ボタンを
+    // 経由せず、タップしただけで textarea にフォーカスできるようにするため。
+    text: defaultText(doc.page.width),
   }
 }
 

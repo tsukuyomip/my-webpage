@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import { defaultText, updateBalloon, updateText } from '../lib/balloon-edit'
 import { FONTS } from '../lib/fonts'
 import type { Selection } from '../lib/overlay'
@@ -24,6 +24,25 @@ export default function TextInspector(props: Props) {
   const { doc, selection } = props
   const area = useRef<HTMLTextAreaElement>(null)
   const balloon = selection?.kind === 'balloon' ? doc.balloons.find((b) => b.id === selection.id) : null
+  const hasText = !!balloon?.text
+
+  /**
+   * 吹き出しをタップした瞬間に、すぐ打てる状態にする。
+   *
+   * 新しく置いた吹き出しは最初から空のテキスト枠を持つが、旧い作品ファイルから
+   * 読み込んだものは持たないことがある。無ければここで作り、あれば textarea へ
+   * フォーカスする。「文字を入れる」ボタンを押す一手を無くすのが狙い。
+   */
+  useEffect(() => {
+    if (!balloon) return
+    if (!balloon.text) {
+      props.commit(updateBalloon(doc, balloon.id, { text: defaultText(doc.page.width) }))
+      return
+    }
+    area.current?.focus()
+    // balloon 自体は毎回作り直されるオブジェクトなので、id と text の有無だけを見る。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [balloon?.id, hasText])
 
   if (!balloon) {
     return <p className="empty">吹き出しをタップして選ぶと、文字を入れられます。</p>
@@ -31,22 +50,8 @@ export default function TextInspector(props: Props) {
 
   const text = balloon.text
   if (!text) {
-    return (
-      <div className="group">
-        <div className="label">この吹き出しはまだ空です</div>
-        <button
-          className="btn primary"
-          style={{ width: '100%' }}
-          onClick={() =>
-            props.commit(
-              updateBalloon(doc, balloon.id, { text: defaultText(doc.page.width) }),
-            )
-          }
-        >
-          文字を入れる
-        </button>
-      </div>
-    )
+    // 上の useEffect が既定のテキスト枠を作るまでの、一瞬だけ見える表示。
+    return <p className="empty">準備しています…</p>
   }
 
   const set = (patch: Parameters<typeof updateText>[2]) => updateText(doc, balloon.id, patch)

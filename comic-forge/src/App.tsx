@@ -23,6 +23,7 @@ import { layout } from './lib/layout'
 import type { Selection } from './lib/overlay'
 import { NewerFileError, exportProject, projectFileName, readProjectFile } from './lib/project-file'
 import { deliver } from './lib/share'
+import { addBalloon, newBalloon } from './lib/balloon-edit'
 import { swapPanels } from './lib/tree'
 import type { PanelId, Project } from './lib/types'
 import { describeError, selfTest, StepError } from './lib/decode'
@@ -358,6 +359,20 @@ export default function App() {
             commit(swapPanels(doc, swapFrom, id))
             setSwapFrom(null)
             setSelection({ kind: 'panel', id })
+            return
+          }
+          // 画像モード・吹き出しモードは、選ぶだけで終わらせない。
+          // 「タップして選ぶ→インスペクタのボタンを押す」の 2 段だったのを、
+          // タップ 1 回で完結させる（ボタンは、あとから選び直したいときのために残す）。
+          if (mode === 'image') {
+            setSelection({ kind: 'panel', id })
+            if (!doc.panels[id]?.content) pickImage(id)
+            return
+          }
+          if (mode === 'balloon') {
+            const b = newBalloon(doc, layout(doc), id)
+            commit(addBalloon(doc, b))
+            setSelection({ kind: 'balloon', id: b.id })
             return
           }
           setSelection({ kind: 'panel', id })
