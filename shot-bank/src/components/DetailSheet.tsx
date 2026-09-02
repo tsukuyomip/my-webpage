@@ -58,7 +58,7 @@ export function DetailSheet({
   const faces = shot.faces ?? [];
   const selectedFace = faces.find((f) => f.id === pickedFace);
   // 名前の付いていない枠に「たぶんこの人」を出す。名前が付くたびに見本が増える。
-  const suggestions = useMemo(() => suggestFor(shot, allShots), [shot, allShots]);
+  const suggestions = useMemo(() => suggestFor(shot, allShots, roster), [shot, allShots, roster]);
   const suggested: Suggestion | undefined = selectedFace
     ? suggestions.get(selectedFace.id)
     : undefined;
