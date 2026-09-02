@@ -7,10 +7,14 @@ import { parseCascade, toJson } from '../../../scripts/build-cascade.mjs'
 import { embedDistance, embedFace, EMBED_SIZE, EMBED_VERSION } from '../embed'
 import { detectFaces, toCascade } from '../faces'
 import type { Pixels } from '../pixels'
+import { gakumas } from '../profiles/gakumas'
+import { seedFaces } from '../profiles/seedFaces'
+import { seedRoster } from '../roster'
 import {
   AUTO_CONFIDENCE,
   autoAssign,
   collectExamples,
+  seedExamples,
   suggestFace,
   SUGGEST_MIN_CONFIDENCE,
 } from '../suggest'
@@ -48,7 +52,9 @@ const cascade = toCascade(
 const LABELLED: Record<string, string[]> = {
   '01-plain-two-3d.png': ['A', 'B'],
   '02-adv-card-kotone.png': ['ことね', '×失敗'],
-  '03-adv-producer-1line.png': ['手毬'],
+  // 手毬としていたが、間違い。配った見本と突き合わせて気づいた ── 手毬は青緑の髪に
+  // 緑の目で、この子は青紫の髪に紫の目。実データの美鈴と、髪型・制服・ほくろまで一致する。
+  '03-adv-producer-1line.png': ['美鈴'],
   '04-adv-2dbust-kanae.png': ['C', '香名江'],
   '05-landscape-kotone.png': ['ことね'],
   // 検出は面積の大きい順。06 は暗い髪（右）のほうが大きく写っている。
@@ -299,5 +305,34 @@ describe('仮で付ける', () => {
     const first = autoAssign(shots)
     const seeded = shots.map((s) => ({ ...s, faces: first.get(s.id) ?? s.faces }))
     expect(collectExamples(seeded)).toHaveLength(2)
+  })
+})
+
+describe('配ってある見本で、この 11 枚を当ててみる', () => {
+  // **これは種を作ったのとは別のスクショ**（いちばん近い種までの距離は最小 0.027 で、
+  // 同じ絵は 1 枚も入っていない）。だから、まっさらな端末に来た絵と同じ扱いになる。
+  const { roster } = seedRoster([], gakumas.knownCharacters)
+  const examples = seedExamples(roster)
+  const byId = new Map(roster.map((c) => [c.id, c.name]))
+  /** 種に居る人で、札も付いている顔だけ。居ない人は当たりようがない */
+  const inSeed = new Set(seedFaces.map((s) => s.name))
+
+  it('種と同じ絵は 1 枚も入っていない', () => {
+    // 入っていたら、以下の試験は自分で自分を当てているだけになる。
+    for (const s of real) {
+      const near = Math.min(...examples.map((e) => embedDistance(s.embed, e.embed)))
+      expect(near, s.file).toBeGreaterThan(0.02)
+    }
+  })
+
+  it('種に居る人は、10 顔のうち 8 顔が当たる', () => {
+    // 1 つ抜きの 89.6% とほぼ同じ。作ったときの見本を離れても崩れない。
+    const targets = real.filter((s) => inSeed.has(s.label))
+    const hit = targets.filter((s) => {
+      const got = suggestFace({ ...face('x', s.embed) }, examples)
+      return got && byId.get(got.characterId) === s.label
+    })
+    expect(targets.length).toBeGreaterThanOrEqual(10)
+    expect(hit.length / targets.length).toBeGreaterThan(0.7)
   })
 })

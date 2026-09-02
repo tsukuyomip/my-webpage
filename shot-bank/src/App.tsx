@@ -536,7 +536,7 @@ export default function App() {
   const applyAutoAssign = useCallback(async () => {
     for (let round = 0; round < 4; round++) {
       const all = await getAllShots()
-      const changed = autoAssign(all)
+      const changed = autoAssign(all, await getAllCharacters())
       if (!changed.size) break
       for (const shot of all) {
         const faces = changed.get(shot.id)

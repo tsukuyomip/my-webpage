@@ -1,5 +1,7 @@
 import { embedDistance, isCurrentEmbed } from './embed'
-import type { Face, Shot } from './types'
+import { normalizeName } from './names'
+import { seedFaces } from './profiles/seedFaces'
+import type { Character, Face, Shot } from './types'
 
 /**
  * 名前の付いた顔から、名前の付いていない顔を当てる。
@@ -29,6 +31,45 @@ export interface Suggestion {
 export interface Example {
   characterId: string
   embed: readonly number[]
+}
+
+/**
+ * 配ってある見本を、この端末の名簿に結び付ける。
+ *
+ * **見本は名前で持っている。** 名簿の id は端末ごとに振られるので、配る側が
+ * 知りようがない。読むときに引き当てる。名簿に居ない人ぶんは黙って捨てる
+ * （その人を消したなら、提案にも出したくない）。
+ *
+ * 1 バイトに丸めてあるので 255 で割って戻し、長さ 1 に揃え直す。
+ * 丸めで長さが 1 からわずかにずれるため。
+ */
+export function seedExamples(roster: Character[]): Example[] {
+  if (!roster.length) return []
+  const byName = new Map<string, string>()
+  for (const c of roster) for (const n of [c.name, ...c.aliases]) byName.set(normalizeName(n), c.id)
+
+  const out: Example[] = []
+  for (const { name, embeds } of seedFaces) {
+    const id = byName.get(normalizeName(name))
+    if (!id) continue
+    for (const b64 of embeds) out.push({ characterId: id, embed: decode(b64) })
+  }
+  return out
+}
+
+/** base64 の 1 バイト列を 0..1 の並びに戻して、長さ 1 に揃える。 */
+function decode(b64: string): number[] {
+  const bin = atob(b64)
+  const v = new Array<number>(bin.length)
+  let sum = 0
+  for (let i = 0; i < bin.length; i++) {
+    const x = bin.charCodeAt(i) / 255
+    v[i] = x
+    sum += x * x
+  }
+  const len = Math.sqrt(sum) || 1
+  for (let i = 0; i < v.length; i++) v[i]! /= len
+  return v
 }
 
 /**
@@ -122,11 +163,12 @@ export const AUTO_CONFIDENCE = 0.4
 export function suggestFor(
   shot: Shot,
   shots: Shot[],
+  roster: Character[] = [],
 ): Map<string, Suggestion> {
   const out = new Map<string, Suggestion>()
   const faces = (shot.faces ?? []).filter((f) => !f.characterId && isCurrentEmbed(f))
   if (!faces.length) return out
-  const examples = collectExamples(shots)
+  const examples = [...collectExamples(shots), ...seedExamples(roster)]
   for (const f of faces) {
     const s = suggestFace(f, examples)
     if (s && s.confidence >= SUGGEST_MIN_CONFIDENCE) out.set(f.id, s)
@@ -138,6 +180,9 @@ export function suggestFor(
  * 押してもらわなくても決まるぶんを、仮で付ける。
  *
  * **話者が読めていて顔が 1 つなら、その人。** 実機の感触で「大体合っている」。
+ * ただし**プロデューサーが喋った枚は除く** ── 一人称の視点なので画面に出てこない。
+ * 出ているのは話し相手のほうで、そこにプロデューサーの名前を付けると必ず外れる。
+ * 実データでも、美鈴が写っている枚にプロデューサー名が付いていた。
  * これがいちばん効く ── 手を動かさずに見本が溜まり、そこから推せるようになる。
  * 顔が 2 つ以上あるときは、どちらが話者か分からないので何もしない。
  *
@@ -147,9 +192,10 @@ export function suggestFor(
  * すでに名前の付いている顔と、手が入った顔には触らない。
  * 手で外したものを付け直すと、「違う」と言ったものが戻ってきて、直す気が失せる。
  */
-export function autoAssign(shots: Shot[]): Map<string, Face[]> {
+export function autoAssign(shots: Shot[], roster: Character[] = []): Map<string, Face[]> {
   const changed = new Map<string, Face[]>()
-  const examples = collectExamples(shots)
+  const examples = [...collectExamples(shots), ...seedExamples(roster)]
+  const producers = new Set(roster.filter((c) => c.isProducer).map((c) => c.id))
 
   for (const shot of shots) {
     const faces = shot.faces ?? []
@@ -158,8 +204,8 @@ export function autoAssign(shots: Shot[]): Map<string, Face[]> {
     const next = faces.map((f) => {
       if (f.characterId || f.namePicked) return f
 
-      // 話者が読めていて、顔が 1 つ。
-      if (shot.speakerId && faces.length === 1) {
+      // 話者が読めていて、顔が 1 つ。プロデューサーは画面に出ないので外す。
+      if (shot.speakerId && faces.length === 1 && !producers.has(shot.speakerId)) {
         touched = true
         return { ...f, characterId: shot.speakerId, assigned: 'speaker' as const }
       }
