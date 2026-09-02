@@ -71,6 +71,8 @@ export default function CanvasView(props: Props) {
   const drag = useRef<DragState | null>(null)
   const pinch = useRef<PinchState | null>(null)
   const sizeRef = useRef({ w: 0, h: 0 })
+  /** タップの実処理を click イベントへ持ち越すための置き場（下の onClick 参照）。 */
+  const pendingTap = useRef<Pt | null>(null)
   const [hint, setHint] = useState(true)
 
   // 使い方の一言は、モードを変えた直後だけ出す。出しっぱなしにすると絵に被る。
@@ -179,6 +181,10 @@ export default function CanvasView(props: Props) {
   }
 
   const onPointerDown = (e: React.PointerEvent) => {
+    // 既定動作のままだと、キャンバスを押しただけでフォーカスが body に移ってしまい、
+    // 直前まで文字を打っていた textarea から強制的に外れる。ここで止めておかないと、
+    // 選び直した吹き出しへ自動でフォーカスを戻しても、この既定動作に上書きされて負ける。
+    e.preventDefault()
     ;(e.target as Element).setPointerCapture?.(e.pointerId)
     const p = local(e)
     pointers.current.set(e.pointerId, p)
@@ -418,8 +424,16 @@ export default function CanvasView(props: Props) {
     // ここで下のコマを拾ってしまうと、線をタップしても設定が出せない。
     if (d.kind !== 'view') return
 
-    // 動かなかった＝タップ。選択を切り替える。
-    const pagePt = toPage(view, p)
+    // 動かなかった＝タップ。実際の処理は click イベントに任せる（下の onClick）。
+    // pointerup の中でファイル選択ダイアログを開こうとすると、ブラウザの
+    // 「ユーザー操作」判定に乗らず開かないことがある（Chromium で確認済み）。
+    pendingTap.current = toPage(view, p)
+  }
+
+  const onClick = () => {
+    const pagePt = pendingTap.current
+    pendingTap.current = null
+    if (!pagePt) return
     if (mode === 'balloon' || mode === 'text') {
       const hit = hitBalloon(placedRef.current, pagePt)
       if (hit) {
@@ -450,6 +464,7 @@ export default function CanvasView(props: Props) {
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
+        onClick={onClick}
       />
       {hint && (
         <div className="hint">

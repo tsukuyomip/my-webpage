@@ -640,6 +640,19 @@ function BalloonInspector(props: Props) {
             ↑ 手前へ
           </button>
         </div>
+        <div className="row">
+          <button
+            className="btn grow"
+            onClick={() => {
+              // 同じコマにもう 1 個。ずらして置く（重なったまま出すと 1 個に見える）。
+              const clone = newBalloon(doc, layout(doc), b.anchor)
+              props.commit(addBalloon(doc, { ...clone, x: clone.x + 24, y: clone.y + 24 }))
+              props.onSelect({ kind: 'balloon', id: clone.id })
+            }}
+          >
+            ＋ このコマにもう1つ
+          </button>
+        </div>
         {b.anchor && (
           <div className="row">
             <button
