@@ -1,15 +1,18 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { tailFromTip } from '../lib/balloon'
+import { handlesFor, hitBalloon, placeAll, toLocal, type Placed } from '../lib/balloon-place'
+import { updateBalloon, updateTail } from '../lib/balloon-edit'
 import { distanceToSegment, pointInQuad, quadCenter } from '../lib/geom'
 import type { ImageStore } from '../lib/images'
 import { layout, positionToRatio, type BoundaryHandle, type LayoutResult } from '../lib/layout'
 import { paintOverlay, type Selection } from '../lib/overlay'
 import { paint } from '../lib/paint'
-import { render } from '../lib/render'
+import { render, type MeasureFactory } from '../lib/render'
 import { setBoundary } from '../lib/tree'
 import type { PanelId, Project, Pt } from '../lib/types'
 import { clampView, fitView, toPage, type View } from '../lib/view'
 
-export type Mode = 'panel' | 'image'
+export type Mode = 'panel' | 'image' | 'balloon' | 'text'
 
 interface Props {
   doc: Project
@@ -27,10 +30,11 @@ interface Props {
   onTapPanel: (id: PanelId) => void
   /** 再描画のきっかけ。画像が復号できたときなどに増える */
   revision: number
+  measure: MeasureFactory
 }
 
 interface DragState {
-  kind: 'view' | 'boundary' | 'content'
+  kind: 'view' | 'boundary' | 'content' | 'balloon' | 'balloon-size' | 'balloon-tail'
   startScreen: Pt
   startPage: Pt
   startView: View
@@ -39,6 +43,8 @@ interface DragState {
   panel?: PanelId
   startX?: number
   startY?: number
+  balloon?: string
+  tailIndex?: number
 }
 
 interface PinchState {
@@ -60,6 +66,7 @@ export default function CanvasView(props: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const stageRef = useRef<HTMLDivElement>(null)
   const resultRef = useRef<LayoutResult>(layout(doc))
+  const placedRef = useRef<Placed[]>([])
   const pointers = useRef(new Map<number, Pt>())
   const drag = useRef<DragState | null>(null)
   const pinch = useRef<PinchState | null>(null)
@@ -74,6 +81,7 @@ export default function CanvasView(props: Props) {
   }, [mode])
 
   resultRef.current = layout(doc)
+  placedRef.current = placeAll(doc, resultRef.current)
 
   const draw = useCallback(() => {
     const canvas = canvasRef.current
@@ -97,7 +105,7 @@ export default function CanvasView(props: Props) {
     const k = dpr * view.scale
     ctx.setTransform(k, 0, 0, k, dpr * view.tx, dpr * view.ty)
     const filled = new Set<string>()
-    paint(ctx, render(doc), {
+    paint(ctx, render(doc, props.measure), {
       scale: k,
       image: (hash) => {
         // コマの中で実際に見えている大きさぶんだけ復号する。
@@ -118,9 +126,10 @@ export default function CanvasView(props: Props) {
       selection,
       mode,
       filled,
+      balloons: placedRef.current,
       swapFrom: props.swapFrom,
     })
-  }, [doc, view, selection, mode, images, props.swapFrom])
+  }, [doc, view, selection, mode, images, props.swapFrom, props.measure])
 
   useLayoutEffect(() => {
     draw()
@@ -161,6 +170,12 @@ export default function CanvasView(props: Props) {
       if (pointInQuad(pagePt, box.quad)) return box.id
     }
     return null
+  }
+
+  /** 画面座標での距離でつまみを拾う。指の幅ぶん広めに取る。 */
+  const nearScreen = (p: Pt, page: Pt): boolean => {
+    const s = { x: page.x * view.scale + view.tx, y: page.y * view.scale + view.ty }
+    return Math.hypot(p.x - s.x, p.y - s.y) < GRAB + 6
   }
 
   const onPointerDown = (e: React.PointerEvent) => {
@@ -210,6 +225,39 @@ export default function CanvasView(props: Props) {
         props.onGestureStart()
         props.onSelect({ kind: 'boundary', path: b.path, index: b.index })
         drag.current = { ...base, kind: 'boundary', boundary: b }
+        return
+      }
+    }
+    if (mode === 'balloon' || mode === 'text') {
+      // つまみ（しっぽの先 → 大きさ）を先に見る。本体より手前で拾わないと掴めない。
+      if (selection?.kind === 'balloon') {
+        const item = placedRef.current.find((x) => x.balloon.id === selection.id)
+        if (item) {
+          const h = handlesFor(item)
+          for (let i = 0; i < h.tails.length; i++) {
+            if (nearScreen(p, h.tails[i])) {
+              props.onGestureStart()
+              drag.current = { ...base, kind: 'balloon-tail', balloon: item.balloon.id, tailIndex: i }
+              return
+            }
+          }
+          if (nearScreen(p, h.resize)) {
+            props.onGestureStart()
+            drag.current = { ...base, kind: 'balloon-size', balloon: item.balloon.id }
+            return
+          }
+        }
+      }
+      const hit = hitBalloon(placedRef.current, pagePt)
+      if (hit) {
+        props.onGestureStart()
+        drag.current = {
+          ...base,
+          kind: 'balloon',
+          balloon: hit.id,
+          startX: hit.x,
+          startY: hit.y,
+        }
         return
       }
     }
@@ -297,6 +345,36 @@ export default function CanvasView(props: Props) {
       props.onDrag(setBoundary(doc, d.boundary.path, d.boundary.index, t))
       return
     }
+    if (d.kind === 'balloon' && d.balloon) {
+      props.onDrag(
+        updateBalloon(doc, d.balloon, {
+          x: (d.startX ?? 0) + dx / view.scale,
+          y: (d.startY ?? 0) + dy / view.scale,
+        }),
+      )
+      return
+    }
+    if (d.kind === 'balloon-size' && d.balloon) {
+      const b = doc.balloons.find((x) => x.id === d.balloon)
+      const item = placedRef.current.find((x) => x.balloon.id === d.balloon)
+      if (!b || !item) return
+      const local = toLocal(item.matrix, toPage(view, p))
+      props.onDrag(
+        updateBalloon(doc, b.id, {
+          w: Math.max(30, Math.abs(local.x) * 2),
+          h: Math.max(24, Math.abs(local.y) * 2),
+        }),
+      )
+      return
+    }
+    if (d.kind === 'balloon-tail' && d.balloon && d.tailIndex !== undefined) {
+      const b = doc.balloons.find((x) => x.id === d.balloon)
+      const item = placedRef.current.find((x) => x.balloon.id === d.balloon)
+      if (!b || !item) return
+      const local = toLocal(item.matrix, toPage(view, p))
+      props.onDrag(updateTail(doc, b.id, d.tailIndex, tailFromTip(b, d.tailIndex, local)))
+      return
+    }
     if (d.kind === 'content' && d.panel) {
       const panel = doc.panels[d.panel]
       if (!panel?.content) return
@@ -338,7 +416,15 @@ export default function CanvasView(props: Props) {
     if (d.kind !== 'view') return
 
     // 動かなかった＝タップ。選択を切り替える。
-    const id = hitPanel(toPage(view, p))
+    const pagePt = toPage(view, p)
+    if (mode === 'balloon' || mode === 'text') {
+      const hit = hitBalloon(placedRef.current, pagePt)
+      if (hit) {
+        props.onSelect({ kind: 'balloon', id: hit.id })
+        return
+      }
+    }
+    const id = hitPanel(pagePt)
     if (id) props.onTapPanel(id)
     else props.onSelect(null)
   }
@@ -366,7 +452,11 @@ export default function CanvasView(props: Props) {
         <div className="hint">
           {mode === 'panel'
             ? '青い線をドラッグで割を動かす・コマをタップで選ぶ'
-            : 'コマをタップ → 画像を入れる。指でずらす／2 本指で拡大・回転'}
+            : mode === 'image'
+              ? 'コマをタップ → 画像を入れる。指でずらす／2 本指で拡大・回転'
+              : mode === 'balloon'
+                ? 'コマをタップ →「吹き出しを足す」。黄色いつまみでしっぽを引っぱる'
+                : '吹き出しをタップ → セリフを打つ。｜漢字《かんじ》でルビ'}
         </div>
       )}
     </div>

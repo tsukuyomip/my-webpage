@@ -1,6 +1,8 @@
 import { canvasLimit, maxWidthFor, type CanvasLimit } from './canvas-limit'
+import { ensureFontsFor } from './fonts'
 import { decodeAt } from './images'
 import { layout } from './layout'
+import { browserMeasure } from './measure'
 import { paint } from './paint'
 import { render } from './render'
 import type { AssetHash, Project } from './types'
@@ -62,7 +64,15 @@ export async function exportImage(
 ): Promise<ExportResult> {
   const scale = width / doc.page.width
   const height = Math.round(doc.page.height * scale)
-  const ops = render(doc)
+
+  // Canvas2D は未ロードのフォントでも黙って代替で描く。書き出しだけ字形が違う、
+  // という形で出るので、描く前に必ず揃える。
+  await ensureFontsFor(
+    doc.balloons
+      .filter((b) => b.text?.source)
+      .map((b) => ({ font: b.text!.font, source: b.text!.source })),
+  )
+  const ops = render(doc, browserMeasure())
 
   // 画像は「実際に描かれる大きさ」までしか復号しない。原本の画素数で持つと iOS が落ちる。
   const need = neededWidths(doc, scale)

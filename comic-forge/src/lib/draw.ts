@@ -15,6 +15,21 @@ export type DrawOp =
   | { t: 'clip'; pts: Pt[] }
   | { t: 'poly'; pts: Pt[]; closed: boolean; fill?: string; stroke?: string; width?: number }
   | { t: 'image'; asset: AssetHash; m: Matrix; w: number; h: number }
+  | {
+      t: 'glyph'
+      chars: string
+      /** 文字の中心（ページ座標） */
+      x: number
+      y: number
+      size: number
+      /** 度。縦書きで寝かせる字だけ 90 */
+      rotate: number
+      /** 縦中横で横に詰めるときの縮み */
+      squeeze: number
+      font: string
+      color: string
+      stroke?: { color: string; width: number }
+    }
 
 /** [a, b, c, d, e, f]。CSS/Canvas と同じ並び。 */
 export type Matrix = [number, number, number, number, number, number]

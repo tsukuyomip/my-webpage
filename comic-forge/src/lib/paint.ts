@@ -42,6 +42,27 @@ export function paint(ctx: CanvasRenderingContext2D, ops: DrawOp[], pc: PaintCon
         }
         break
       }
+      case 'glyph': {
+        ctx.save()
+        ctx.translate(op.x, op.y)
+        if (op.rotate) ctx.rotate((op.rotate * Math.PI) / 180)
+        if (op.squeeze !== 1) ctx.scale(op.squeeze, 1)
+        ctx.font = `400 ${op.size}px ${op.font}`
+        ctx.textAlign = 'center'
+        ctx.textBaseline = 'middle'
+        if (op.stroke && op.stroke.width > 0) {
+          // 縁取りは先に、太く。あとから塗りを乗せると字が痩せない。
+          ctx.strokeStyle = op.stroke.color
+          ctx.lineWidth = op.stroke.width * 2
+          ctx.lineJoin = 'round'
+          ctx.miterLimit = 2
+          ctx.strokeText(op.chars, 0, 0)
+        }
+        ctx.fillStyle = op.color
+        ctx.fillText(op.chars, 0, 0)
+        ctx.restore()
+        break
+      }
       case 'image': {
         const img = pc.image(op.asset)
         if (!img) break

@@ -13,8 +13,10 @@ import {
   type ProjectSummary,
 } from './lib/db'
 import { exportImage, exportOptions, type ExportFormat, type ExportOption } from './lib/export-image'
+import { ensureFontsFor, installBundledFonts } from './lib/fonts'
 import { formatDate } from './lib/format'
 import { ImageStore } from './lib/images'
+import { browserMeasure } from './lib/measure'
 import { ingestImage } from './lib/ingest'
 import { coverScale } from './lib/render'
 import { layout } from './lib/layout'
@@ -53,6 +55,7 @@ export default function App() {
     () => new ImageStore(getAsset, () => setRevision((r) => r + 1)),
     [],
   )
+  const measure = useMemo(() => browserMeasure(), [])
 
   const say = useCallback((msg: string, bad = false) => {
     setToast({ msg, bad })
@@ -72,6 +75,33 @@ export default function App() {
       void requestPersistence()
     })()
   }, [])
+
+  useEffect(() => {
+    installBundledFonts()
+  }, [])
+
+  /**
+   * 使っている書体と文字を揃えてから描き直す。
+   * Canvas2D は未ロードでも代替で黙って描くので、揃ったら必ず引き直す必要がある。
+   */
+  const fontKey = (doc?.balloons ?? [])
+    .filter((b) => b.text?.source)
+    .map((b) => `${b.text!.font}:${b.text!.source}`)
+    .join('\u0000')
+  useEffect(() => {
+    if (!fontKey) return
+    const blocks = fontKey.split('\u0000').map((s) => {
+      const at = s.indexOf(':')
+      return { font: s.slice(0, at), source: s.slice(at + 1) }
+    })
+    let alive = true
+    void ensureFontsFor(blocks).then(() => {
+      if (alive) setRevision((r) => r + 1)
+    })
+    return () => {
+      alive = false
+    }
+  }, [fontKey])
 
   // 動いているページが古いままになっていないか、刻印だけを読み比べる。
   useEffect(() => {
@@ -241,6 +271,8 @@ export default function App() {
       {([
         ['panel', '▦ コマ割り'],
         ['image', '🖼 画像'],
+        ['balloon', '🗯 吹き出し'],
+        ['text', 'あ 文字'],
       ] as const).map(([m, label]) => (
         <button
           key={m}
@@ -297,6 +329,7 @@ export default function App() {
         onGestureEnd={endGesture}
         swapFrom={swapFrom}
         revision={revision}
+        measure={measure}
         onTapPanel={(id) => {
           if (swapFrom && swapFrom !== id) {
             commit(swapPanels(doc, swapFrom, id))
