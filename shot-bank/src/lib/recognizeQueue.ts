@@ -1,4 +1,5 @@
 import { getImage } from './db'
+import { embedFace } from './embed'
 import { detectFaces, loadCascade } from './faces'
 import { newId } from './ids'
 import { recognize, toPixels } from './ocr'
@@ -90,13 +91,12 @@ export function needsOcr(shots: Shot[]): Shot[] {
 /** 1 枚から顔を拾って、保存する形にする。 */
 async function scanFaces(px: Parameters<typeof detectFaces>[0]): Promise<Face[]> {
   const cascade = await loadCascade()
-  return detectFaces(px, cascade).map((b) => ({
-    id: newId(),
-    x: b.x,
-    y: b.y,
-    w: b.w,
-    h: b.h,
-  }))
+  return detectFaces(px, cascade).map((b) => {
+    const face: Face = { id: newId(), x: b.x, y: b.y, w: b.w, h: b.h }
+    // 誰の顔かを当てるための並びも、同じ 1 枚から採る。あとから採り直すには
+    // 画像をもう一度デコードしないといけない。
+    return { ...face, embed: embedFace(px, face) }
+  })
 }
 
 /**

@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { getImage } from "../lib/db";
 import { formatBytes, formatDate } from "../lib/format";
 import { formatStory } from "../lib/story";
 import type { Character, Face, Shot } from "../lib/types";
 import { BlobImage } from "./BlobImage";
 import { FaceBoxes } from "./FaceBoxes";
+import { suggestFor, type Suggestion } from "../lib/suggest";
 import { useEdgeSwipeBack } from "./useEdgeSwipeBack";
 
 const LAYOUT_LABEL: Record<string, string> = {
@@ -20,6 +21,7 @@ export function DetailSheet({
   onDelete,
   onShare,
   onFaces,
+  allShots,
   onSaveText,
   onReRecognize,
   onToggleMood,
@@ -36,6 +38,8 @@ export function DetailSheet({
   onShare: (shot: Shot) => void;
   /** 顔の枠を書き換える */
   onFaces: (shot: Shot, faces: Face[]) => void;
+  /** 提案の見本を集めるために全件が要る */
+  allShots: Shot[];
   onSaveText: (shot: Shot, body: string, speakerRaw: string) => void;
   onReRecognize: (shot: Shot) => void;
   onToggleMood: (shot: Shot, mood: string) => void;
@@ -53,6 +57,14 @@ export function DetailSheet({
   const [pickedFace, setPickedFace] = useState<string>();
   const faces = shot.faces ?? [];
   const selectedFace = faces.find((f) => f.id === pickedFace);
+  // 名前の付いていない枠に「たぶんこの人」を出す。名前が付くたびに見本が増える。
+  const suggestions = useMemo(() => suggestFor(shot, allShots), [shot, allShots]);
+  const suggested: Suggestion | undefined = selectedFace
+    ? suggestions.get(selectedFace.id)
+    : undefined;
+  const suggestedName = suggested
+    ? roster.find((c) => c.id === suggested.characterId)?.name
+    : undefined;
   const sheet = useRef<HTMLDivElement>(null);
   const [body, setBody] = useState(shot.body ?? "");
   const [speaker, setSpeaker] = useState(shot.speakerRaw ?? "");
@@ -200,6 +212,34 @@ export function DetailSheet({
                 この枠を消す
               </button>
             </div>
+            {suggested && suggestedName && (
+              <div className="face-guess">
+                <span className="muted small">
+                  たぶん <b>{suggestedName}</b>（
+                  {suggested.confidence >= 0.5
+                    ? "近い"
+                    : suggested.confidence >= 0.3
+                      ? "似ている"
+                      : "自信なし"}
+                  ・見本 {suggested.samples} 枚）
+                </span>
+                <button
+                  className="tiny"
+                  onClick={() =>
+                    onFaces(
+                      shot,
+                      faces.map((f) =>
+                        f.id === selectedFace.id
+                          ? { ...f, characterId: suggested.characterId }
+                          : f,
+                      ),
+                    )
+                  }
+                >
+                  そう
+                </button>
+              </div>
+            )}
             <div className="chips-row">
               {roster.map((c) => {
                 const on = selectedFace.characterId === c.id;

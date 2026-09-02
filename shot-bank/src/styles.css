@@ -519,6 +519,21 @@ button.icon {
   box-shadow: 0 1px 5px rgba(0, 0, 0, 0.45);
 }
 
+/* 「たぶんこの人」。押す前に、何を根拠にしているかが見えるようにする。 */
+.face-guess {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.4rem 0.55rem;
+  border-radius: 8px;
+  background: var(--accent-bg);
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--line));
+}
+.face-guess .small {
+  margin: 0;
+}
+
 .face-tools {
   display: flex;
   flex-direction: column;
