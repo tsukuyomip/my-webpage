@@ -36,7 +36,7 @@ export default function TextInspector(props: Props) {
   useEffect(() => {
     if (!balloon) return
     if (!balloon.text) {
-      props.commit(updateBalloon(doc, balloon.id, { text: defaultText(doc.page.width) }))
+      props.commit(updateBalloon(doc, balloon.id, { text: defaultText() }))
       return
     }
     area.current?.focus()

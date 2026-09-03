@@ -24,7 +24,7 @@ export function defaultTail(h: number): Tail {
   // 根元の幅は輪郭ぜんたいの長さに対する割合。0.1 だと吹き出しの幅の 4 割ほどを
   // 占めてしまい、間の抜けた形になる。漫画のしっぽは根元がもっと細い。
   // 吹き出しを縦長にしたぶん、長さも控えめに取る。
-  return { at: 0.25, spread: 0.045, len: Math.max(16, h * 0.28), bend: 0, aim: 0, style: 'solid' }
+  return { at: 0.25, spread: 0.025, len: Math.max(16, h * 0.28), bend: 0, aim: 0, style: 'solid' }
 }
 
 export function newBalloon(doc: Project, result: LayoutResult, panel?: PanelId): Balloon {
@@ -52,21 +52,26 @@ export function newBalloon(doc: Project, result: LayoutResult, panel?: PanelId):
     tails: [defaultTail(Math.max(40, h))],
     // 最初から空のテキスト枠を持たせる。文字モードに移ったとき「文字を入れる」ボタンを
     // 経由せず、タップしただけで textarea にフォーカスできるようにするため。
-    text: defaultText(doc.page.width),
+    text: defaultText(),
   }
 }
 
+/** 「大きさ」の上限（Field の max と揃える）。 */
+const MAX_TEXT_SIZE = 200
+
 /**
  * 文字を入れ始めるときの既定。縦書き・アンチック・自動縮小。
- * 大きさは紙の幅から決める（1200px のページで 38px あたりが読みやすい）。
- * 自動縮小が入っているので、この値は「これ以上は大きくしない」上限として効く。
+ *
+ * 大きさは最初から上限いっぱいにしておく。自動縮小が入っているので、
+ * 実際に出る大きさは吹き出しに収まる分だけに勝手に縮む。
+ * これで「吹き出しに合わせて大きさを決める」を、値を計算せずに済ませられる。
  */
-export function defaultText(pageWidth: number): TextBlock {
+export function defaultText(): TextBlock {
   return {
     source: '',
     vertical: true,
     font: DEFAULT_FONT,
-    size: Math.max(14, Math.min(72, Math.round(pageWidth * 0.032))),
+    size: MAX_TEXT_SIZE,
     lineHeight: 1.7,
     letterSpacing: 0,
     align: 'center',
@@ -126,7 +131,7 @@ export function removeTail(doc: Project, id: string, index: number): Project {
 export function updateText(doc: Project, id: string, patch: Partial<TextBlock>): Project {
   const b = doc.balloons.find((x) => x.id === id)
   if (!b) return doc
-  const base = b.text ?? defaultText(doc.page.width)
+  const base = b.text ?? defaultText()
   return updateBalloon(doc, id, { text: { ...base, ...patch } })
 }
 
