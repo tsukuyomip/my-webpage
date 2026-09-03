@@ -229,55 +229,76 @@ function outwardNormalAt(pts: Pt[], index: number, center: Pt): Pt {
   return mx * n.x + my * n.y >= 0 ? n : { x: -n.x, y: -n.y }
 }
 
+/** 先端側の接線を、根元の接線からどれだけ回した向きにするか（固定）。 */
+const FILLET_ANGLE = (70 * Math.PI) / 180
+/** 曲げの効き方の上限。1 に近づけすぎると先端近くで尖って見える。 */
+const FILLET_MAX = 0.85
+
 /**
  * 根元（A→tip→B）を曲げる。
  *
- * 根元では輪郭に対して垂直に出す（そうしないと、輪郭から生えたところで
- * 折れ線が急に折れて、継ぎ目が見えてしまう）。両辺とも根元の中点（この
- * 1 点だけ）で測った法線を使う。A・B それぞれの位置で法線を測ると、
- * 楕円が細長いときなどに左右で向きが大きく違ってしまい、片側だけ大きく
- * 迂回する不自然な形になる。そこから先端へ向けて、芯（根元の中点→先端）
- * 1 本ぶんのたわみを両辺へ同じベクトルで足す。辺ごとに別々に膨らませると
- * 根元から先端までの距離が左右で違うぶんだけ片側が太って見えるので、
- * たわみは共通の 1 本にして幅はそのまま保つ。
+ * 根元では輪郭に対して垂直な接線（normal）で出す（そうしないと、輪郭から
+ * 生えたところで折れ線が急に折れて、継ぎ目が見えてしまう）。両辺とも
+ * 根元の中点（この 1 点だけ）で測った法線を使う。A・B それぞれの位置で
+ * 法線を測ると、楕円が細長いときなどに左右で向きが大きく違ってしまい、
+ * 片側だけ大きく迂回する不自然な形になる。
  */
 function bentTailCurve(A: Pt, B: Pt, tip: Pt, bend: number, normal: Pt): Pt[] {
-  const mid = { x: (A.x + B.x) / 2, y: (A.y + B.y) / 2 }
-  const dx = tip.x - mid.x
-  const dy = tip.y - mid.y
-  const d = Math.hypot(dx, dy)
-  if (d < 1e-6) return [tip]
-  const ux = dx / d
-  const uy = dy / d
-  // 芯の向きに対して直角（曲げる向き）。
-  const bendOff = { x: -uy * bend * d * 0.5, y: ux * bend * d * 0.5 }
-  const toTip = edgeToTip(A, normal, tip, bendOff)
-  const fromTip = edgeToTip(B, normal, tip, bendOff)
+  const angle = Math.sign(bend) * FILLET_ANGLE
+  const cos = Math.cos(angle)
+  const sin = Math.sin(angle)
+  const tipTangent = { x: normal.x * cos - normal.y * sin, y: normal.x * sin + normal.y * cos }
+  const f = Math.min(1, Math.abs(bend)) * FILLET_MAX
+  const toTip = edgeToTip(A, normal, tip, tipTangent, f)
+  const fromTip = edgeToTip(B, normal, tip, tipTangent, f)
   fromTip.reverse()
   return [...toTip, tip, ...fromTip]
 }
 
 /**
- * 根元 root から先端 tip までの 3 次ベジェ。root では輪郭の法線の向きへ、
- * 先端の手前では芯のたわみ分（bendOff）へ、それぞれ向くように制御点を置く。
- * 根元で法線方向へ出さないと、輪郭から生えたところで折れ線が急に折れて見える。
+ * 根元 root から先端 tip までを、根元では normal の向きへ立ち上がり、そこから
+ * 先端まで一方向にだけ曲がる 3 次ベジェで結ぶ。
+ *
+ * root からの接線（normal）と、tip への入り方（tipTangent の逆向き）、
+ * この 2 本の半直線が交わる点 Q を求め、制御点をどちらも「各端点から Q へ
+ * 向かう線分の上」に置く（同じ比率 f で内分する）。この置き方をすると、
+ * 制御多角形が root→p1→p2→tip の順で必ず同じ向きに曲がる形（凸）になり、
+ * 曲がる向きが途中で反転する S 字には原理的にならない。
+ * 辺ごとに独立な向きへたわませていた前の実装は、根元の法線が芯（根元→先端）
+ * の向きから傾いている場合に反対向きの押し合いが起きて S 字になっていた。
  */
-function edgeToTip(root: Pt, normal: Pt, tip: Pt, bendOff: Pt): Pt[] {
-  const dx = tip.x - root.x
-  const dy = tip.y - root.y
-  const d = Math.hypot(dx, dy) || 1
-  const p1 = { x: root.x + normal.x * d * 0.4, y: root.y + normal.y * d * 0.4 }
-  const p2 = { x: tip.x - (dx / d) * d * 0.25 + bendOff.x, y: tip.y - (dy / d) * d * 0.25 + bendOff.y }
+function edgeToTip(root: Pt, normal: Pt, tip: Pt, tipTangent: Pt, f: number): Pt[] {
   const out: Pt[] = []
+  if (f > 1e-6) {
+    const q = rayIntersect(root, normal, tip, { x: -tipTangent.x, y: -tipTangent.y })
+    if (q) {
+      const p1 = { x: root.x + f * (q.x - root.x), y: root.y + f * (q.y - root.y) }
+      const p2 = { x: tip.x + f * (q.x - tip.x), y: tip.y + f * (q.y - tip.y) }
+      for (let i = 1; i < CURVE_STEPS; i++) {
+        const t = i / CURVE_STEPS
+        const m = 1 - t
+        out.push({
+          x: m * m * m * root.x + 3 * m * m * t * p1.x + 3 * m * t * t * p2.x + t * t * t * tip.x,
+          y: m * m * m * root.y + 3 * m * m * t * p1.y + 3 * m * t * t * p2.y + t * t * t * tip.y,
+        })
+      }
+      return out
+    }
+  }
+  // 曲げが 0（または 2 本の半直線が平行で交わらない）ときは直線でつなぐ。
   for (let i = 1; i < CURVE_STEPS; i++) {
     const t = i / CURVE_STEPS
-    const m = 1 - t
-    out.push({
-      x: m * m * m * root.x + 3 * m * m * t * p1.x + 3 * m * t * t * p2.x + t * t * t * tip.x,
-      y: m * m * m * root.y + 3 * m * m * t * p1.y + 3 * m * t * t * p2.y + t * t * t * tip.y,
-    })
+    out.push({ x: root.x + (tip.x - root.x) * t, y: root.y + (tip.y - root.y) * t })
   }
   return out
+}
+
+/** 半直線 a+t*da（t>0）と b+s*db（s>0）の交点。平行なら null。 */
+function rayIntersect(a: Pt, da: Pt, b: Pt, db: Pt): Pt | null {
+  const denom = da.x * db.y - da.y * db.x
+  if (Math.abs(denom) < 1e-9) return null
+  const t = ((b.x - a.x) * db.y - (b.y - a.y) * db.x) / denom
+  return { x: a.x + t * da.x, y: a.y + t * da.y }
 }
 
 /**
