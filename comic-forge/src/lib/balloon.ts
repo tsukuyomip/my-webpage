@@ -14,6 +14,29 @@ import type { Balloon, Pt, Tail } from './types'
 
 const SAMPLES = 144
 
+/**
+ * 吹き出し 1 個につき同じ乱数列が出るように、id から種をこしらえる。
+ * 保存しておく値を増やさずに、開き直しても同じギザギザが出るようにするため。
+ */
+function hashSeed(s: string): number {
+  let h = 2166136261
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i)
+    h = Math.imul(h, 16777619)
+  }
+  return h >>> 0
+}
+
+function mulberry32(seed: number): () => number {
+  let t = seed >>> 0
+  return () => {
+    t = (t + 0x6d2b79f5) | 0
+    let r = Math.imul(t ^ (t >>> 15), 1 | t)
+    r = (r + Math.imul(r ^ (r >>> 7), 61 | r)) ^ r
+    return ((r ^ (r >>> 14)) >>> 0) / 4294967296
+  }
+}
+
 export function outlineFor(b: Balloon): Pt[] {
   const a = Math.max(1, b.w / 2)
   const c = Math.max(1, b.h / 2)
@@ -68,11 +91,22 @@ export function outlineFor(b: Balloon): Pt[] {
       // 尖りと谷を交互に置くだけ。叫び・効果音の吹き出し。
       const n = Math.max(4, Math.round(p.count ?? 14))
       const amp = Math.min(0.6, p.amplitude ?? 0.18)
+      // トゲの長さをどれだけ乱数で散らすか。0 なら全部同じ長さ、1 なら
+      // 「谷と同じ高さ」〜「基準の 2 倍」まで振れる。谷の深さはそのまま揃える
+      // （トゲ **だけ** がバラつくほうが、手描きのギザギザに近い）。
+      const jitter = Math.min(1, Math.max(0, p.jitter ?? 0))
+      const rng = mulberry32(hashSeed(b.id))
       const out: Pt[] = []
       for (let i = 0; i < n * 2; i++) {
         const th = (i / (n * 2)) * Math.PI * 2
-        const k = i % 2 === 0 ? 1 + amp : 1 - amp
-        out.push({ x: a * k * Math.cos(th), y: c * k * Math.sin(th) })
+        if (i % 2 === 0) {
+          const factor = 1 + jitter * (2 * rng() - 1)
+          const k = 1 + amp * factor
+          out.push({ x: a * k * Math.cos(th), y: c * k * Math.sin(th) })
+        } else {
+          const k = 1 - amp
+          out.push({ x: a * k * Math.cos(th), y: c * k * Math.sin(th) })
+        }
       }
       return out
     }

@@ -127,7 +127,7 @@ export interface Balloon {
   h: number
   rotate: number
   shape: BalloonShape
-  shapeParams: { amplitude?: number; count?: number; radius?: number }
+  shapeParams: { amplitude?: number; count?: number; radius?: number; jitter?: number }
   fill: string
   stroke: string
   strokeWidth: number

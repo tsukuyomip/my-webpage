@@ -69,6 +69,26 @@ describe('輪郭', () => {
     for (let i = 0; i < r.length; i += 2) expect(r[i]).toBeGreaterThan(r[(i + 1) % r.length])
   })
 
+  it('ばらつき 0 なら、トゲの長さはすべて揃う（これまでと同じ見た目）', () => {
+    const pts = outlineFor(base({ shape: 'burst', shapeParams: { count: 10, amplitude: 0.2, jitter: 0 } }))
+    const tips = pts.filter((_, i) => i % 2 === 0).map((p) => Math.hypot(p.x / 200, p.y / 100))
+    for (const t of tips) expect(t).toBeCloseTo(tips[0], 6)
+  })
+
+  it('ばらつきを上げると、トゲごとに長さが散らばる（谷の深さは揃ったまま）', () => {
+    const jittered = outlineFor(base({ id: 'b-jitter', shape: 'burst', shapeParams: { count: 10, amplitude: 0.2, jitter: 1 } }))
+    const tips = jittered.filter((_, i) => i % 2 === 0).map((p) => Math.hypot(p.x / 200, p.y / 100))
+    const valleys = jittered.filter((_, i) => i % 2 === 1).map((p) => Math.hypot(p.x / 200, p.y / 100))
+    expect(new Set(tips.map((t) => t.toFixed(4))).size).toBeGreaterThan(1)
+    for (const v of valleys) expect(v).toBeCloseTo(valleys[0], 6)
+  })
+
+  it('同じ吹き出しなら、ばらつきの乱数は開き直しても同じ形になる', () => {
+    const a = outlineFor(base({ id: 'b-fixed', shape: 'burst', shapeParams: { count: 10, amplitude: 0.2, jitter: 0.6 } }))
+    const b2 = outlineFor(base({ id: 'b-fixed', shape: 'burst', shapeParams: { count: 10, amplitude: 0.2, jitter: 0.6 } }))
+    expect(a).toEqual(b2)
+  })
+
   it('もくもくは基準の楕円より外に出るが、外れすぎない', () => {
     const plain = far(outlineFor(base({ shape: 'ellipse' })))
     const cloud = far(outlineFor(base({ shape: 'cloud' })))
