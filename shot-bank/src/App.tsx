@@ -173,7 +173,7 @@ export default function App() {
    *
    * **手で振った札だけを教師にして、この端末の中で学習する。** 配る重みは無い
    * ── 言い回しは人によって偏るので、他人のデータで学習した重みは当たらない
-   * （実測で、キャラを入れ替えると照れ 0.64 → 0.40 まで落ちた）。
+   * （実測で、キャラを入れ替えると照れ 0.61 → 0.41 まで落ちた）。
    *
    * タグを振るたびに賢くなる。顔の見本と同じループ。
    */
@@ -181,7 +181,9 @@ export default function App() {
     const all = await getAllShots()
     const models = trainMoods(all)
     for (const shot of all) {
-      const next = guessMoods(shot, models)
+      // 並べ替えてから比べる。並びは学習のたびに変わりうるので、
+      // そのままだと中身が同じでも「変わった」と見えて書き直しが走る。
+      const next = guessMoods(shot, models).sort()
       const cur = shot.moodsGuessed ?? []
       // 変わっていなければ書かない。毎回書くと、その枚の更新が延々と走る。
       if (next.length === cur.length && next.every((m, i) => m === cur[i])) continue
