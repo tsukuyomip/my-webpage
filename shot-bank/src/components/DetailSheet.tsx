@@ -31,6 +31,7 @@ export function DetailSheet({
   onSetSpeaker,
   onToggleFavorite,
   onViewShot,
+  imageMoodBusy,
   roster,
   moods,
   busy,
@@ -54,6 +55,8 @@ export function DetailSheet({
   onToggleFavorite: (shot: Shot) => void;
   /** この 1 枚を開いた（絵からの表情推定を、要る枚だけここで走らせる）。 */
   onViewShot?: (shot: Shot) => void;
+  /** いま絵から表情を推している最中か。控えめな印を出すためだけの情報。 */
+  imageMoodBusy?: boolean;
   roster: Character[];
   moods: string[];
   busy: boolean;
@@ -166,6 +169,12 @@ export function DetailSheet({
               onSelect={setPickedFace}
               onChange={(next) => onFaces(shot, next)}
             />
+            {imageMoodBusy && (
+              <span className="mood-infer-badge" role="status">
+                <span className="spin" />
+                絵から推論中
+              </span>
+            )}
           </div>
         ) : (
           <p className="muted">読み込み中…</p>

@@ -25,6 +25,9 @@ async function loadSession() {
   const ort = await import('onnxruntime-web/wasm')
   ort.env.wasm.wasmPaths = vendorUrl('ort/')
   ort.env.wasm.numThreads = 1
+  // ワーカへ逃がす。素の WASM 実行はメインスレッドを掴んだまま動くので、
+  // 逃がさないと推論のあいだ絵の表示が止まって見える（実測）。
+  ort.env.wasm.proxy = true
   return ort.InferenceSession.create(vendorUrl('wd-tagger/model.onnx'), {
     executionProviders: ['wasm'],
   })
