@@ -21,6 +21,7 @@ export function TagQueue({
   onToggleFavorite,
   onClose,
   onViewShot,
+  imageMoodBusyIds,
 }: {
   shots: Shot[]
   roster: Character[]
@@ -31,6 +32,8 @@ export function TagQueue({
   onClose: () => void
   /** この 1 枚を表示し始めた（絵からの表情推定を、要る枚だけここで走らせる）。 */
   onViewShot?: (shot: Shot) => void
+  /** いま絵から表情を推している最中の shot id の集まり。控えめな印を出すためだけ。 */
+  imageMoodBusyIds?: Set<string>
 }) {
   const [index, setIndex] = useState(0)
   const [showPeople, setShowPeople] = useState(false)
@@ -131,6 +134,12 @@ export function TagQueue({
 
       <div className="tagq-image">
         {blob ? <BlobImage blob={blob} alt={shot.fileName} /> : <p className="muted">読み込み中…</p>}
+        {imageMoodBusyIds?.has(shot.id) && (
+          <span className="mood-infer-badge" role="status">
+            <span className="spin" />
+            絵から推論中
+          </span>
+        )}
       </div>
 
       <div className="tagq-tags">

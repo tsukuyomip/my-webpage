@@ -67,6 +67,8 @@ export default function App() {
   const [tagging, setTagging] = useState(false)
   const [reading, setReading] = useState<RecognizeProgress | null>(null)
   const [imageMoodProgress, setImageMoodProgress] = useState<ImageMoodProgress | null>(null)
+  /** いま「1 枚だけの推し直し」を実行中の shot id。表示側で控えめな印を出す。 */
+  const [imageMoodBusyIds, setImageMoodBusyIds] = useState<Set<string>>(new Set())
   const [staleBuild, setStaleBuild] = useState(false)
   const [duplicates, setDuplicates] = useState<DuplicateFile[]>([])
   const [selecting, setSelecting] = useState(false)
@@ -546,21 +548,40 @@ export default function App() {
    *
    * 中身は guessImageMoodsForShot（imageMoodQueue.ts）── 一括推論・取り込み時
    * 推論と共通。保存済みスコアがあれば ONNX を回さずに済む。
+   *
+   * **絵を出してから裏で進める。** ONNX は proxy（ワーカ）で回すのでメイン
+   * スレッドは塞がないが、この関数自体を絵の表示と同じ効果内で呼ぶと、
+   * 呼び出し順によっては絵の初回ペイントより前に走ってしまうことがある
+   * （実測）。1 フレーム分だけ間を空けて、絵が出てから始める。
+   *
+   * 終わったら `shots`／`selected` を直接差し替える。**reload() は使わない**
+   * ── reload は shots だけを更新し、詳細画面が見ている selected は
+   * 古いまま取り残される（patchShot と同じ理由でここも直接差し替える）。
    */
   const applyImageMoodGuess = useCallback(
     async (shot: Shot) => {
       if (!settings.imageMoodEnabled) return
       if (shot.imageMoodScanned) return
       if (!shot.faces?.length) return
+      await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)))
+      setImageMoodBusyIds((cur) => new Set(cur).add(shot.id))
       try {
-        await updateShot(await guessImageMoodsForShot(shot))
-        await reload()
+        const updated = await guessImageMoodsForShot(shot)
+        await updateShot(updated)
+        setShots((prev) => prev.map((s) => (s.id === updated.id ? updated : s)))
+        setSelected((cur) => (cur && cur.id === updated.id ? updated : cur))
       } catch {
         // 取得や推論に失敗しても致命的ではない。imageMoodScanned を立てないので、
         // 次にこの枚を開いたときにまた試せる。
+      } finally {
+        setImageMoodBusyIds((cur) => {
+          const next = new Set(cur)
+          next.delete(shot.id)
+          return next
+        })
       }
     },
-    [settings.imageMoodEnabled, reload],
+    [settings.imageMoodEnabled],
   )
 
   /** 1 枚のメタを差し替えて、画面にも即反映する。タグ付けは手数が命なので待たせない。 */
@@ -1103,6 +1124,7 @@ export default function App() {
           moods={moods}
           busy={working}
           onViewShot={applyImageMoodGuess}
+          imageMoodBusy={imageMoodBusyIds.has(selected.id)}
         />
       )}
       {tagging && (
@@ -1115,6 +1137,7 @@ export default function App() {
           onToggleFavorite={toggleFavorite}
           onClose={() => setTagging(false)}
           onViewShot={applyImageMoodGuess}
+          imageMoodBusyIds={imageMoodBusyIds}
         />
       )}
       {duplicates.length > 0 && (

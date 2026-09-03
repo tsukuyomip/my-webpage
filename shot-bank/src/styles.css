@@ -522,6 +522,38 @@ button.icon {
   box-shadow: 0 1px 5px rgba(0, 0, 0, 0.45);
 }
 
+/* 絵からの表情推定が裏で進んでいることを、控えめに知らせる。
+   進捗バー（.progress）と違って止められる操作ではないので、小さく右上に置く。 */
+.mood-infer-badge {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  z-index: 5;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.28rem 0.55rem;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  box-shadow: 0 4px 14px -6px rgba(0, 0, 0, 0.45);
+  font-size: 0.7rem;
+  color: var(--text-mid);
+}
+.mood-infer-badge .spin {
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 50%;
+  border: 2px solid var(--line);
+  border-top-color: var(--accent);
+  animation: mood-infer-spin 0.8s linear infinite;
+}
+@keyframes mood-infer-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* 「たぶんこの人」。押す前に、何を根拠にしているかが見えるようにする。 */
 .face-guess {
   display: flex;
@@ -1036,6 +1068,7 @@ button.small {
    overflow: hidden は最後の砦。どうずれてもタグの上には出ない。 */
 .tagq-image {
   --tagq-image-height: 44dvh;
+  position: relative;
   height: var(--tagq-image-height);
   flex: none;
   display: flex;
