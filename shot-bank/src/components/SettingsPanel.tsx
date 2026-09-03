@@ -11,6 +11,7 @@ import {
   type Estimate,
 } from '../lib/storage'
 import type { Settings, Shot } from '../lib/types'
+import { preloadWdTagger } from '../lib/wdTaggerRuntime'
 import { releaseAllThumbs } from './Thumb'
 import { useEdgeSwipeBack } from './useEdgeSwipeBack'
 
@@ -51,6 +52,7 @@ export function SettingsPanel({
   const [persisted, setPersisted] = useState(false)
   const [message, setMessage] = useState<string>()
   const [confirmingClear, setConfirmingClear] = useState(false)
+  const [confirmingImageMood, setConfirmingImageMood] = useState(false)
 
   const refreshStorage = () => {
     void storageEstimate().then(setEstimate)
@@ -235,6 +237,44 @@ export function SettingsPanel({
               </small>
             </span>
           </label>
+        </section>
+
+        <section>
+          <h2>顔の絵からも表情を推す</h2>
+          <p className="muted">
+            いまはセリフから表情を推していますが、話者と写っている人が違う枚には
+            効きません。画像タガーを使うと、写っている顔から直接推せます
+            （実測で「笑」は適合 76% ／ 再現 100% など、セリフより強く当たります）。
+            <strong>初回だけ 111MB</strong>（画像タガー本体 97MB ＋ 実行環境 14MB）を
+            取りに行きます。Wi-Fi での実行をおすすめします。一度取れば端末に
+            残るので、以後は再取得しません。
+          </p>
+          {settings.imageMoodEnabled ? (
+            <p className="muted">有効です。</p>
+          ) : confirmingImageMood ? (
+            <span className="row">
+              <button
+                className="ghost tiny"
+                onClick={() => {
+                  setConfirmingImageMood(false)
+                  onSettings({ ...settings, imageMoodEnabled: true })
+                  onBusy('画像タガーを取得しています（初回のみ・111MB）')
+                  void preloadWdTagger()
+                    .catch(() => setMessage('取得に失敗しました。電波の良い所でもう一度お試しください'))
+                    .finally(() => onBusy(null))
+                }}
+              >
+                111MB を取りに行く
+              </button>
+              <button className="ghost tiny" onClick={() => setConfirmingImageMood(false)}>
+                やめる
+              </button>
+            </span>
+          ) : (
+            <button className="ghost" onClick={() => setConfirmingImageMood(true)}>
+              有効にする
+            </button>
+          )}
         </section>
 
         <section>

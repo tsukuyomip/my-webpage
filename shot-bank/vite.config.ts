@@ -35,4 +35,11 @@ export default defineConfig({
   define: {
     __BUILD_INFO__: JSON.stringify(buildInfo),
   },
+  resolve: {
+    // onnxruntime-web は既定だと WebGPU 用の wasm まで一緒に束ねる
+    // 「bundle」版を解決する（27MB 級）。この条件を立てると、wasm 本体を
+    // 外から渡す前提の軽い版（ort.wasm.min.mjs、この 1 backend だけ）になる。
+    // wasm 本体は copy-assets.mjs で自前配信するので、この条件で正しい。
+    conditions: ['onnxruntime-web-use-extern-wasm'],
+  },
 })

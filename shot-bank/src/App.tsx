@@ -25,6 +25,7 @@ import { canReadClipboard, readClipboardImages } from './lib/clipboardImages'
 import { embedFace, EMBED_VERSION, isCurrentEmbed } from './lib/embed'
 import { saveBlob } from './lib/download'
 import { applyFacets, collectTags, EMPTY_FACETS, type Facets } from './lib/filter'
+import { guessMoodsFromScores } from './lib/imageMoodGuess'
 import { normalizeName, withColorSample } from './lib/names'
 import {
   imageFilesFrom,
@@ -36,6 +37,7 @@ import { allMoods, migrateMoods } from './lib/moods'
 import { guessMoods, trainMoods } from './lib/moodGuess'
 import { needsOcr, recognizeShots, scanFaces, type RecognizeProgress } from './lib/recognizeQueue'
 import { toPixels } from './lib/ocr'
+import { runWdTagger } from './lib/wdTaggerRuntime'
 import { gakumas } from './lib/profiles/gakumas'
 import { mergeCharacters, repointShot, resolveSpeakers, seedRoster } from './lib/roster'
 import { dialogueText, downloadName, filesFor, shareFiles, zipFor, zipName } from './lib/share'
@@ -458,7 +460,15 @@ export default function App() {
         if (!blob) return
         const px = await toPixels(blob)
         const faces = await scanFaces(px)
-        await updateShot({ ...shot, faces, facesScanned: true, characterIds: [] })
+        // 顔が変われば絵からの表情推定もやり直し。印と結果を一緒に消す。
+        await updateShot({
+          ...shot,
+          faces,
+          facesScanned: true,
+          characterIds: [],
+          imageMoodScanned: undefined,
+          moodsGuessedImage: undefined,
+        })
         await applyAutoAssign()
         const all = await getAllShots()
         const fresh = all.find((s) => s.id === shot.id)
@@ -471,6 +481,42 @@ export default function App() {
     // applyAutoAssign は定義がこの下（[] 依存で不変）。ここでは深追いせず、
     // readShots と同じやり方で外している。
     [reload],
+  )
+
+  /**
+   * 顔の絵から表情を推す。**1 枚 1 回だけ。** ONNX を回す重い処理なので、
+   * セリフ版（タグを振るたびに全件を回す）とは違い、表情タグ付けの画面で
+   * その枚を開いた回にだけ、その枚だけ試す。顔が変われば imageMoodScanned
+   * ごと消えるので、また試せる（resetFaces）。
+   *
+   * 複数の顔があれば、どれか 1 つでも当たれば拾う（探せることが目的なので）。
+   */
+  const applyImageMoodGuess = useCallback(
+    async (shot: Shot) => {
+      if (!settings.imageMoodEnabled) return
+      if (shot.imageMoodScanned) return
+      if (!shot.faces?.length) return
+      try {
+        const blob = await getImage(shot.id)
+        if (!blob) return
+        const px = await toPixels(blob)
+        const found = new Set<string>()
+        for (const face of shot.faces) {
+          const { scores, tags } = await runWdTagger(px, face)
+          for (const m of guessMoodsFromScores(scores, tags, shot.moods)) found.add(m)
+        }
+        await updateShot({
+          ...shot,
+          imageMoodScanned: true,
+          moodsGuessedImage: found.size ? [...found] : undefined,
+        })
+        await reload()
+      } catch {
+        // 取得や推論に失敗しても致命的ではない。imageMoodScanned を立てないので、
+        // 次にこの枚を開いたときにまた試せる。
+      }
+    },
+    [settings.imageMoodEnabled, reload],
   )
 
   /** 1 枚のメタを差し替えて、画面にも即反映する。タグ付けは手数が命なので待たせない。 */
@@ -490,11 +536,14 @@ export default function App() {
     (shot: Shot, mood: string) => {
       // 手で振ったほうが強い。同じ札の「仮」は、その場で消す
       // （推し直しを待たずに消えないと、手で外した札が仮で戻ったように見える）。
+      // セリフ版・絵版、両方の「仮」から消す。
       const moods = toggleIn(shot.moods, mood)
       const guessed = (shot.moodsGuessed ?? []).filter((m) => !moods.includes(m))
+      const guessedImage = (shot.moodsGuessedImage ?? []).filter((m) => !moods.includes(m))
       void patchShot(shot, {
         moods,
         moodsGuessed: guessed.length ? guessed : undefined,
+        moodsGuessedImage: guessedImage.length ? guessedImage : undefined,
         tagged: true,
       })
       scheduleMoodGuess()
@@ -991,6 +1040,7 @@ export default function App() {
           roster={roster}
           moods={moods}
           busy={working}
+          onViewShot={applyImageMoodGuess}
         />
       )}
       {tagging && (
@@ -1002,6 +1052,7 @@ export default function App() {
           onToggleCharacter={toggleCharacter}
           onToggleFavorite={toggleFavorite}
           onClose={() => setTagging(false)}
+          onViewShot={applyImageMoodGuess}
         />
       )}
       {duplicates.length > 0 && (

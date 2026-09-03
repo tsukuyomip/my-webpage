@@ -111,6 +111,19 @@ export interface Shot {
    * （探せることが目的なので）が、学習に使うのは moods だけ。
    */
   moodsGuessed?: string[]
+  /**
+   * 顔の絵から推した表情（仮）。moodsGuessed とは別に持つ ── セリフ版は
+   * タグを振るたびに軽く走り直すので毎回まるごと書き直すが、絵版は 1 回
+   * ONNX を回す重い処理で、顔が変わらない限り何度もやり直す理由が無い。
+   * 同じ場所に混ぜると、セリフ版の書き直しで絵の結果を消してしまう。
+   * 表示・絞り込みでは moodsGuessed と合わせて見る（lib/filter.ts）。
+   */
+  moodsGuessedImage?: string[]
+  /**
+   * 絵からの表情推定を、いまの顔の並びに対してやったか。
+   * 顔を探し直したら、意味が変わるのでこの印も一緒に消す。
+   */
+  imageMoodScanned?: boolean
   /** 自由タグ */
   tags?: string[]
   favorite?: boolean
@@ -172,6 +185,12 @@ export interface Settings {
    * 切ると、これまでどおり黙って飛ばす。
    */
   confirmDuplicates?: boolean
+  /**
+   * 顔の絵からも表情を推すか。**手で選んで有効にするまで false。**
+   * 有効にすると、初回だけ 111MB（画像タガー本体 97MB + 実行環境 14MB）を
+   * 取りに行く。以後は端末にキャッシュされるので再取得しない。
+   */
+  imageMoodEnabled?: boolean
 }
 
 export const DEFAULT_SETTINGS: Settings = {
