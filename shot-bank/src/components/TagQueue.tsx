@@ -157,7 +157,15 @@ export function TagQueue({
               <button
                 key={m}
                 className={
-                  has(m) ? 'chip active big' : rejected ? 'chip rejected big' : guessed ? 'chip guess big' : 'chip big'
+                  has(m)
+                    ? agreed
+                      ? 'chip active agreed big'
+                      : 'chip active big'
+                    : rejected
+                      ? 'chip rejected big'
+                      : guessed
+                        ? 'chip guess big'
+                        : 'chip big'
                 }
                 onClick={() => onToggleMood(shot, m)}
                 aria-pressed={has(m)}
@@ -173,7 +181,6 @@ export function TagQueue({
               >
                 {m}
                 {guessed ? '（仮）' : ''}
-                {agreed && <span className="chip-agree" aria-hidden="true" />}
               </button>
             )
           })}

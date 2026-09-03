@@ -386,7 +386,17 @@ export function DetailSheet({
             return (
               <button
                 key={m}
-                className={on ? "chip active" : rejected ? "chip rejected" : guessed ? "chip guess" : "chip"}
+                className={
+                  on
+                    ? agreed
+                      ? "chip active agreed"
+                      : "chip active"
+                    : rejected
+                      ? "chip rejected"
+                      : guessed
+                        ? "chip guess"
+                        : "chip"
+                }
                 onClick={() => onToggleMood(shot, m)}
                 aria-pressed={on}
                 title={
@@ -401,7 +411,6 @@ export function DetailSheet({
               >
                 {m}
                 {guessed ? "（仮）" : ""}
-                {agreed && <span className="chip-agree" aria-hidden="true" />}
               </button>
             );
           })}
