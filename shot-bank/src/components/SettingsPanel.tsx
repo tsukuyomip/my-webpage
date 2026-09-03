@@ -3,6 +3,7 @@ import { backupFileName, exportBackup, importBackup } from '../lib/backup'
 import { saveBlob } from '../lib/download'
 import { deleteAllShots } from '../lib/db'
 import { formatBytes, formatDate } from '../lib/format'
+import { needsImageMood } from '../lib/imageMoodQueue'
 import {
   isPersisted,
   isStandalone,
@@ -32,8 +33,10 @@ export function SettingsPanel({
   onClose,
   onBusy,
   onReadAll,
+  onReadImageMoods,
   onCleared,
   reading,
+  imageMoodReading,
 }: {
   shots: Shot[]
   settings: Settings
@@ -42,9 +45,11 @@ export function SettingsPanel({
   onClose: () => void
   onBusy: (label: string | null) => void
   onReadAll: () => void
+  onReadImageMoods: () => void
   /** 全消しのあとに呼ぶ。名簿の種を入れ直すため（消したままだと空で始まる） */
   onCleared: () => void | Promise<void>
   reading: boolean
+  imageMoodReading: boolean
 }) {
   const sheet = useRef<HTMLDivElement>(null)
   useEdgeSwipeBack(sheet, onClose)
@@ -250,7 +255,30 @@ export function SettingsPanel({
             残るので、以後は再取得しません。
           </p>
           {settings.imageMoodEnabled ? (
-            <p className="muted">有効です。</p>
+            <>
+              <p className="muted">有効です。</p>
+              <button
+                className="ghost"
+                disabled={needsImageMood(shots).length === 0 || imageMoodReading}
+                onClick={onReadImageMoods}
+              >
+                未処理の画像から推す（{needsImageMood(shots).length} 枚）
+              </button>
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={settings.autoImageMood ?? false}
+                  onChange={(e) => onSettings({ ...settings, autoImageMood: e.target.checked })}
+                />
+                <span>
+                  取り込んだらそのまま絵からも推す
+                  <small>
+                    文字の読み取り（顔の検出はそこで一緒に行う）が済んだ枚だけ効きます。
+                    「取り込んだらそのまま読み取る」を切っている場合、この設定だけでは動きません。
+                  </small>
+                </span>
+              </label>
+            </>
           ) : confirmingImageMood ? (
             <span className="row">
               <button

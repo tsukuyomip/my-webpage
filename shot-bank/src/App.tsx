@@ -13,6 +13,7 @@ import { releaseThumb } from './components/Thumb'
 import {
   deleteCharacter,
   deleteShot,
+  deleteWdScoresForFaces,
   getAllCharacters,
   getAllShots,
   getImage,
@@ -25,7 +26,7 @@ import { canReadClipboard, readClipboardImages } from './lib/clipboardImages'
 import { embedFace, EMBED_VERSION, isCurrentEmbed } from './lib/embed'
 import { saveBlob } from './lib/download'
 import { applyFacets, collectTags, EMPTY_FACETS, type Facets } from './lib/filter'
-import { guessMoodsFromScores } from './lib/imageMoodGuess'
+import { guessImageMoods, guessImageMoodsForShot, needsImageMood, type ImageMoodProgress } from './lib/imageMoodQueue'
 import { normalizeName, withColorSample } from './lib/names'
 import {
   imageFilesFrom,
@@ -37,7 +38,6 @@ import { allMoods, migrateMoods } from './lib/moods'
 import { guessMoods, trainMoods } from './lib/moodGuess'
 import { needsOcr, recognizeShots, scanFaces, type RecognizeProgress } from './lib/recognizeQueue'
 import { toPixels } from './lib/ocr'
-import { runWdTagger } from './lib/wdTaggerRuntime'
 import { gakumas } from './lib/profiles/gakumas'
 import { mergeCharacters, repointShot, resolveSpeakers, seedRoster } from './lib/roster'
 import { dialogueText, downloadName, filesFor, shareFiles, zipFor, zipName } from './lib/share'
@@ -66,12 +66,14 @@ export default function App() {
   const [showRoster, setShowRoster] = useState(false)
   const [tagging, setTagging] = useState(false)
   const [reading, setReading] = useState<RecognizeProgress | null>(null)
+  const [imageMoodProgress, setImageMoodProgress] = useState<ImageMoodProgress | null>(null)
   const [staleBuild, setStaleBuild] = useState(false)
   const [duplicates, setDuplicates] = useState<DuplicateFile[]>([])
   const [selecting, setSelecting] = useState(false)
   const [pickedIds, setPickedIds] = useState<Set<string>>(new Set())
   const fileInput = useRef<HTMLInputElement>(null)
   const stopReading = useRef(false)
+  const stopImageMood = useRef(false)
 
   const reload = useCallback(async () => {
     const [all, chars] = await Promise.all([getAllShots(), getAllCharacters()])
@@ -242,6 +244,48 @@ export default function App() {
   )
 
   /**
+   * 絵から表情を、複数枚まとめて推す。readShots と同じ形（進捗・停止）。
+   *
+   * レジュームは自然に効く ── imageMoodScanned が立った枚は次回 needsImageMood
+   * から外れ、1 枚の中の顔も保存済みなら ONNX を飛ばす（guessImageMoodsForShot）。
+   */
+  const readImageMoods = useCallback(
+    async (targets: Shot[]) => {
+      if (targets.length === 0) return
+      stopImageMood.current = false
+      setImageMoodProgress({ done: 0, total: targets.length, detail: '' })
+      const result = await guessImageMoods(targets, {
+        onProgress: setImageMoodProgress,
+        onDone: (shot) => updateShot(shot),
+        shouldStop: () => stopImageMood.current,
+      })
+      setImageMoodProgress(null)
+      await reload()
+      if (result.stopped) setNotice('推論を止めました')
+      else if (result.failed) setNotice(`${result.done} 枚を絵から推し、${result.failed} 枚は失敗しました`)
+      else if (result.done) setNotice(`${result.done} 枚を絵から推しました`)
+    },
+    [reload],
+  )
+
+  /**
+   * 取り込み時の絵からの表情推定。settings.autoImageMood が要る。
+   *
+   * 顔は文字の読み取り（readShots）が拾う。ここは readShots のあとに呼ぶ前提
+   * ── autoOcr を切っていると顔がまだ無く、対象が自然に 0 枚になる。
+   */
+  const autoGuessImageMoods = useCallback(
+    async (added: Shot[]) => {
+      if (!settings.imageMoodEnabled || !settings.autoImageMood || added.length === 0) return
+      const ids = new Set(added.map((s) => s.id))
+      const fresh = (await getAllShots()).filter((s) => ids.has(s.id))
+      const targets = needsImageMood(fresh)
+      if (targets.length) await readImageMoods(targets)
+    },
+    [settings.imageMoodEnabled, settings.autoImageMood, readImageMoods],
+  )
+
+  /**
    * 「同じ絵がある」1 件を、選ばれたとおりに片付ける。
    * 取り込むほうは重複判定を通さない（もう見比べたあとなので）。
    */
@@ -260,8 +304,9 @@ export default function App() {
       }
       await reload()
       if (settings.autoOcr && taken.length) await readShots(taken)
+      await autoGuessImageMoods(taken)
     },
-    [settings.reencode, settings.autoOcr, reload, readShots],
+    [settings.reencode, settings.autoOcr, reload, readShots, autoGuessImageMoods],
   )
 
   /**
@@ -330,12 +375,21 @@ export default function App() {
       setNotice(parts.join(' / ') || '取り込めるものがありませんでした')
 
       if (settings.autoOcr && result.added.length) await readShots(result.added)
+      await autoGuessImageMoods(result.added)
       // どちらを残すかは訊いてから決める。訊かない設定なら、これまでどおり飛ばしたまま。
       if (settings.confirmDuplicates !== false && result.duplicates.length) {
         setDuplicates(result.duplicates)
       }
     },
-    [settings.reencode, settings.autoOcr, settings.confirmDuplicates, shots, reload, readShots],
+    [
+      settings.reencode,
+      settings.autoOcr,
+      settings.confirmDuplicates,
+      shots,
+      reload,
+      readShots,
+      autoGuessImageMoods,
+    ],
   )
 
   // ペーストと、ウィンドウ全体へのドロップを受ける。
@@ -460,6 +514,8 @@ export default function App() {
         if (!blob) return
         const px = await toPixels(blob)
         const faces = await scanFaces(px)
+        // 古い顔の並びに紐付いた保存済みスコアは、もう指す先が無いので掃除する。
+        await deleteWdScoresForFaces((shot.faces ?? []).map((f) => f.id))
         // 顔が変われば絵からの表情推定もやり直し。印と結果を一緒に消す。
         await updateShot({
           ...shot,
@@ -484,12 +540,12 @@ export default function App() {
   )
 
   /**
-   * 顔の絵から表情を推す。**1 枚 1 回だけ。** ONNX を回す重い処理なので、
-   * セリフ版（タグを振るたびに全件を回す）とは違い、表情タグ付けの画面で
-   * その枚を開いた回にだけ、その枚だけ試す。顔が変われば imageMoodScanned
-   * ごと消えるので、また試せる（resetFaces）。
+   * 顔の絵から表情を推す。**1 枚 1 回だけ。** 表情タグ付けの画面でその枚を
+   * 開いた回にだけ試す（セリフ版のように毎回全件は回さない）。顔が変われば
+   * imageMoodScanned ごと消えるので、また試せる（resetFaces）。
    *
-   * 複数の顔があれば、どれか 1 つでも当たれば拾う（探せることが目的なので）。
+   * 中身は guessImageMoodsForShot（imageMoodQueue.ts）── 一括推論・取り込み時
+   * 推論と共通。保存済みスコアがあれば ONNX を回さずに済む。
    */
   const applyImageMoodGuess = useCallback(
     async (shot: Shot) => {
@@ -497,19 +553,7 @@ export default function App() {
       if (shot.imageMoodScanned) return
       if (!shot.faces?.length) return
       try {
-        const blob = await getImage(shot.id)
-        if (!blob) return
-        const px = await toPixels(blob)
-        const found = new Set<string>()
-        for (const face of shot.faces) {
-          const { scores, tags } = await runWdTagger(px, face)
-          for (const m of guessMoodsFromScores(scores, tags, shot.moods)) found.add(m)
-        }
-        await updateShot({
-          ...shot,
-          imageMoodScanned: true,
-          moodsGuessedImage: found.size ? [...found] : undefined,
-        })
+        await updateShot(await guessImageMoodsForShot(shot))
         await reload()
       } catch {
         // 取得や推論に失敗しても致命的ではない。imageMoodScanned を立てないので、
@@ -604,7 +648,7 @@ export default function App() {
   const moods = useMemo(() => allMoods(settings.customMoods), [settings.customMoods])
   const tags = useMemo(() => collectTags(shots), [shots])
 
-  const working = progress !== null || busy !== null || reading !== null
+  const working = progress !== null || busy !== null || reading !== null || imageMoodProgress !== null
 
   // --- 選んで送る ---
 
@@ -1000,6 +1044,24 @@ export default function App() {
           </span>
         </div>
       )}
+      {imageMoodProgress && (
+        <div className="progress" role="status">
+          <div className="progress-bar">
+            <span
+              style={{ width: `${(imageMoodProgress.done / Math.max(1, imageMoodProgress.total)) * 100}%` }}
+            />
+          </div>
+          <span className="progress-row">
+            <span>
+              絵から推論中 {imageMoodProgress.done}/{imageMoodProgress.total}
+              {imageMoodProgress.detail && ` — ${imageMoodProgress.detail}`}
+            </span>
+            <button className="ghost tiny" onClick={() => (stopImageMood.current = true)}>
+              止める
+            </button>
+          </span>
+        </div>
+      )}
       {busy && (
         <div className="progress" role="status">
           <span>{busy}</span>
@@ -1087,6 +1149,7 @@ export default function App() {
           onClose={() => setShowSettings(false)}
           onBusy={setBusy}
           reading={reading !== null}
+          imageMoodReading={imageMoodProgress !== null}
           onCleared={async () => {
             await seedKnownNames(settings)
           }}
@@ -1095,6 +1158,10 @@ export default function App() {
             // 読み取りの直しを、すでに取り込んだぶんにも当てるための入口。
             setShowSettings(false)
             void readShots(shots.filter((s) => !s.textEdited))
+          }}
+          onReadImageMoods={() => {
+            setShowSettings(false)
+            void readImageMoods(needsImageMood(shots))
           }}
         />
       )}

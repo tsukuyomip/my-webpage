@@ -1,8 +1,8 @@
-import type { Character, Settings, Shot } from './types'
+import type { Character, Settings, Shot, WdScoreRecord } from './types'
 import { DEFAULT_SETTINGS } from './types'
 
 const DB_NAME = 'shot-bank'
-const DB_VERSION = 2
+const DB_VERSION = 3
 
 let dbPromise: Promise<IDBDatabase> | null = null
 
@@ -20,6 +20,13 @@ function openDb(): Promise<IDBDatabase> {
       // v2: 名簿。OCR で読めた話者名から育つので、初期データは入れない。
       if (!db.objectStoreNames.contains('characters')) {
         db.createObjectStore('characters', { keyPath: 'id' })
+      }
+      // v3: 画像タガーの生スコア。1 顔 1 万バイト級なので shots とは別ストアに
+      // 置く（原本・サムネと同じ理由）。shotId の index は、枚を消したときの
+      // まとめ掃除と、顔を探し直したときの掃除に使う。
+      if (!db.objectStoreNames.contains('wdScores')) {
+        const store = db.createObjectStore('wdScores', { keyPath: 'faceId' })
+        store.createIndex('shotId', 'shotId')
       }
     }
     req.onsuccess = () => resolve(req.result)
@@ -79,21 +86,61 @@ export const getThumb = (id: string) => getBlobFrom('thumbs', id)
 
 export async function deleteShot(id: string): Promise<void> {
   const db = await openDb()
-  const tx = db.transaction(['shots', 'blobs', 'thumbs'], 'readwrite')
+  const tx = db.transaction(['shots', 'blobs', 'thumbs', 'wdScores'], 'readwrite')
   tx.objectStore('shots').delete(id)
   tx.objectStore('blobs').delete(id)
   tx.objectStore('thumbs').delete(id)
+  deleteByShotId(tx, id)
   await txDone(tx)
 }
 
 export async function deleteAllShots(): Promise<void> {
   const db = await openDb()
-  const tx = db.transaction(['shots', 'blobs', 'thumbs', 'characters'], 'readwrite')
+  const tx = db.transaction(['shots', 'blobs', 'thumbs', 'characters', 'wdScores'], 'readwrite')
   tx.objectStore('shots').clear()
   tx.objectStore('blobs').clear()
   tx.objectStore('thumbs').clear()
   // 名簿はスクショから育ったものなので、元が消えたら一緒に消す。
   tx.objectStore('characters').clear()
+  tx.objectStore('wdScores').clear()
+  await txDone(tx)
+}
+
+/** 開いている tx の中で、この shotId の wdScores を全部消す。 */
+function deleteByShotId(tx: IDBTransaction, shotId: string): void {
+  const store = tx.objectStore('wdScores')
+  const req = store.index('shotId').openKeyCursor(IDBKeyRange.only(shotId))
+  req.onsuccess = () => {
+    const cursor = req.result
+    if (!cursor) return
+    store.delete(cursor.primaryKey)
+    cursor.continue()
+  }
+}
+
+/** 1 枚ぶんの顔のスコアを、まとめて 1 トランザクションで書く。 */
+export async function putWdScores(records: WdScoreRecord[]): Promise<void> {
+  if (records.length === 0) return
+  const db = await openDb()
+  const tx = db.transaction('wdScores', 'readwrite')
+  const store = tx.objectStore('wdScores')
+  for (const r of records) store.put(r)
+  await txDone(tx)
+}
+
+export async function getWdScores(faceId: string): Promise<WdScoreRecord | undefined> {
+  const db = await openDb()
+  const store = db.transaction('wdScores', 'readonly').objectStore('wdScores')
+  return toPromise(store.get(faceId) as IDBRequest<WdScoreRecord | undefined>)
+}
+
+/** 顔を探し直して枠が入れ替わったときに、もう存在しない顔のぶんを掃除する。 */
+export async function deleteWdScoresForFaces(faceIds: string[]): Promise<void> {
+  if (faceIds.length === 0) return
+  const db = await openDb()
+  const tx = db.transaction('wdScores', 'readwrite')
+  const store = tx.objectStore('wdScores')
+  for (const id of faceIds) store.delete(id)
   await txDone(tx)
 }
 
