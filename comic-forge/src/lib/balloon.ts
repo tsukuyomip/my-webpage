@@ -193,7 +193,8 @@ function tailCut(pts: Pt[], acc: number[], tail: Tail, center: Pt): Cut | null {
   const hw = (spread * perim) / 2
   const A = pointAtLength(pts, acc, s0 - hw).p
   const B = pointAtLength(pts, acc, s0 + hw).p
-  const base = pointAtLength(pts, acc, s0).p
+  const baseAt = pointAtLength(pts, acc, s0)
+  const base = baseAt.p
 
   // 向きは「中心 → 根元」の延長。aim でそこから振る。
   let dx = base.x - center.x
@@ -206,40 +207,74 @@ function tailCut(pts: Pt[], acc: number[], tail: Tail, center: Pt): Cut | null {
   const uy = dx * Math.sin(r) + dy * Math.cos(r)
   const tip = { x: base.x + ux * tail.len, y: base.y + uy * tail.len }
 
-  const curve = tail.bend === 0 ? [tip] : bentTailCurve(A, B, tip, tail.bend)
+  const curve =
+    tail.bend === 0
+      ? [tip]
+      : bentTailCurve(A, B, tip, tail.bend, outwardNormalAt(pts, baseAt.index, center))
 
   return { sA: wrap(s0 - hw, perim), sB: wrap(s0 + hw, perim), A, B, curve }
 }
 
+/** 輪郭の頂点 index→index+1 の辺から、外向きの単位法線を作る。 */
+function outwardNormalAt(pts: Pt[], index: number, center: Pt): Pt {
+  const a = pts[index]
+  const b = pts[(index + 1) % pts.length]
+  const dx = b.x - a.x
+  const dy = b.y - a.y
+  const len = Math.hypot(dx, dy) || 1
+  const n = { x: -dy / len, y: dx / len }
+  const mx = (a.x + b.x) / 2 - center.x
+  const my = (a.y + b.y) / 2 - center.y
+  // 中心から遠ざかる向きを選ぶ（2 つある法線候補のうち外側のほう）。
+  return mx * n.x + my * n.y >= 0 ? n : { x: -n.x, y: -n.y }
+}
+
 /**
- * 根元（A→tip→B）を、しっぽの芯（根元の中点→先端）ごとたわませる。
+ * 根元（A→tip→B）を曲げる。
  *
- * 辺ごとに別々に膨らませると、根元から先端までの距離が左右で違うぶんだけ
- * 片側が太って見えてしまう（幅が変わって見える）。芯のたわみ 1 本ぶんの
- * ずれを両辺の中間点へ同じベクトルで足すことで、幅はそのままにしっぽ全体を
- * しならせる。
+ * 根元では輪郭に対して垂直に出す（そうしないと、輪郭から生えたところで
+ * 折れ線が急に折れて、継ぎ目が見えてしまう）。両辺とも根元の中点（この
+ * 1 点だけ）で測った法線を使う。A・B それぞれの位置で法線を測ると、
+ * 楕円が細長いときなどに左右で向きが大きく違ってしまい、片側だけ大きく
+ * 迂回する不自然な形になる。そこから先端へ向けて、芯（根元の中点→先端）
+ * 1 本ぶんのたわみを両辺へ同じベクトルで足す。辺ごとに別々に膨らませると
+ * 根元から先端までの距離が左右で違うぶんだけ片側が太って見えるので、
+ * たわみは共通の 1 本にして幅はそのまま保つ。
  */
-function bentTailCurve(A: Pt, B: Pt, tip: Pt, bend: number): Pt[] {
+function bentTailCurve(A: Pt, B: Pt, tip: Pt, bend: number, normal: Pt): Pt[] {
   const mid = { x: (A.x + B.x) / 2, y: (A.y + B.y) / 2 }
   const dx = tip.x - mid.x
   const dy = tip.y - mid.y
   const d = Math.hypot(dx, dy)
   if (d < 1e-6) return [tip]
-  const off = { x: -(dy / d) * bend * d * 0.5, y: (dx / d) * bend * d * 0.5 }
-  return [...bulge(A, tip, off), tip, ...bulge(tip, B, off)]
+  const ux = dx / d
+  const uy = dy / d
+  // 芯の向きに対して直角（曲げる向き）。
+  const bendOff = { x: -uy * bend * d * 0.5, y: ux * bend * d * 0.5 }
+  const toTip = edgeToTip(A, normal, tip, bendOff)
+  const fromTip = edgeToTip(B, normal, tip, bendOff)
+  fromTip.reverse()
+  return [...toTip, tip, ...fromTip]
 }
 
-/** 直線 a→b を、中間点に off を足した 1 点を制御点とする 2 次ベジェで丸める。 */
-function bulge(a: Pt, b: Pt, off: Pt): Pt[] {
-  const cx = (a.x + b.x) / 2 + off.x
-  const cy = (a.y + b.y) / 2 + off.y
+/**
+ * 根元 root から先端 tip までの 3 次ベジェ。root では輪郭の法線の向きへ、
+ * 先端の手前では芯のたわみ分（bendOff）へ、それぞれ向くように制御点を置く。
+ * 根元で法線方向へ出さないと、輪郭から生えたところで折れ線が急に折れて見える。
+ */
+function edgeToTip(root: Pt, normal: Pt, tip: Pt, bendOff: Pt): Pt[] {
+  const dx = tip.x - root.x
+  const dy = tip.y - root.y
+  const d = Math.hypot(dx, dy) || 1
+  const p1 = { x: root.x + normal.x * d * 0.4, y: root.y + normal.y * d * 0.4 }
+  const p2 = { x: tip.x - (dx / d) * d * 0.25 + bendOff.x, y: tip.y - (dy / d) * d * 0.25 + bendOff.y }
   const out: Pt[] = []
   for (let i = 1; i < CURVE_STEPS; i++) {
     const t = i / CURVE_STEPS
     const m = 1 - t
     out.push({
-      x: m * m * a.x + 2 * m * t * cx + t * t * b.x,
-      y: m * m * a.y + 2 * m * t * cy + t * t * b.y,
+      x: m * m * m * root.x + 3 * m * m * t * p1.x + 3 * m * t * t * p2.x + t * t * t * tip.x,
+      y: m * m * m * root.y + 3 * m * m * t * p1.y + 3 * m * t * t * p2.y + t * t * t * tip.y,
     })
   }
   return out
