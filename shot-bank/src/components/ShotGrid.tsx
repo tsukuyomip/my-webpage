@@ -83,6 +83,15 @@ export function ShotGrid({
                     </span>
                   </span>
                 )}
+                {shot.moods && shot.moods.length > 0 && (
+                  <span className="caption-moods">
+                    {shot.moods.map((m) => (
+                      <span key={m} className="mood-pill">
+                        {m}
+                      </span>
+                    ))}
+                  </span>
+                )}
                 {hit ? (
                   <Highlight snippet={buildSnippet(hit)} />
                 ) : (

@@ -743,6 +743,18 @@ img.full {
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+.search-clear {
+  flex: none;
+  width: 1.6rem;
+  height: 1.6rem;
+  padding: 0;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--text-mid);
+  font-size: 1rem;
+  line-height: 1;
+}
 button.wide {
   width: 100%;
   margin-top: 0.7rem;
@@ -836,6 +848,21 @@ button.tiny {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+/* 表情タグを小さく並べる。折り返してよい ── 数が増えても列の幅は崩さない。 */
+.caption-moods {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem;
+}
+.mood-pill {
+  font-size: 0.62rem;
+  line-height: 1.4;
+  padding: 0 0.35rem;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text-mid);
+  white-space: nowrap;
 }
 /* セリフは 2 行まで。行数を決め打ちにしないと、タイルの高さが揃わず段がずれる。 */
 .caption-body {

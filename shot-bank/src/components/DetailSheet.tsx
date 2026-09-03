@@ -24,6 +24,7 @@ export function DetailSheet({
   allShots,
   onSaveText,
   onReRecognize,
+  onResetFaces,
   onToggleMood,
   onToggleCharacter,
   onSetSpeaker,
@@ -42,6 +43,8 @@ export function DetailSheet({
   allShots: Shot[];
   onSaveText: (shot: Shot, body: string, speakerRaw: string) => void;
   onReRecognize: (shot: Shot) => void;
+  /** 顔を、手のぶんも含めて全部消して探し直す */
+  onResetFaces: (shot: Shot) => void;
   onToggleMood: (shot: Shot, mood: string) => void;
   onToggleCharacter: (shot: Shot, characterId: string) => void;
   /** 話者を手で決める。null で外す。決めた色は名簿が覚える（App 側） */
@@ -54,6 +57,7 @@ export function DetailSheet({
   const [blob, setBlob] = useState<Blob>();
   const [confirming, setConfirming] = useState(false);
   const [addingFace, setAddingFace] = useState(false);
+  const [resettingFaces, setResettingFaces] = useState(false);
   const [pickedFace, setPickedFace] = useState<string>();
   const faces = shot.faces ?? [];
   const selectedFace = faces.find((f) => f.id === pickedFace);
@@ -78,6 +82,7 @@ export function DetailSheet({
     let alive = true;
     setBlob(undefined);
     setConfirming(false);
+    setResettingFaces(false);
     setBody(shot.body ?? "");
     setSpeaker(shot.speakerRaw ?? "");
     setPicking(!shot.speakerId);
@@ -176,17 +181,53 @@ export function DetailSheet({
               ? '（まだ探していません）'
               : ''}
           </span>
-          <button
-            className={addingFace ? "ghost tiny on" : "ghost tiny"}
-            onClick={() => {
-              setAddingFace(!addingFace);
-              setPickedFace(undefined);
-            }}
-            aria-pressed={addingFace}
-          >
-            {addingFace ? "足すのをやめる" : "枠を足す"}
-          </button>
+          <span className="row">
+            {resettingFaces ? (
+              <>
+                <button
+                  className="ghost tiny danger"
+                  disabled={busy}
+                  onClick={() => {
+                    onResetFaces(shot);
+                    setResettingFaces(false);
+                  }}
+                >
+                  本当に消して探し直す
+                </button>
+                <button className="ghost tiny" onClick={() => setResettingFaces(false)}>
+                  やめる
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  className="ghost tiny"
+                  disabled={busy || faces.length === 0}
+                  onClick={() => setResettingFaces(true)}
+                >
+                  消して探し直す
+                </button>
+                <button
+                  className={addingFace ? "ghost tiny on" : "ghost tiny"}
+                  onClick={() => {
+                    setAddingFace(!addingFace);
+                    setPickedFace(undefined);
+                  }}
+                  aria-pressed={addingFace}
+                >
+                  {addingFace ? "足すのをやめる" : "枠を足す"}
+                </button>
+              </>
+            )}
+          </span>
         </div>
+
+        {resettingFaces && (
+          <p className="muted small">
+            手で足した・動かした・確定した名前もすべて消えます。もう一度、自動で
+            探し直します。元には戻せません。
+          </p>
+        )}
 
         {addingFace && (
           <p className="muted small">
