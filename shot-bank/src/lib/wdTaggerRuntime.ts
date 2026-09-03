@@ -43,6 +43,16 @@ export function preloadWdTagger(): Promise<void> {
   return Promise.all([sessionPromise, tagsPromise]).then(() => undefined)
 }
 
+/**
+ * タグ表だけ読み込む。**ONNX 本体（97MB＋実行環境 14MB）は読まない。**
+ * 保存済みスコアだけで判定し直す経路（guessMoodsFromStoredScores）は、
+ * 全部の顔がすでに採ってあれば ONNX を一度も読み込まずに済む。
+ */
+export function preloadWdTags(): Promise<WdTag[]> {
+  tagsPromise ??= loadTags()
+  return tagsPromise
+}
+
 export function isWdTaggerLoaded(): boolean {
   return sessionPromise !== null
 }

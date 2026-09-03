@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { cropForTagger, guessMoodsFromScores, TAGGER_INPUT_SIZE, type WdTag } from '../imageMoodGuess'
+import {
+  cropForTagger,
+  guessMoodsFromScores,
+  guessMoodsFromStoredScores,
+  quantizeScores,
+  TAGGER_INPUT_SIZE,
+  type WdTag,
+} from '../imageMoodGuess'
 import type { Pixels } from '../pixels'
 import type { Face } from '../types'
 
@@ -84,5 +91,41 @@ describe('タグの判定', () => {
     const out = guessMoodsFromScores([logit(0.9)], [['smile', 0]], undefined)
     expect(out).toContain('笑')
     expect(out).not.toContain('怒') // frown が表に無い
+  })
+})
+
+describe('保存用の量子化', () => {
+  it('0..255 に収まる。確率 0 と 1 は端に丸まる', () => {
+    const logit = (p: number) => Math.log(p / (1 - p))
+    const out = quantizeScores([logit(0.001), logit(0.999), 0])
+    expect(out[0]).toBe(0)
+    expect(out[1]).toBe(255)
+    expect(out[2]).toBe(128) // sigmoid(0) = 0.5 -> 127.5 を丸めて 128
+  })
+
+  it('全タグぶんの長さを保つ（間引かない）', () => {
+    const out = quantizeScores(new Array(10861).fill(0))
+    expect(out.length).toBe(10861)
+  })
+})
+
+describe('保存済みスコアからの判定', () => {
+  const tags: WdTag[] = [
+    ['smile', 0],
+    ['frown', 0],
+  ]
+
+  it('生スコアから量子化したものと、同じしきい値判定になる', () => {
+    const logit = (p: number) => Math.log(p / (1 - p))
+    const raw = [logit(0.7), logit(0.3)]
+    const quantized = quantizeScores(raw)
+    expect(guessMoodsFromStoredScores(quantized, tags, undefined)).toEqual(
+      guessMoodsFromScores(raw, tags, undefined),
+    )
+  })
+
+  it('手で振ってあるものは推さない', () => {
+    const out = guessMoodsFromStoredScores([255, 255], tags, ['笑'])
+    expect(out).not.toContain('笑')
   })
 })

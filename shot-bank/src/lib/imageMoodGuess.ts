@@ -185,6 +185,27 @@ function sigmoid(x: number): number {
 }
 
 /**
+ * 保存するスコアの作り方の版。**中身の作り方（タグ表・量子化）を変えたら上げる。**
+ *
+ * 版が違うスコアはタグの並びも意味も違いうるので、そのまま使うと嘘になる。
+ * 古いものは再利用せず、絵から採り直す（lib/db.ts に保存する側の版と突き合わせる）。
+ */
+export const WD_SCORE_VERSION = 1
+
+function pickMoods(prob: (tagIndex: number) => number, tags: WdTag[], already: string[] | undefined): string[] {
+  const already_ = new Set(already ?? [])
+  const nameToIndex = new Map(tags.map((t, i) => [t[0], i]))
+  const out: string[] = []
+  for (const [mood, rule] of Object.entries(WD_RULES)) {
+    if (already_.has(mood)) continue
+    const idx = nameToIndex.get(rule.tag)
+    if (idx === undefined) continue
+    if (prob(idx) >= rule.threshold) out.push(mood)
+  }
+  return out
+}
+
+/**
  * モデルの生の出力（sigmoid をかける前）から、ムードを判定する。
  * 手で振ってあるものは触らない（セリフ版と同じ規則）。
  */
@@ -193,14 +214,33 @@ export function guessMoodsFromScores(
   tags: WdTag[],
   already: string[] | undefined,
 ): string[] {
-  const already_ = new Set(already ?? [])
-  const nameToIndex = new Map(tags.map((t, i) => [t[0], i]))
-  const out: string[] = []
-  for (const [mood, rule] of Object.entries(WD_RULES)) {
-    if (already_.has(mood)) continue
-    const idx = nameToIndex.get(rule.tag)
-    if (idx === undefined) continue
-    if (sigmoid(rawScores[idx]!) >= rule.threshold) out.push(mood)
-  }
+  return pickMoods((idx) => sigmoid(rawScores[idx]!), tags, already)
+}
+
+/**
+ * 保存済みの量子化スコア（quantizeScores の出力。0..255 ≒ 確率 0..1）から、
+ * ONNX を回さずにムードを判定する。しきい値だけ直したときの再判定や、
+ * 一括推論のレジューム（採り直し済みかの判定）に使う。
+ */
+export function guessMoodsFromStoredScores(
+  storedScores: ArrayLike<number>,
+  tags: WdTag[],
+  already: string[] | undefined,
+): string[] {
+  return pickMoods((idx) => storedScores[idx]! / 255, tags, already)
+}
+
+/**
+ * モデルの生の出力を、保存用に量子化する（0..255 ≒ 確率 0..1）。**全タグぶん
+ * 持つ**（いまの WD_RULES が使わないタグも含む）。表情には使えなかったタグの
+ * 中に、キャラの特徴（髪・瞳の色など）がそのまま入っている ── 今後キャラ推定に
+ * 転用できる余地を残すため、間引かずに残す。
+ *
+ * 1 バイト刻み（誤差最大 1/510 ≒ 0.002）はしきい値の際どい判定を稀に動かしうるが、
+ * 実測で使っているしきい値どうしの間隔（0.5〜0.65 の間に 9 個）に比べれば十分細かい。
+ */
+export function quantizeScores(rawScores: ArrayLike<number>): Uint8Array {
+  const out = new Uint8Array(rawScores.length)
+  for (let i = 0; i < rawScores.length; i++) out[i] = Math.round(sigmoid(rawScores[i]!) * 255)
   return out
 }

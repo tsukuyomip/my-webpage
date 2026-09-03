@@ -134,6 +134,22 @@ export interface Shot {
 export type OcrStatus = 'queued' | 'done' | 'error'
 
 /**
+ * 画像タガー（wd-vit-tagger-v3）の生スコアを、顔 1 つぶん保存したもの。
+ *
+ * 一覧を開くたびに 1 顔 1 万バイト級の並びを持ち歩かずに済むよう、shots とは
+ * 別ストアに置く（原本・サムネと同じ理由）。詳しくは lib/imageMoodGuess.ts。
+ */
+export interface WdScoreRecord {
+  faceId: string
+  /** 消したときにまとめて掃除するための持ち主。lib/db.ts の index で引く */
+  shotId: string
+  /** タグ表・量子化のやり方の版。lib/imageMoodGuess.ts の WD_SCORE_VERSION */
+  version: number
+  /** 量子化した確率（0..255 ≒ 0..1）。タグ表の並び順のまま、全タグぶん持つ */
+  scores: Uint8Array
+}
+
+/**
  * 名簿の 1 人。
  *
  * OCR で読めた話者名がそのまま候補になり、既存に近ければ寄せ、
@@ -191,6 +207,12 @@ export interface Settings {
    * 取りに行く。以後は端末にキャッシュされるので再取得しない。
    */
   imageMoodEnabled?: boolean
+  /**
+   * 取り込んだらそのまま絵からも表情を推すか。**既定は false。**
+   * imageMoodEnabled が先に要る。文字の読み取り（顔の検出はそこで行う）が
+   * 済んだ枚にしか効かないので、autoOcr を切っていると効かない。
+   */
+  autoImageMood?: boolean
 }
 
 export const DEFAULT_SETTINGS: Settings = {
