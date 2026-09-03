@@ -128,16 +128,22 @@ export function TagQueue({
       <div className="tagq-tags">
         <span className="filter-label">表情</span>
         <div className="chips-row">
-          {moods.map((m) => (
-            <button
-              key={m}
-              className={has(m) ? 'chip active big' : 'chip big'}
-              onClick={() => onToggleMood(shot, m)}
-              aria-pressed={has(m)}
-            >
-              {m}
-            </button>
-          ))}
+          {moods.map((m) => {
+            // 推しただけの札は薄く出して、押せば確定。振る手数を減らすのがこの画面の目的。
+            const guessed = !has(m) && (shot.moodsGuessed?.includes(m) ?? false)
+            return (
+              <button
+                key={m}
+                className={has(m) ? 'chip active big' : guessed ? 'chip guess big' : 'chip big'}
+                onClick={() => onToggleMood(shot, m)}
+                aria-pressed={has(m)}
+                title={guessed ? 'セリフからの推測。押すと確定します' : undefined}
+              >
+                {m}
+                {guessed ? '（仮）' : ''}
+              </button>
+            )
+          })}
         </div>
 
         {roster.length > 0 && (

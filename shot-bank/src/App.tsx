@@ -33,6 +33,7 @@ import {
   type IngestProgress,
 } from './lib/ingest'
 import { allMoods, migrateMoods } from './lib/moods'
+import { guessMoods, trainMoods } from './lib/moodGuess'
 import { needsOcr, recognizeShots, scanFaces, type RecognizeProgress } from './lib/recognizeQueue'
 import { toPixels } from './lib/ocr'
 import { gakumas } from './lib/profiles/gakumas'
@@ -168,6 +169,35 @@ export default function App() {
   }, [])
 
   /**
+   * セリフから表情を推し直す。
+   *
+   * **手で振った札だけを教師にして、この端末の中で学習する。** 配る重みは無い
+   * ── 言い回しは人によって偏るので、他人のデータで学習した重みは当たらない
+   * （実測で、キャラを入れ替えると照れ 0.64 → 0.40 まで落ちた）。
+   *
+   * タグを振るたびに賢くなる。顔の見本と同じループ。
+   */
+  const applyMoodGuesses = useCallback(async () => {
+    const all = await getAllShots()
+    const models = trainMoods(all)
+    for (const shot of all) {
+      const next = guessMoods(shot, models)
+      const cur = shot.moodsGuessed ?? []
+      // 変わっていなければ書かない。毎回書くと、その枚の更新が延々と走る。
+      if (next.length === cur.length && next.every((m, i) => m === cur[i])) continue
+      await updateShot({ ...shot, moodsGuessed: next.length ? next : undefined })
+    }
+    await reload()
+  }, [reload])
+
+  /** タグを振ると教師が増えるので、少し待ってから推し直す。連打で走らせない。 */
+  const moodTimer = useRef<number>()
+  const scheduleMoodGuess = useCallback(() => {
+    window.clearTimeout(moodTimer.current)
+    moodTimer.current = window.setTimeout(() => void applyMoodGuesses(), 1200)
+  }, [applyMoodGuesses])
+
+  /**
    * 未認識のものを読む。1 枚読むごとにメタだけ書き戻し、途中で閉じても
    * そこまでの結果が残るようにする。
    */
@@ -196,6 +226,8 @@ export default function App() {
       // 話者が決まったところで、顔にも仮の名前を振る。
       // 話者が読めていて顔が 1 つなら、その人。ここで見本が溜まりはじめる。
       await applyAutoAssign()
+      // セリフが読めたので、そこから表情も推せる。
+      await applyMoodGuesses()
       await reload()
       if (result.stopped) setNotice('読み取りを止めました')
       else if (result.failed) setNotice(`${result.done} 枚を読み取り、${result.failed} 枚は失敗しました`)
@@ -388,9 +420,11 @@ export default function App() {
       await updateShot(next)
       await reload()
       setSelected(next)
+      // セリフが変われば、そこから推した表情も変わる。
+      scheduleMoodGuess()
       setNotice('直した内容を保存しました')
     },
-    [reload],
+    [reload, scheduleMoodGuess],
   )
 
   const reRecognize = useCallback(
@@ -450,9 +484,19 @@ export default function App() {
   }
 
   const toggleMood = useCallback(
-    (shot: Shot, mood: string) =>
-      void patchShot(shot, { moods: toggleIn(shot.moods, mood), tagged: true }),
-    [patchShot],
+    (shot: Shot, mood: string) => {
+      // 手で振ったほうが強い。同じ札の「仮」は、その場で消す
+      // （推し直しを待たずに消えないと、手で外した札が仮で戻ったように見える）。
+      const moods = toggleIn(shot.moods, mood)
+      const guessed = (shot.moodsGuessed ?? []).filter((m) => !moods.includes(m))
+      void patchShot(shot, {
+        moods,
+        moodsGuessed: guessed.length ? guessed : undefined,
+        tagged: true,
+      })
+      scheduleMoodGuess()
+    },
+    [patchShot, scheduleMoodGuess],
   )
   const toggleCharacter = useCallback(
     (shot: Shot, id: string) =>

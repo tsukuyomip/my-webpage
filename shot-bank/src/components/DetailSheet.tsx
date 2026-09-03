@@ -357,14 +357,19 @@ export function DetailSheet({
         <div className="chips-row">
           {moods.map((m) => {
             const on = shot.moods?.includes(m) ?? false;
+            // セリフから推しただけの札は、押されていない見た目のまま「仮」を添える。
+            // 押せば手で振ったことになる ── 合っていれば 1 タップで確定できる。
+            const guessed = !on && (shot.moodsGuessed?.includes(m) ?? false);
             return (
               <button
                 key={m}
-                className={on ? "chip active" : "chip"}
+                className={on ? "chip active" : guessed ? "chip guess" : "chip"}
                 onClick={() => onToggleMood(shot, m)}
                 aria-pressed={on}
+                title={guessed ? "セリフからの推測。押すと確定します" : undefined}
               >
                 {m}
+                {guessed ? "（仮）" : ""}
               </button>
             );
           })}

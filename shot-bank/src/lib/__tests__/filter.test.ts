@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyFacets, collectTags, EMPTY_FACETS, shownCharacterIds } from '../filter'
+import { applyFacets, collectTags, EMPTY_FACETS, shownCharacterIds, shownMoods } from '../filter'
 import type { Shot } from '../types'
 
 const shot = (over: Partial<Shot>): Shot => ({
@@ -62,6 +62,32 @@ describe('条件の重ね方', () => {
 
   it('条件が無ければ全部通す', () => {
     expect(applyFacets(shots, EMPTY_FACETS)).toHaveLength(3)
+  })
+})
+
+describe('セリフから推した表情', () => {
+  const guessed = [
+    shot({ id: 'a', moods: ['笑'] }),
+    shot({ id: 'b', moodsGuessed: ['笑'] }),
+    shot({ id: 'c' }),
+  ]
+
+  it('絞り込みでは、手で振ったものと同じに拾う', () => {
+    // 探せることが第一なので、ここでは区別しない。区別は画面の見た目でやる。
+    const r = applyFacets(guessed, { ...EMPTY_FACETS, moods: ['笑'] })
+    expect(r.map((s) => s.id)).toEqual(['a', 'b'])
+  })
+
+  it('「まだ振っていない」には数えない', () => {
+    // 推した札が付いただけで振り終わったことにすると、振る対象が消えて
+    // 教師が増えなくなる ── 学習が止まる。
+    const r = applyFacets(guessed, { ...EMPTY_FACETS, untaggedOnly: true })
+    expect(r.map((s) => s.id)).toEqual(['b', 'c'])
+  })
+
+  it('手で振ったものと推したものを、重複なく並べる', () => {
+    expect(shownMoods(shot({ moods: ['笑'], moodsGuessed: ['笑', '喜'] }))).toEqual(['笑', '喜'])
+    expect(shownMoods(shot({}))).toEqual([])
   })
 })
 

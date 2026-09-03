@@ -1,3 +1,4 @@
+import { shownMoods } from '../lib/filter'
 import { matchShot } from '../lib/matching'
 import { squeezeJapaneseSpaces } from '../lib/plausible'
 import { buildSnippet } from '../lib/search'
@@ -83,10 +84,17 @@ export function ShotGrid({
                     </span>
                   </span>
                 )}
-                {shot.moods && shot.moods.length > 0 && (
+                {shownMoods(shot).length > 0 && (
                   <span className="caption-moods">
-                    {shot.moods.map((m) => (
+                    {shot.moods?.map((m) => (
                       <span key={m} className="mood-pill">
+                        {m}
+                      </span>
+                    ))}
+                    {/* セリフから推しただけの札。**手で振ったものと見分けが付くように薄く出す。**
+                        探すときは同じに扱うので、隠さずに並べる。 */}
+                    {shot.moodsGuessed?.map((m) => (
+                      <span key={m} className="mood-pill guess" title="セリフからの推測">
                         {m}
                       </span>
                     ))}
