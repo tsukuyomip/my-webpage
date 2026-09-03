@@ -19,9 +19,22 @@ export function SearchBar({
         aria-label="検索"
       />
       {value.trim() && (
-        <span className="search-count">
-          {hits} / {total} 件
-        </span>
+        <>
+          {/* type="search" の × は -webkit-appearance: none で消しているので、
+              iOS でも押せる形で足す。検索と絞り込みは別物 ── 絞り込みには
+              「条件を外す」が別にある。 */}
+          <button
+            type="button"
+            className="search-clear"
+            onClick={() => onChange('')}
+            aria-label="検索を解除"
+          >
+            ×
+          </button>
+          <span className="search-count">
+            {hits} / {total} 件
+          </span>
+        </>
       )}
     </div>
   )

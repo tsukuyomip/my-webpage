@@ -11,7 +11,8 @@ export const DEFAULT_MOODS = [
   '喜',
   '怒',
   '哀',
-  '楽',
+  '嬉',
+  '困',
   '照れ',
   '驚き',
   'はてな',
@@ -29,4 +30,32 @@ export type Mood = string
 export function allMoods(custom: string[] = []): string[] {
   const seen = new Set<string>(DEFAULT_MOODS)
   return [...DEFAULT_MOODS, ...custom.filter((m) => !seen.has(m) && m.trim())]
+}
+
+/**
+ * 呼び名を変えたタグの、旧→新の対応。
+ *
+ * **ラベルを直しただけでは、振ってある枚から見えなくなる。** 絞り込みや
+ * タグ付け画面のチップは DEFAULT_MOODS から作るので、無い名前は出てこない。
+ * すでに旧名で振ってある枚を、実際に書き換える必要がある（migrateMoods）。
+ */
+export const MOOD_RENAMES: Record<string, string> = {
+  楽: '嬉',
+}
+
+/**
+ * 保存済みの moods を、いまの呼び名に直す。
+ * 直すものが無ければ null を返す（呼び出し側はここで書き込みを省ける）。
+ */
+export function migrateMoods(moods: string[] | undefined): string[] | null {
+  if (!moods?.length) return null
+  let changed = false
+  const next = moods.map((m) => {
+    const renamed = MOOD_RENAMES[m]
+    if (renamed) changed = true
+    return renamed ?? m
+  })
+  if (!changed) return null
+  // 新旧が両方振ってあった場合に備えて、重ならないようにする。
+  return [...new Set(next)]
 }

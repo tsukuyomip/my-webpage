@@ -32,8 +32,8 @@ import {
   type DuplicateFile,
   type IngestProgress,
 } from './lib/ingest'
-import { allMoods } from './lib/moods'
-import { needsOcr, recognizeShots, type RecognizeProgress } from './lib/recognizeQueue'
+import { allMoods, migrateMoods } from './lib/moods'
+import { needsOcr, recognizeShots, scanFaces, type RecognizeProgress } from './lib/recognizeQueue'
 import { toPixels } from './lib/ocr'
 import { gakumas } from './lib/profiles/gakumas'
 import { mergeCharacters, repointShot, resolveSpeakers, seedRoster } from './lib/roster'
@@ -110,8 +110,29 @@ export default function App() {
     [reload],
   )
 
+  /**
+   * 呼び名を変えた表情タグ（moods.ts の MOOD_RENAMES）を、保存済みの枚にも直す。
+   *
+   * ラベルだけ直すと、旧名で振ってある枚が絞り込みのチップから見えなくなる
+   * ── チップは DEFAULT_MOODS から作るので、無い名前は出てこない。
+   * 文字列の入れ替えだけで軽いので、起動のたびに確かめる。対象が無ければ
+   * 一瞬で終わる。
+   */
+  const migrateMoodTags = useCallback(async () => {
+    const all = await getAllShots()
+    let touched = false
+    for (const shot of all) {
+      const next = migrateMoods(shot.moods)
+      if (!next) continue
+      await updateShot({ ...shot, moods: next })
+      touched = true
+    }
+    if (touched) await reload()
+  }, [reload])
+
   useEffect(() => {
     void reload()
+    void migrateMoodTags()
     void loadSettings()
       .then(async (loaded) => setSettings(await seedKnownNames(loaded)))
       .catch(() => setSettings(DEFAULT_SETTINGS))
@@ -381,6 +402,38 @@ export default function App() {
       if (fresh) setSelected(fresh)
     },
     [readShots],
+  )
+
+  /**
+   * 顔を、まっさらから探し直す。
+   *
+   * ふだんの読み直し（mergeFaces）は手で足した・動かした・名前を付けた枠を
+   * 必ず残す。これはその逆 ── 検出のやり方や記述子を大きく直したときや、
+   * 手で付けた名前ごと間違っていたと分かったときに、最初からやり直すための
+   * 道具。**手のぶんも含めて全部捨てる。** 押したら戻せないので、呼ぶ側
+   * （DetailSheet）で確認を挟む。
+   */
+  const resetFaces = useCallback(
+    async (shot: Shot) => {
+      setBusy('顔を探し直しています')
+      try {
+        const blob = await getImage(shot.id)
+        if (!blob) return
+        const px = await toPixels(blob)
+        const faces = await scanFaces(px)
+        await updateShot({ ...shot, faces, facesScanned: true, characterIds: [] })
+        await applyAutoAssign()
+        const all = await getAllShots()
+        const fresh = all.find((s) => s.id === shot.id)
+        if (fresh) setSelected(fresh)
+        await reload()
+      } finally {
+        setBusy(null)
+      }
+    },
+    // applyAutoAssign は定義がこの下（[] 依存で不変）。ここでは深追いせず、
+    // readShots と同じやり方で外している。
+    [reload],
   )
 
   /** 1 枚のメタを差し替えて、画面にも即反映する。タグ付けは手数が命なので待たせない。 */
@@ -880,6 +933,7 @@ export default function App() {
           onDelete={removeShot}
           onSaveText={(shot, body, speaker) => void saveText(shot, body, speaker)}
           onReRecognize={(shot) => void reRecognize(shot)}
+          onResetFaces={(shot) => void resetFaces(shot)}
           onToggleMood={toggleMood}
           onToggleCharacter={toggleCharacter}
           onSetSpeaker={(shot, id) => void setSpeaker(shot, id)}

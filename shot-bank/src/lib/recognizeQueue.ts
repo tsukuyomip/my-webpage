@@ -89,7 +89,7 @@ export function needsOcr(shots: Shot[]): Shot[] {
 }
 
 /** 1 枚から顔を拾って、保存する形にする。 */
-async function scanFaces(px: Parameters<typeof detectFaces>[0]): Promise<Face[]> {
+export async function scanFaces(px: Parameters<typeof detectFaces>[0]): Promise<Face[]> {
   const cascade = await loadCascade()
   return detectFaces(px, cascade).map((b) => {
     const face: Face = { id: newId(), x: b.x, y: b.y, w: b.w, h: b.h }
