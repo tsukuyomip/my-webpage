@@ -41,6 +41,14 @@ export function hasAnyFacet(f: Facets): boolean {
   )
 }
 
+/**
+ * その枚に付いている表情ぜんぶ。**手で振ったものと、セリフから推したものの両方。**
+ * 探せることが第一なので、絞り込みでは区別しない（画面では「仮」と分かるように出す）。
+ */
+export function shownMoods(shot: Shot): string[] {
+  return [...new Set([...(shot.moods ?? []), ...(shot.moodsGuessed ?? [])])]
+}
+
 /** 「写っている人」は、明示された分と話者を合わせたもの。 */
 export function shownCharacterIds(shot: Shot): string[] {
   const ids = new Set(shot.characterIds ?? [])
@@ -56,6 +64,7 @@ export function shownCharacterIds(shot: Shot): string[] {
 export function applyFacets(shots: Shot[], f: Facets): Shot[] {
   return shots.filter((shot) => {
     if (f.favoriteOnly && !shot.favorite) return false
+    // 「まだ」は手で振ったかどうかで見る。推しが付いていても振ったことにはしない。
     if (f.untaggedOnly && (shot.moods?.length ?? 0) > 0) return false
     if (f.speakerIds.length && (!shot.speakerId || !f.speakerIds.includes(shot.speakerId))) {
       return false
@@ -64,7 +73,10 @@ export function applyFacets(shots: Shot[], f: Facets): Shot[] {
       const shown = shownCharacterIds(shot)
       if (!f.characterIds.some((id) => shown.includes(id))) return false
     }
-    if (f.moods.length && !f.moods.some((m) => shot.moods?.includes(m))) return false
+    if (f.moods.length) {
+      const has = shownMoods(shot)
+      if (!f.moods.some((m) => has.includes(m))) return false
+    }
     if (f.tags.length && !f.tags.some((t) => shot.tags?.includes(t))) return false
     if (f.query.trim() && matchShot(shot, f.query) === null) return false
     return true

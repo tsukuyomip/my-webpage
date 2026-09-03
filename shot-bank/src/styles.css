@@ -864,6 +864,14 @@ button.tiny {
   color: var(--text-mid);
   white-space: nowrap;
 }
+/* セリフから推しただけの札。**枠線だけにして、塗りの札と一目で分ける。**
+   消さずに出すのは、外れていても探すときの手がかりにはなるため。 */
+.mood-pill.guess {
+  background: none;
+  border: 1px dashed var(--line);
+  color: var(--text-dim);
+  padding: 0 0.3rem;
+}
 /* セリフは 2 行まで。行数を決め打ちにしないと、タイルの高さが揃わず段がずれる。 */
 .caption-body {
   font-size: 0.72rem;
@@ -932,6 +940,13 @@ button.small {
   border-color: var(--accent);
   color: var(--on-accent);
   font-weight: 700;
+}
+/* 推しただけの札。押されていない見た目のまま、破線で「まだ仮」と示す。
+   押せば active になる ＝ 手で振ったことになる。 */
+.chip.guess {
+  border-style: dashed;
+  border-color: var(--accent);
+  color: var(--text-mid);
 }
 .chip.big {
   font-size: 0.95rem;
