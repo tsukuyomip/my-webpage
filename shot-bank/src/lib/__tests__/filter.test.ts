@@ -1,5 +1,13 @@
 import { describe, expect, it } from 'vitest'
-import { applyFacets, collectTags, EMPTY_FACETS, guessedMoods, shownCharacterIds, shownMoods } from '../filter'
+import {
+  applyFacets,
+  collectTags,
+  EMPTY_FACETS,
+  guessedMoods,
+  shownCharacterIds,
+  shownMoods,
+  wasGuessed,
+} from '../filter'
 import type { Shot } from '../types'
 
 const shot = (over: Partial<Shot>): Shot => ({
@@ -107,6 +115,13 @@ describe('セリフから推した表情', () => {
     expect(guessedMoods(shot({ moods: ['笑'], moodsGuessed: ['笑'] }))).toEqual([])
     // moods から外せば、同じ中身がまた見える（ONNX を再実行しなくてよい）。
     expect(guessedMoods(shot({ moodsGuessed: ['笑'] }))).toEqual(['笑'])
+  })
+
+  it('確定済みでも、AI の推しと一致していたかは別に見分けられる', () => {
+    const s = shot({ moods: ['笑', '怒'], moodsGuessed: ['笑'], moodsGuessedImage: ['困'] })
+    expect(wasGuessed(s, '笑')).toBe(true) // セリフ版が推していた
+    expect(wasGuessed(s, '怒')).toBe(false) // 自分だけの判断（AI は推していない）
+    expect(wasGuessed(s, '困')).toBe(true) // 絵版が推していた（確定していなくても中身は見られる）
   })
 })
 

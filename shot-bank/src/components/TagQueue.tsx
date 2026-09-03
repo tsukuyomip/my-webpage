@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { getImage } from '../lib/db'
-import { guessedMoods } from '../lib/filter'
+import { guessedMoods, wasGuessed } from '../lib/filter'
 import { formatStory } from '../lib/story'
 import type { Character, Shot } from '../lib/types'
 import { BlobImage } from './BlobImage'
@@ -151,6 +151,8 @@ export function TagQueue({
             // 推しただけの札は薄く出して、押せば確定。振る手数を減らすのがこの画面の目的。
             // guessedMoods は確定済み・除外済みをすでに除いている。
             const guessed = guessedMoods(shot).includes(m)
+            // 確定済みでも、AI の推しと一致していたかは別に見分ける。
+            const agreed = has(m) && wasGuessed(shot, m)
             return (
               <button
                 key={m}
@@ -164,11 +166,14 @@ export function TagQueue({
                     ? '「これは違う」に。もう一度押すとニュートラルに戻ります'
                     : guessed
                       ? 'セリフ・絵からの推測。押すと確定します'
-                      : undefined
+                      : agreed
+                        ? 'セリフ・絵からの推測と一致しています'
+                        : undefined
                 }
               >
                 {m}
                 {guessed ? '（仮）' : ''}
+                {agreed && <span className="chip-agree" aria-hidden="true" />}
               </button>
             )
           })}

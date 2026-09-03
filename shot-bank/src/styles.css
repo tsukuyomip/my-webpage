@@ -973,6 +973,16 @@ button.small {
   color: var(--on-accent);
   font-weight: 700;
 }
+/* 確定済みの札のうち、AI の推し（セリフ・絵）と一致していたものにだけ付く小さな点。
+   同じ「確定」でも、自分だけの判断か AI も同意していたかを見分けられるように。 */
+.chip-agree {
+  display: inline-block;
+  width: 0.35rem;
+  height: 0.35rem;
+  border-radius: 50%;
+  background: var(--on-accent);
+  opacity: 0.8;
+}
 /* 推しただけの札。押されていない見た目のまま、破線で「まだ仮」と示す。
    押せば active になる ＝ 手で振ったことになる。 */
 .chip.guess {

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getImage } from "../lib/db";
-import { guessedMoods } from "../lib/filter";
+import { guessedMoods, wasGuessed } from "../lib/filter";
 import { formatBytes, formatDate } from "../lib/format";
 import { formatStory } from "../lib/story";
 import type { Character, Face, Shot } from "../lib/types";
@@ -380,6 +380,9 @@ export function DetailSheet({
             // 押せば手で振ったことになる ── 合っていれば 1 タップで確定できる。
             // guessedMoods は on・rejected をすでに除いている。
             const guessed = guessedMoods(shot).includes(m);
+            // 確定済みでも、AI の推しと一致していたかは別に見分ける
+            // （確定は moods を書き換えるだけで、推した中身は消さないので分かる）。
+            const agreed = on && wasGuessed(shot, m);
             return (
               <button
                 key={m}
@@ -391,11 +394,14 @@ export function DetailSheet({
                     ? "「これは違う」に。もう一度押すとニュートラルに戻ります"
                     : guessed
                       ? "セリフ・絵からの推測。押すと確定します"
-                      : undefined
+                      : agreed
+                        ? "セリフ・絵からの推測と一致しています"
+                        : undefined
                 }
               >
                 {m}
                 {guessed ? "（仮）" : ""}
+                {agreed && <span className="chip-agree" aria-hidden="true" />}
               </button>
             );
           })}

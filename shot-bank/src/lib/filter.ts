@@ -68,6 +68,16 @@ export function guessedMoods(shot: Shot): string[] {
   )
 }
 
+/**
+ * このムード、セリフ・絵のどちらかが推していたか。moods・moodsRejected は
+ * 見ない（guessedMoods と違って、確定・除外の状態にかかわらず「AI も
+ * そう言っていたか」だけを答える）。確定した札を、AI の推しと一致していた
+ * ものとそうでないものとで見分けるために使う。
+ */
+export function wasGuessed(shot: Shot, mood: string): boolean {
+  return (shot.moodsGuessed?.includes(mood) ?? false) || (shot.moodsGuessedImage?.includes(mood) ?? false)
+}
+
 /** 「写っている人」は、明示された分と話者を合わせたもの。 */
 export function shownCharacterIds(shot: Shot): string[] {
   const ids = new Set(shot.characterIds ?? [])
