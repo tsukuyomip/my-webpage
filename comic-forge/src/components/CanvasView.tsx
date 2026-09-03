@@ -10,7 +10,7 @@ import { paint } from '../lib/paint'
 import { render, type MeasureFactory } from '../lib/render'
 import { setBoundary } from '../lib/tree'
 import type { PanelId, Project, Pt } from '../lib/types'
-import { clampView, fitView, toPage, type View } from '../lib/view'
+import { clampView, fitRect, fitView, toPage, type View } from '../lib/view'
 
 export type Mode = 'panel' | 'image' | 'balloon' | 'text'
 
@@ -137,13 +137,38 @@ export default function CanvasView(props: Props) {
     draw()
   }, [draw, revision])
 
+  const [stageSize, setStageSize] = useState({ w: 0, h: 0 })
   useEffect(() => {
     const stage = stageRef.current
     if (!stage) return
-    const ro = new ResizeObserver(() => draw())
+    const ro = new ResizeObserver(() => {
+      draw()
+      setStageSize({ w: stage.clientWidth, h: stage.clientHeight })
+    })
     ro.observe(stage)
     return () => ro.disconnect()
   }, [draw])
+
+  // 文字モードでキーボードが出ると .stage がひどく細る。ズームと位置をそのままに
+  // しておくと、直前の見え方のまま一部が切り取られて、編集中の吹き出しがほぼ
+  // 見えなくなる。細ったときは、いま選んでいる吹き出しを追いかけて画面へ収める。
+  useEffect(() => {
+    if (mode !== 'text' || selection?.kind !== 'balloon') return
+    const stage = stageRef.current
+    if (!stage || stage.clientWidth === 0 || stage.clientHeight === 0) return
+    const item = placedRef.current.find((x) => x.balloon.id === selection.id)
+    if (!item || item.pts.length === 0) return
+    const xs = item.pts.map((p) => p.x)
+    const ys = item.pts.map((p) => p.y)
+    setView(
+      fitRect(
+        { x0: Math.min(...xs), y0: Math.min(...ys), x1: Math.max(...xs), y1: Math.max(...ys) },
+        stage.clientWidth,
+        stage.clientHeight,
+      ),
+    )
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mode, selection, stageSize, setView])
 
   const local = (e: PointerEvent | React.PointerEvent): Pt => {
     const r = stageRef.current!.getBoundingClientRect()

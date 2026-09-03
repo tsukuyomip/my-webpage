@@ -167,6 +167,16 @@ describe('組み上げ', () => {
     for (const r of ruby) expect(r.y).toBeLessThan(base[0].y)
   })
 
+  it('ルビの長音符「ー」は縦書きでは縦に寝かせる（横のままだと読みの流れが折れる）', () => {
+    const vertical = layoutText(block({ source: '｜自由《フリー》' }))
+    const chou = vertical.glyphs.find((g) => g.size < 1 && g.chars === 'ー')
+    expect(chou?.rotate).toBe(90)
+
+    const horizontal = layoutText(block({ source: '｜自由《フリー》', vertical: false }))
+    const chouH = horizontal.glyphs.find((g) => g.size < 1 && g.chars === 'ー')
+    expect(chouH?.rotate).toBe(0)
+  })
+
   it('親字より長いルビは、はみ出して並ぶ（潰して詰めない）', () => {
     const l = layoutText(block({ source: '｜咲《さきみだれる》' }))
     const ruby = l.glyphs.filter((g) => g.size < 1)

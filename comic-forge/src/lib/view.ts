@@ -25,6 +25,17 @@ export function fitView(page: Page, w: number, h: number, pad = 16): View {
   }
 }
 
+/** 矩形（ページ座標）が収まる位置と倍率。キーボードで .stage が細ったときに、
+ * 編集中の吹き出しだけを追って画面へ収めるのに使う。 */
+export function fitRect(rect: { x0: number; y0: number; x1: number; y1: number }, w: number, h: number, pad = 24): View {
+  const rw = Math.max(1, rect.x1 - rect.x0)
+  const rh = Math.max(1, rect.y1 - rect.y0)
+  const scale = Math.min(4, Math.min((w - pad * 2) / rw, (h - pad * 2) / rh))
+  const cx = (rect.x0 + rect.x1) / 2
+  const cy = (rect.y0 + rect.y1) / 2
+  return { scale, tx: w / 2 - cx * scale, ty: h / 2 - cy * scale }
+}
+
 export function clampView(v: View, page: Page, w: number, h: number): View {
   const scale = Math.max(0.05, Math.min(8, v.scale))
   const pw = page.width * scale
