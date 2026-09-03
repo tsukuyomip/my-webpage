@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { getImage } from '../lib/db'
-import { guessedMoods } from '../lib/filter'
+import { guessedMoods, wasGuessed } from '../lib/filter'
 import { formatStory } from '../lib/story'
 import type { Character, Shot } from '../lib/types'
 import { BlobImage } from './BlobImage'
@@ -85,6 +85,7 @@ export function TagQueue({
   }
 
   const has = (mood: string) => shot.moods?.includes(mood) ?? false
+  const isRejected = (mood: string) => !has(mood) && (shot.moodsRejected?.includes(mood) ?? false)
 
   return (
     <div
@@ -146,15 +147,37 @@ export function TagQueue({
         <span className="filter-label">表情</span>
         <div className="chips-row">
           {moods.map((m) => {
+            const rejected = isRejected(m)
             // 推しただけの札は薄く出して、押せば確定。振る手数を減らすのがこの画面の目的。
-            const guessed = !has(m) && guessedMoods(shot).includes(m)
+            // guessedMoods は確定済み・除外済みをすでに除いている。
+            const guessed = guessedMoods(shot).includes(m)
+            // 確定済みでも、AI の推しと一致していたかは別に見分ける。
+            const agreed = has(m) && wasGuessed(shot, m)
             return (
               <button
                 key={m}
-                className={has(m) ? 'chip active big' : guessed ? 'chip guess big' : 'chip big'}
+                className={
+                  has(m)
+                    ? agreed
+                      ? 'chip active agreed big'
+                      : 'chip active big'
+                    : rejected
+                      ? 'chip rejected big'
+                      : guessed
+                        ? 'chip guess big'
+                        : 'chip big'
+                }
                 onClick={() => onToggleMood(shot, m)}
                 aria-pressed={has(m)}
-                title={guessed ? 'セリフ・絵からの推測。押すと確定します' : undefined}
+                title={
+                  rejected
+                    ? '「これは違う」に。もう一度押すとニュートラルに戻ります'
+                    : guessed
+                      ? 'セリフ・絵からの推測。押すと確定します'
+                      : agreed
+                        ? 'セリフ・絵からの推測と一致しています'
+                        : undefined
+                }
               >
                 {m}
                 {guessed ? '（仮）' : ''}

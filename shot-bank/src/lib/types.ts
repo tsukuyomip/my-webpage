@@ -124,6 +124,14 @@ export interface Shot {
    * 顔を探し直したら、意味が変わるのでこの印も一緒に消す。
    */
   imageMoodScanned?: boolean
+  /**
+   * 「これは違う」と明示的に外した表情（moods・moodsGuessed・moodsGuessedImage
+   * とは別に持つ）。**推した中身は消さない** ── ここに入れるのは見た目の
+   * 上書き（打ち消し線）だけで、外せば（ニュートラルへ戻せば）同じ推しが
+   * また「仮」として見える。顔を探し直しても消さない ── 「これは違う」は
+   * 顔の枠ではなく、その枚の表情そのものについての判断なので。
+   */
+  moodsRejected?: string[]
   /** 自由タグ */
   tags?: string[]
   favorite?: boolean

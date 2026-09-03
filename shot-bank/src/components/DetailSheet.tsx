@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getImage } from "../lib/db";
-import { guessedMoods } from "../lib/filter";
+import { guessedMoods, wasGuessed } from "../lib/filter";
 import { formatBytes, formatDate } from "../lib/format";
 import { formatStory } from "../lib/story";
 import type { Character, Face, Shot } from "../lib/types";
@@ -375,16 +375,39 @@ export function DetailSheet({
         <div className="chips-row">
           {moods.map((m) => {
             const on = shot.moods?.includes(m) ?? false;
+            const rejected = !on && (shot.moodsRejected?.includes(m) ?? false);
             // セリフ・絵から推しただけの札は、押されていない見た目のまま「仮」を添える。
             // 押せば手で振ったことになる ── 合っていれば 1 タップで確定できる。
-            const guessed = !on && guessedMoods(shot).includes(m);
+            // guessedMoods は on・rejected をすでに除いている。
+            const guessed = guessedMoods(shot).includes(m);
+            // 確定済みでも、AI の推しと一致していたかは別に見分ける
+            // （確定は moods を書き換えるだけで、推した中身は消さないので分かる）。
+            const agreed = on && wasGuessed(shot, m);
             return (
               <button
                 key={m}
-                className={on ? "chip active" : guessed ? "chip guess" : "chip"}
+                className={
+                  on
+                    ? agreed
+                      ? "chip active agreed"
+                      : "chip active"
+                    : rejected
+                      ? "chip rejected"
+                      : guessed
+                        ? "chip guess"
+                        : "chip"
+                }
                 onClick={() => onToggleMood(shot, m)}
                 aria-pressed={on}
-                title={guessed ? "セリフ・絵からの推測。押すと確定します" : undefined}
+                title={
+                  rejected
+                    ? "「これは違う」に。もう一度押すとニュートラルに戻ります"
+                    : guessed
+                      ? "セリフ・絵からの推測。押すと確定します"
+                      : agreed
+                        ? "セリフ・絵からの推測と一致しています"
+                        : undefined
+                }
               >
                 {m}
                 {guessed ? "（仮）" : ""}

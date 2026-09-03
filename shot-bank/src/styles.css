@@ -980,6 +980,21 @@ button.small {
   border-color: var(--accent);
   color: var(--text-mid);
 }
+/* 確定済みの札のうち、AI の推し（セリフ・絵）と一致していたものにだけ付く。
+   枠の外側に少し離して破線を引く ── guess と同じ「破線＝AI の声」のまま、
+   確定（ソリッド）と共存させる。 */
+.chip.active.agreed {
+  outline: 1.5px dashed var(--accent);
+  outline-offset: 2px;
+}
+/* 「これは違う」と明示的に外した札。打ち消し線で、他とはっきり見分ける。
+   もう一度押すとニュートラルに戻り、推した中身があれば「仮」がまた見える。 */
+.chip.rejected {
+  border-color: var(--line);
+  color: var(--text-dim);
+  text-decoration: line-through;
+  text-decoration-thickness: 1.5px;
+}
 .chip.big {
   font-size: 0.95rem;
   padding: 0.45rem 0.85rem;

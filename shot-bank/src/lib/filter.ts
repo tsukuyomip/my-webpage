@@ -50,9 +50,32 @@ export function shownMoods(shot: Shot): string[] {
   return [...new Set([...(shot.moods ?? []), ...guessedMoods(shot)])]
 }
 
-/** 推した表情（セリフ版・絵版の両方）だけ。手で振ったものは含まない。 */
+/**
+ * 推した表情（セリフ版・絵版の両方）のうち、**まだ手の判断が付いていないもの**。
+ * 確定した札（moods）・「これは違う」と明示的に外した札（moodsRejected）は
+ * どちらも除く。
+ *
+ * moodsGuessed／moodsGuessedImage の中身そのものは、手で確定・除外しても
+ * **消さない**（App.tsx の toggleMood）。ここで除くのは表示のためだけ ──
+ * 確定を解いたり除外を戻したりしてニュートラルに戻れば、同じ推しがまた
+ * 「仮」として見える。中身を消してしまうと、絵の推論（ONNX）をもう一度
+ * 回さないと戻せなくなる。
+ */
 export function guessedMoods(shot: Shot): string[] {
-  return [...new Set([...(shot.moodsGuessed ?? []), ...(shot.moodsGuessedImage ?? [])])]
+  const settled = new Set([...(shot.moods ?? []), ...(shot.moodsRejected ?? [])])
+  return [...new Set([...(shot.moodsGuessed ?? []), ...(shot.moodsGuessedImage ?? [])])].filter(
+    (m) => !settled.has(m),
+  )
+}
+
+/**
+ * このムード、セリフ・絵のどちらかが推していたか。moods・moodsRejected は
+ * 見ない（guessedMoods と違って、確定・除外の状態にかかわらず「AI も
+ * そう言っていたか」だけを答える）。確定した札を、AI の推しと一致していた
+ * ものとそうでないものとで見分けるために使う。
+ */
+export function wasGuessed(shot: Shot, mood: string): boolean {
+  return (shot.moodsGuessed?.includes(mood) ?? false) || (shot.moodsGuessedImage?.includes(mood) ?? false)
 }
 
 /** 「写っている人」は、明示された分と話者を合わせたもの。 */
