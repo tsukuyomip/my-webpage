@@ -1,17 +1,31 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { features, guessMoods, textOf, toExamples, trainMoods, trainTag } from '../moodGuess'
+import {
+  features,
+  guessMoods,
+  speakerShown,
+  textOf,
+  toExamples,
+  trainMoods,
+  trainTag,
+  whoOf,
+} from '../moodGuess'
 import type { Shot } from '../types'
 
 /**
- * 実機で手で振ったタグ 117 枚ぶんの、セリフと表情だけ。絵は入っていない。
- * （画像 139 枚のバックアップから、表情タグの付いた枚を抜き出したもの）
+ * 実機で手で振ったタグ 113 枚ぶんの、本文・誰の絵か・表情だけ。絵は入っていない。
+ * （画像 139 枚のバックアップから、表情タグと本文の両方がある枚を抜き出したもの）
+ *
+ * who は「誰の絵か」＝ 話者、無ければ顔に付いた名前。**線を引くときにこの単位で
+ * 教師から外す**ので、見本にも入れてある（13 人ぶん）。
  */
-const REAL: { text: string; moods: string[] }[] = JSON.parse(
+const REAL: { body: string; who: string | null; moods: string[] }[] = JSON.parse(
   fs.readFileSync(path.join(import.meta.dirname, '../__fixtures__/mood-text.json'), 'utf8'),
 )
-const shots = REAL.map((r, i) => ({ id: `s${i}`, body: r.text, moods: r.moods }) as Shot)
+const shots = REAL.map(
+  (r, i) => ({ id: `s${i}`, body: r.body, speakerId: r.who ?? undefined, moods: r.moods }) as Shot,
+)
 
 describe('セリフから表情を推す', () => {
   it('文字 1 つと 2 つ並びを、出た・出ないで拾う', () => {
@@ -24,9 +38,19 @@ describe('セリフから表情を推す', () => {
     expect([...f].filter((x) => x === 'は')).toHaveLength(1)
   })
 
-  it('本文と話者名の両方を見る', () => {
-    expect(textOf({ body: 'こんにちは', speakerRaw: 'ことね' } as Shot)).toBe('こんにちは ことね')
+  it('本文だけを見る。話者名は入れない', () => {
+    // 話者名を入れると「この人はよく笑う」を覚えるだけになる（実測で、話者名だけで
+    // 笑が 適65%/再82% 出た）。それは表情ではないので外した。
+    expect(textOf({ body: 'こんにちは', speakerRaw: 'ことね' } as Shot)).toBe('こんにちは')
     expect(textOf({} as Shot)).toBe('')
+  })
+
+  it('誰の絵かは、話者 → 顔 の順で決める', () => {
+    expect(whoOf({ id: 'a', speakerId: 'k' } as Shot)).toBe('k')
+    expect(
+      whoOf({ id: 'a', faces: [{ id: 'f', x: 0, y: 0, w: 1, h: 1, characterId: 'c' }] } as Shot),
+    ).toBe('c')
+    expect(whoOf({ id: 'a' } as Shot)).toBeNull()
   })
 
   it('手で振ったものだけを教師にする', () => {
@@ -48,9 +72,9 @@ describe('実機のセリフで測る', () => {
   const models = trainMoods(shots)
   const byTag = new Map(models.map((m) => [m.tag, m]))
 
-  it('117 枚から、使えるタグだけが残る', () => {
-    expect(REAL.length).toBe(117)
-    // 全部は残らない。実測で当たらないタグ（真顔・照れ）は線に届かず落ちる。
+  it('113 枚から、使えるタグだけが残る', () => {
+    expect(REAL.length).toBe(113)
+    // 全部は残らない。キャラを抜くと崩れるタグ（ドヤ顔・照れ・ジト目）は線に届かない。
     expect(models.length).toBeGreaterThan(0)
     expect(models.length).toBeLessThan(new Set(REAL.flatMap((r) => r.moods)).size)
   })
@@ -59,13 +83,15 @@ describe('実機のセリフで測る', () => {
     const m = byTag.get('笑')
     expect(m, '笑 が落ちている').toBeTruthy()
     expect(m!.precision).toBeGreaterThanOrEqual(0.6)
-    // 4 枚に 3 枚は当たり、実際の半分以上を拾える（実測 適合 0.75 / 再現 0.75）。
-    expect(m!.recall).toBeGreaterThan(0.4)
+    // 5 枚に 3 枚は当たり、実際の 4 分の 3 以上を拾える（実測 適合 62% / 再現 78%）。
+    expect(m!.recall).toBeGreaterThan(0.5)
   })
 
-  it('当たらないタグは、線に届かず出てこない', () => {
-    // 真顔は実測で適合 21%（基準率 16% とほぼ同じ）。出すと一覧が汚れるだけ。
-    expect(byTag.has('真顔')).toBe(false)
+  it('その人を抜くと崩れるタグは、出てこない', () => {
+    // ドヤ顔は 1 枚抜きなら「適合 100%」に見えるが、その人を丸ごと抜くと
+    // AUC 0.48（偶然以下）。キャラの口調を覚えていただけなので出さない。
+    expect(byTag.has('ドヤ顔')).toBe(false)
+    expect(byTag.has('ジト目')).toBe(false)
   })
 
   it('狙った適合率を上げると、残るタグが減る', () => {
@@ -74,17 +100,21 @@ describe('実機のセリフで測る', () => {
     expect(strict).toBeLessThanOrEqual(loose)
   })
 
-  it('線は 1 つ抜きで引く。自分自身を教師に含めない', () => {
-    // 含めてしまうと、どのタグも完璧に見えて線が甘くなる。
-    // 全タグの適合率が 1.0 に張り付いていたら、それが起きている。
-    expect(models.every((m) => m.precision === 1)).toBe(false)
+  it('線は「その人ごと抜いて」引く。1 枚抜きより厳しくなる', () => {
+    // 同じ人の別の枚が教師に残っていると、口調を覚えただけでも高く出る。
+    // 人ごと抜くほうが必ず厳しいので、残るタグは同数以下になる。
+    const perShot = toExamples(shots).map((e) => ({ ...e, who: null }))
+    const loose = ['笑', '喜', 'ドヤ顔', '照れ', 'ジト目', '困']
+      .map((t) => trainTag(perShot, t, 0.6))
+      .filter(Boolean).length
+    expect(models.length).toBeLessThan(loose)
   })
 
-  it('1 つ抜きのために引いた数え上げを、ちゃんと戻している', () => {
+  it('抜くために引いた数え上げを、ちゃんと戻している', () => {
     // 速さのために数え上げを複製せず、引いて測って戻している。戻し漏れがあると
-    // 静かに壊れる（学習した中身が、最後の 1 枚を欠いたものになる）ので見張る。
+    // 静かに壊れる（学習した中身が、最後の 1 人ぶんを欠いたものになる）ので見張る。
     const examples = toExamples(shots)
-    const m = trainTag(examples, '笑', 0.65)!
+    const m = trainTag(examples, '笑', 0.6)!
     const n = examples
       .filter((e) => e.moods.includes('笑'))
       .reduce((a, e) => a + e.features.size, 0)
@@ -92,9 +122,62 @@ describe('実機のセリフで測る', () => {
   })
 
   it('教師が薄いタグは学習しない', () => {
-    const few = REAL.slice(0, 10).map((r, i) => ({ id: `x${i}`, body: r.text, moods: r.moods }) as Shot)
+    const few = REAL.slice(0, 10).map((r, i) => ({ id: `x${i}`, body: r.body, moods: r.moods }) as Shot)
     expect(trainMoods(few)).toHaveLength(0)
     expect(trainTag(toExamples(shots), '存在しないタグ', 0.6)).toBeNull()
+  })
+})
+
+describe('喋っている人が写っているか', () => {
+  const face = (characterId?: string) => ({ id: 'f', x: 0, y: 0, w: 10, h: 10, characterId })
+
+  it('話者が分からなければ判定しない', () => {
+    expect(speakerShown({ id: 'a', faces: [face('k')] } as Shot)).toBe('unknown')
+  })
+
+  it('顔に名前が無ければ判定しない', () => {
+    // 顔が取れていない枚は多い（実測で札付き 132 枚のうち 11 枚）。落としたくない。
+    expect(speakerShown({ id: 'a', speakerId: 'k', faces: [] } as unknown as Shot)).toBe('unknown')
+    expect(speakerShown({ id: 'a', speakerId: 'k', faces: [face()] } as unknown as Shot)).toBe(
+      'unknown',
+    )
+  })
+
+  it('話者の顔が写っていれば yes', () => {
+    expect(speakerShown({ id: 'a', speakerId: 'k', faces: [face('k')] } as unknown as Shot)).toBe(
+      'yes',
+    )
+    // 2 人写っていて片方が話者、でも yes
+    expect(
+      speakerShown({ id: 'a', speakerId: 'k', faces: [face('x'), face('k')] } as unknown as Shot),
+    ).toBe('yes')
+  })
+
+  it('写っている顔が全部ほかの人なら no', () => {
+    expect(speakerShown({ id: 'a', speakerId: 'k', faces: [face('x')] } as unknown as Shot)).toBe(
+      'no',
+    )
+  })
+
+  it('名前の付いていない顔が混じっていれば止めない', () => {
+    // その顔が話者かもしれない。分からないものは通す。
+    expect(
+      speakerShown({ id: 'a', speakerId: 'k', faces: [face('x'), face()] } as unknown as Shot),
+    ).toBe('unknown')
+  })
+
+  it('別人が喋っている絵には、セリフから推さない', () => {
+    const models = trainMoods(shots)
+    const text = REAL.find((r) => r.moods.includes('笑'))!.body
+    expect(guessMoods({ id: 'x', body: text } as Shot, models)).toContain('笑')
+    // 同じセリフでも、写っているのが話者でないと分かれば出さない
+    const other = {
+      id: 'x',
+      body: text,
+      speakerId: 'k',
+      faces: [{ id: 'f', x: 0, y: 0, w: 10, h: 10, characterId: 'x' }],
+    } as unknown as Shot
+    expect(guessMoods(other, models)).toEqual([])
   })
 })
 
@@ -102,7 +185,7 @@ describe('推す', () => {
   const models = trainMoods(shots)
 
   it('手で振ってあるタグは推さない', () => {
-    const shot = { id: 'x', body: REAL.find((r) => r.moods.includes('笑'))!.text, moods: ['笑'] } as Shot
+    const shot = { id: 'x', body: REAL.find((r) => r.moods.includes('笑'))!.body, moods: ['笑'] } as Shot
     expect(guessMoods(shot, models)).not.toContain('笑')
   })
 
@@ -118,7 +201,7 @@ describe('推す', () => {
     // 1 つ抜きではないので甘い測り方だが、道が通っていることの確認。
     const smiles = REAL.filter((r) => r.moods.includes('笑')).slice(0, 20)
     const hit = smiles.filter((r) =>
-      guessMoods({ id: 'x', body: r.text } as Shot, models).includes('笑'),
+      guessMoods({ id: 'x', body: r.body } as Shot, models).includes('笑'),
     )
     expect(hit.length).toBeGreaterThan(smiles.length / 2)
   })
