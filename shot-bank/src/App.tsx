@@ -597,18 +597,39 @@ export default function App() {
     return cur.includes(value) ? cur.filter((v) => v !== value) : [...cur, value]
   }
 
+  /**
+   * ニュートラル → オン（確定）→ オフ（明示的に外す）→ ニュートラル、の
+   * 3 状態を 1 タップで巡回する。
+   *
+   * **moodsGuessed／moodsGuessedImage には触らない。** 推した中身は消さず、
+   * 手の判断（moods・moodsRejected）とは別に持ったままにする。「まだ判断が
+   * 付いていないものだけ仮として見せる」という除外は表示側
+   * （lib/filter.ts の guessedMoods）でやるので、ここで消すと絵の推論
+   * （ONNX）を再実行しないと戻せなくなってしまう。
+   */
   const toggleMood = useCallback(
     (shot: Shot, mood: string) => {
-      // 手で振ったほうが強い。同じ札の「仮」は、その場で消す
-      // （推し直しを待たずに消えないと、手で外した札が仮で戻ったように見える）。
-      // セリフ版・絵版、両方の「仮」から消す。
-      const moods = toggleIn(shot.moods, mood)
-      const guessed = (shot.moodsGuessed ?? []).filter((m) => !moods.includes(m))
-      const guessedImage = (shot.moodsGuessedImage ?? []).filter((m) => !moods.includes(m))
+      const on = shot.moods?.includes(mood) ?? false
+      const rejected = !on && (shot.moodsRejected?.includes(mood) ?? false)
+      // 3 状態それぞれの遷移先を、moods／moodsRejected の組で明示する
+      // （toggleIn だと「オフ→ニュートラル」で誤って moods に足してしまうため使わない）。
+      let moods = shot.moods ?? []
+      let moodsRejected = shot.moodsRejected ?? []
+      if (on) {
+        // オン → オフ
+        moods = moods.filter((m) => m !== mood)
+        moodsRejected = [...moodsRejected, mood]
+      } else if (rejected) {
+        // オフ → ニュートラル
+        moodsRejected = moodsRejected.filter((m) => m !== mood)
+      } else {
+        // ニュートラル → オン
+        moods = [...moods, mood]
+      }
+
       void patchShot(shot, {
         moods,
-        moodsGuessed: guessed.length ? guessed : undefined,
-        moodsGuessedImage: guessedImage.length ? guessedImage : undefined,
+        moodsRejected: moodsRejected.length ? moodsRejected : undefined,
         tagged: true,
       })
       scheduleMoodGuess()

@@ -85,6 +85,7 @@ export function TagQueue({
   }
 
   const has = (mood: string) => shot.moods?.includes(mood) ?? false
+  const isRejected = (mood: string) => !has(mood) && (shot.moodsRejected?.includes(mood) ?? false)
 
   return (
     <div
@@ -146,15 +147,25 @@ export function TagQueue({
         <span className="filter-label">表情</span>
         <div className="chips-row">
           {moods.map((m) => {
+            const rejected = isRejected(m)
             // 推しただけの札は薄く出して、押せば確定。振る手数を減らすのがこの画面の目的。
-            const guessed = !has(m) && guessedMoods(shot).includes(m)
+            // guessedMoods は確定済み・除外済みをすでに除いている。
+            const guessed = guessedMoods(shot).includes(m)
             return (
               <button
                 key={m}
-                className={has(m) ? 'chip active big' : guessed ? 'chip guess big' : 'chip big'}
+                className={
+                  has(m) ? 'chip active big' : rejected ? 'chip rejected big' : guessed ? 'chip guess big' : 'chip big'
+                }
                 onClick={() => onToggleMood(shot, m)}
                 aria-pressed={has(m)}
-                title={guessed ? 'セリフ・絵からの推測。押すと確定します' : undefined}
+                title={
+                  rejected
+                    ? '「これは違う」に。もう一度押すとニュートラルに戻ります'
+                    : guessed
+                      ? 'セリフ・絵からの推測。押すと確定します'
+                      : undefined
+                }
               >
                 {m}
                 {guessed ? '（仮）' : ''}

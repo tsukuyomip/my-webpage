@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { applyFacets, collectTags, EMPTY_FACETS, shownCharacterIds, shownMoods } from '../filter'
+import { applyFacets, collectTags, EMPTY_FACETS, guessedMoods, shownCharacterIds, shownMoods } from '../filter'
 import type { Shot } from '../types'
 
 const shot = (over: Partial<Shot>): Shot => ({
@@ -88,6 +88,25 @@ describe('セリフから推した表情', () => {
   it('手で振ったものと推したものを、重複なく並べる', () => {
     expect(shownMoods(shot({ moods: ['笑'], moodsGuessed: ['笑', '喜'] }))).toEqual(['笑', '喜'])
     expect(shownMoods(shot({}))).toEqual([])
+  })
+
+  it('「これは違う」と外したものは、推した中身が残っていても数えない', () => {
+    const s = shot({ moodsGuessed: ['笑', '喜'], moodsGuessedImage: ['困'], moodsRejected: ['喜'] })
+    expect(guessedMoods(s)).toEqual(['笑', '困'])
+    expect(shownMoods(s)).toEqual(['笑', '困'])
+  })
+
+  it('外したものを戻すと（moodsRejected から消すと）また数える', () => {
+    const s = shot({ moodsGuessed: ['喜'], moodsRejected: [] })
+    expect(guessedMoods(s)).toEqual(['喜'])
+  })
+
+  it('確定中も推した中身は消えず、確定を解けばまた仮に見える', () => {
+    // moods に入れても moodsGuessed の中身自体は消さない設計（App.tsx toggleMood）。
+    // guessedMoods は moods を除くので、確定中は「仮」に出ない。
+    expect(guessedMoods(shot({ moods: ['笑'], moodsGuessed: ['笑'] }))).toEqual([])
+    // moods から外せば、同じ中身がまた見える（ONNX を再実行しなくてよい）。
+    expect(guessedMoods(shot({ moodsGuessed: ['笑'] }))).toEqual(['笑'])
   })
 })
 
