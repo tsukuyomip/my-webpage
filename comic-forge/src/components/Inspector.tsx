@@ -506,6 +506,17 @@ function BalloonInspector(props: Props) {
               onChange={(v) => props.live(set({ shapeParams: { ...b.shapeParams, amplitude: v / 100 } }))}
               onCommit={props.endGesture}
             />
+            {b.shape === 'burst' && (
+              <Field
+                label="トゲのばらつき"
+                value={(b.shapeParams.jitter ?? 0) * 100}
+                min={0}
+                max={100}
+                suffix="%"
+                onChange={(v) => props.live(set({ shapeParams: { ...b.shapeParams, jitter: v / 100 } }))}
+                onCommit={props.endGesture}
+              />
+            )}
           </>
         )}
         {b.shape === 'round' && (

@@ -14,6 +14,29 @@ import type { Balloon, Pt, Tail } from './types'
 
 const SAMPLES = 144
 
+/**
+ * 吹き出し 1 個につき同じ乱数列が出るように、id から種をこしらえる。
+ * 保存しておく値を増やさずに、開き直しても同じギザギザが出るようにするため。
+ */
+function hashSeed(s: string): number {
+  let h = 2166136261
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i)
+    h = Math.imul(h, 16777619)
+  }
+  return h >>> 0
+}
+
+function mulberry32(seed: number): () => number {
+  let t = seed >>> 0
+  return () => {
+    t = (t + 0x6d2b79f5) | 0
+    let r = Math.imul(t ^ (t >>> 15), 1 | t)
+    r = (r + Math.imul(r ^ (r >>> 7), 61 | r)) ^ r
+    return ((r ^ (r >>> 14)) >>> 0) / 4294967296
+  }
+}
+
 export function outlineFor(b: Balloon): Pt[] {
   const a = Math.max(1, b.w / 2)
   const c = Math.max(1, b.h / 2)
@@ -68,11 +91,22 @@ export function outlineFor(b: Balloon): Pt[] {
       // 尖りと谷を交互に置くだけ。叫び・効果音の吹き出し。
       const n = Math.max(4, Math.round(p.count ?? 14))
       const amp = Math.min(0.6, p.amplitude ?? 0.18)
+      // トゲの長さをどれだけ乱数で散らすか。0 なら全部同じ長さ、1 なら
+      // 「谷と同じ高さ」〜「基準の 2 倍」まで振れる。谷の深さはそのまま揃える
+      // （トゲ **だけ** がバラつくほうが、手描きのギザギザに近い）。
+      const jitter = Math.min(1, Math.max(0, p.jitter ?? 0))
+      const rng = mulberry32(hashSeed(b.id))
       const out: Pt[] = []
       for (let i = 0; i < n * 2; i++) {
         const th = (i / (n * 2)) * Math.PI * 2
-        const k = i % 2 === 0 ? 1 + amp : 1 - amp
-        out.push({ x: a * k * Math.cos(th), y: c * k * Math.sin(th) })
+        if (i % 2 === 0) {
+          const factor = 1 + jitter * (2 * rng() - 1)
+          const k = 1 + amp * factor
+          out.push({ x: a * k * Math.cos(th), y: c * k * Math.sin(th) })
+        } else {
+          const k = 1 - amp
+          out.push({ x: a * k * Math.cos(th), y: c * k * Math.sin(th) })
+        }
       }
       return out
     }
@@ -159,7 +193,8 @@ function tailCut(pts: Pt[], acc: number[], tail: Tail, center: Pt): Cut | null {
   const hw = (spread * perim) / 2
   const A = pointAtLength(pts, acc, s0 - hw).p
   const B = pointAtLength(pts, acc, s0 + hw).p
-  const base = pointAtLength(pts, acc, s0).p
+  const baseAt = pointAtLength(pts, acc, s0)
+  const base = baseAt.p
 
   // 向きは「中心 → 根元」の延長。aim でそこから振る。
   let dx = base.x - center.x
@@ -172,43 +207,98 @@ function tailCut(pts: Pt[], acc: number[], tail: Tail, center: Pt): Cut | null {
   const uy = dx * Math.sin(r) + dy * Math.cos(r)
   const tip = { x: base.x + ux * tail.len, y: base.y + uy * tail.len }
 
-  const curve = tail.bend === 0 ? [tip] : bentTailCurve(A, B, tip, tail.bend)
+  const curve =
+    tail.bend === 0
+      ? [tip]
+      : bentTailCurve(A, B, tip, tail.bend, outwardNormalAt(pts, baseAt.index, center))
 
   return { sA: wrap(s0 - hw, perim), sB: wrap(s0 + hw, perim), A, B, curve }
 }
 
-/**
- * 根元（A→tip→B）を、しっぽの芯（根元の中点→先端）ごとたわませる。
- *
- * 辺ごとに別々に膨らませると、根元から先端までの距離が左右で違うぶんだけ
- * 片側が太って見えてしまう（幅が変わって見える）。芯のたわみ 1 本ぶんの
- * ずれを両辺の中間点へ同じベクトルで足すことで、幅はそのままにしっぽ全体を
- * しならせる。
- */
-function bentTailCurve(A: Pt, B: Pt, tip: Pt, bend: number): Pt[] {
-  const mid = { x: (A.x + B.x) / 2, y: (A.y + B.y) / 2 }
-  const dx = tip.x - mid.x
-  const dy = tip.y - mid.y
-  const d = Math.hypot(dx, dy)
-  if (d < 1e-6) return [tip]
-  const off = { x: -(dy / d) * bend * d * 0.5, y: (dx / d) * bend * d * 0.5 }
-  return [...bulge(A, tip, off), tip, ...bulge(tip, B, off)]
+/** 輪郭の頂点 index→index+1 の辺から、外向きの単位法線を作る。 */
+function outwardNormalAt(pts: Pt[], index: number, center: Pt): Pt {
+  const a = pts[index]
+  const b = pts[(index + 1) % pts.length]
+  const dx = b.x - a.x
+  const dy = b.y - a.y
+  const len = Math.hypot(dx, dy) || 1
+  const n = { x: -dy / len, y: dx / len }
+  const mx = (a.x + b.x) / 2 - center.x
+  const my = (a.y + b.y) / 2 - center.y
+  // 中心から遠ざかる向きを選ぶ（2 つある法線候補のうち外側のほう）。
+  return mx * n.x + my * n.y >= 0 ? n : { x: -n.x, y: -n.y }
 }
 
-/** 直線 a→b を、中間点に off を足した 1 点を制御点とする 2 次ベジェで丸める。 */
-function bulge(a: Pt, b: Pt, off: Pt): Pt[] {
-  const cx = (a.x + b.x) / 2 + off.x
-  const cy = (a.y + b.y) / 2 + off.y
+/** 先端側の接線を、根元の接線からどれだけ回した向きにするか（固定）。 */
+const FILLET_ANGLE = (70 * Math.PI) / 180
+/** 曲げの効き方の上限。1 に近づけすぎると先端近くで尖って見える。 */
+const FILLET_MAX = 0.85
+
+/**
+ * 根元（A→tip→B）を曲げる。
+ *
+ * 根元では輪郭に対して垂直な接線（normal）で出す（そうしないと、輪郭から
+ * 生えたところで折れ線が急に折れて、継ぎ目が見えてしまう）。両辺とも
+ * 根元の中点（この 1 点だけ）で測った法線を使う。A・B それぞれの位置で
+ * 法線を測ると、楕円が細長いときなどに左右で向きが大きく違ってしまい、
+ * 片側だけ大きく迂回する不自然な形になる。
+ */
+function bentTailCurve(A: Pt, B: Pt, tip: Pt, bend: number, normal: Pt): Pt[] {
+  const angle = Math.sign(bend) * FILLET_ANGLE
+  const cos = Math.cos(angle)
+  const sin = Math.sin(angle)
+  const tipTangent = { x: normal.x * cos - normal.y * sin, y: normal.x * sin + normal.y * cos }
+  const f = Math.min(1, Math.abs(bend)) * FILLET_MAX
+  const toTip = edgeToTip(A, normal, tip, tipTangent, f)
+  const fromTip = edgeToTip(B, normal, tip, tipTangent, f)
+  fromTip.reverse()
+  return [...toTip, tip, ...fromTip]
+}
+
+/**
+ * 根元 root から先端 tip までを、根元では normal の向きへ立ち上がり、そこから
+ * 先端まで一方向にだけ曲がる 3 次ベジェで結ぶ。
+ *
+ * root からの接線（normal）と、tip への入り方（tipTangent の逆向き）、
+ * この 2 本の半直線が交わる点 Q を求め、制御点をどちらも「各端点から Q へ
+ * 向かう線分の上」に置く（同じ比率 f で内分する）。この置き方をすると、
+ * 制御多角形が root→p1→p2→tip の順で必ず同じ向きに曲がる形（凸）になり、
+ * 曲がる向きが途中で反転する S 字には原理的にならない。
+ * 辺ごとに独立な向きへたわませていた前の実装は、根元の法線が芯（根元→先端）
+ * の向きから傾いている場合に反対向きの押し合いが起きて S 字になっていた。
+ */
+function edgeToTip(root: Pt, normal: Pt, tip: Pt, tipTangent: Pt, f: number): Pt[] {
   const out: Pt[] = []
+  if (f > 1e-6) {
+    const q = rayIntersect(root, normal, tip, { x: -tipTangent.x, y: -tipTangent.y })
+    if (q) {
+      const p1 = { x: root.x + f * (q.x - root.x), y: root.y + f * (q.y - root.y) }
+      const p2 = { x: tip.x + f * (q.x - tip.x), y: tip.y + f * (q.y - tip.y) }
+      for (let i = 1; i < CURVE_STEPS; i++) {
+        const t = i / CURVE_STEPS
+        const m = 1 - t
+        out.push({
+          x: m * m * m * root.x + 3 * m * m * t * p1.x + 3 * m * t * t * p2.x + t * t * t * tip.x,
+          y: m * m * m * root.y + 3 * m * m * t * p1.y + 3 * m * t * t * p2.y + t * t * t * tip.y,
+        })
+      }
+      return out
+    }
+  }
+  // 曲げが 0（または 2 本の半直線が平行で交わらない）ときは直線でつなぐ。
   for (let i = 1; i < CURVE_STEPS; i++) {
     const t = i / CURVE_STEPS
-    const m = 1 - t
-    out.push({
-      x: m * m * a.x + 2 * m * t * cx + t * t * b.x,
-      y: m * m * a.y + 2 * m * t * cy + t * t * b.y,
-    })
+    out.push({ x: root.x + (tip.x - root.x) * t, y: root.y + (tip.y - root.y) * t })
   }
   return out
+}
+
+/** 半直線 a+t*da（t>0）と b+s*db（s>0）の交点。平行なら null。 */
+function rayIntersect(a: Pt, da: Pt, b: Pt, db: Pt): Pt | null {
+  const denom = da.x * db.y - da.y * db.x
+  if (Math.abs(denom) < 1e-9) return null
+  const t = ((b.x - a.x) * db.y - (b.y - a.y) * db.x) / denom
+  return { x: a.x + t * da.x, y: a.y + t * da.y }
 }
 
 /**
