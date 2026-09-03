@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { getImage } from '../lib/db'
+import { guessedMoods } from '../lib/filter'
 import { formatStory } from '../lib/story'
 import type { Character, Shot } from '../lib/types'
 import { BlobImage } from './BlobImage'
@@ -19,6 +20,7 @@ export function TagQueue({
   onToggleCharacter,
   onToggleFavorite,
   onClose,
+  onViewShot,
 }: {
   shots: Shot[]
   roster: Character[]
@@ -27,6 +29,8 @@ export function TagQueue({
   onToggleCharacter: (shot: Shot, characterId: string) => void
   onToggleFavorite: (shot: Shot) => void
   onClose: () => void
+  /** この 1 枚を表示し始めた（絵からの表情推定を、要る枚だけここで走らせる）。 */
+  onViewShot?: (shot: Shot) => void
 }) {
   const [index, setIndex] = useState(0)
   const [showPeople, setShowPeople] = useState(false)
@@ -45,6 +49,10 @@ export function TagQueue({
       alive = false
     }
   }, [shot?.id])
+
+  useEffect(() => {
+    if (shot) onViewShot?.(shot)
+  }, [shot?.id, onViewShot])
 
   const go = (delta: number) => setIndex((i) => Math.min(shots.length - 1, Math.max(0, i + delta)))
 
@@ -130,14 +138,14 @@ export function TagQueue({
         <div className="chips-row">
           {moods.map((m) => {
             // 推しただけの札は薄く出して、押せば確定。振る手数を減らすのがこの画面の目的。
-            const guessed = !has(m) && (shot.moodsGuessed?.includes(m) ?? false)
+            const guessed = !has(m) && guessedMoods(shot).includes(m)
             return (
               <button
                 key={m}
                 className={has(m) ? 'chip active big' : guessed ? 'chip guess big' : 'chip big'}
                 onClick={() => onToggleMood(shot, m)}
                 aria-pressed={has(m)}
-                title={guessed ? 'セリフからの推測。押すと確定します' : undefined}
+                title={guessed ? 'セリフ・絵からの推測。押すと確定します' : undefined}
               >
                 {m}
                 {guessed ? '（仮）' : ''}

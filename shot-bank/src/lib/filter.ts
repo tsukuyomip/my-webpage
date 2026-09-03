@@ -42,11 +42,17 @@ export function hasAnyFacet(f: Facets): boolean {
 }
 
 /**
- * その枚に付いている表情ぜんぶ。**手で振ったものと、セリフから推したものの両方。**
- * 探せることが第一なので、絞り込みでは区別しない（画面では「仮」と分かるように出す）。
+ * その枚に付いている表情ぜんぶ。**手で振ったもの・セリフから推したもの・
+ * 絵から推したものの全部。** 探せることが第一なので、絞り込みでは区別しない
+ * （画面では「仮」と分かるように出す）。
  */
 export function shownMoods(shot: Shot): string[] {
-  return [...new Set([...(shot.moods ?? []), ...(shot.moodsGuessed ?? [])])]
+  return [...new Set([...(shot.moods ?? []), ...guessedMoods(shot)])]
+}
+
+/** 推した表情（セリフ版・絵版の両方）だけ。手で振ったものは含まない。 */
+export function guessedMoods(shot: Shot): string[] {
+  return [...new Set([...(shot.moodsGuessed ?? []), ...(shot.moodsGuessedImage ?? [])])]
 }
 
 /** 「写っている人」は、明示された分と話者を合わせたもの。 */

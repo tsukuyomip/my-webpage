@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getImage } from "../lib/db";
+import { guessedMoods } from "../lib/filter";
 import { formatBytes, formatDate } from "../lib/format";
 import { formatStory } from "../lib/story";
 import type { Character, Face, Shot } from "../lib/types";
@@ -29,6 +30,7 @@ export function DetailSheet({
   onToggleCharacter,
   onSetSpeaker,
   onToggleFavorite,
+  onViewShot,
   roster,
   moods,
   busy,
@@ -50,6 +52,8 @@ export function DetailSheet({
   /** 話者を手で決める。null で外す。決めた色は名簿が覚える（App 側） */
   onSetSpeaker: (shot: Shot, characterId: string | null) => void;
   onToggleFavorite: (shot: Shot) => void;
+  /** この 1 枚を開いた（絵からの表情推定を、要る枚だけここで走らせる）。 */
+  onViewShot?: (shot: Shot) => void;
   roster: Character[];
   moods: string[];
   busy: boolean;
@@ -101,6 +105,11 @@ export function DetailSheet({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose]);
+
+  // shot.id だけを見る。body 等の更新のたびには走らせない。
+  useEffect(() => {
+    onViewShot?.(shot);
+  }, [shot.id, onViewShot]); // eslint 未導入。shot 全体は意図して依存に含めていない
 
   useEdgeSwipeBack(sheet, onClose);
 
@@ -357,16 +366,16 @@ export function DetailSheet({
         <div className="chips-row">
           {moods.map((m) => {
             const on = shot.moods?.includes(m) ?? false;
-            // セリフから推しただけの札は、押されていない見た目のまま「仮」を添える。
+            // セリフ・絵から推しただけの札は、押されていない見た目のまま「仮」を添える。
             // 押せば手で振ったことになる ── 合っていれば 1 タップで確定できる。
-            const guessed = !on && (shot.moodsGuessed?.includes(m) ?? false);
+            const guessed = !on && guessedMoods(shot).includes(m);
             return (
               <button
                 key={m}
                 className={on ? "chip active" : guessed ? "chip guess" : "chip"}
                 onClick={() => onToggleMood(shot, m)}
                 aria-pressed={on}
-                title={guessed ? "セリフからの推測。押すと確定します" : undefined}
+                title={guessed ? "セリフ・絵からの推測。押すと確定します" : undefined}
               >
                 {m}
                 {guessed ? "（仮）" : ""}
