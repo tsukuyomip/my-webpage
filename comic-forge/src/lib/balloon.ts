@@ -172,22 +172,33 @@ function tailCut(pts: Pt[], acc: number[], tail: Tail, center: Pt): Cut | null {
   const uy = dx * Math.sin(r) + dy * Math.cos(r)
   const tip = { x: base.x + ux * tail.len, y: base.y + uy * tail.len }
 
-  const curve =
-    tail.bend === 0
-      ? [tip]
-      : [...bendSide(A, tip, tail.bend), tip, ...bendSide(tip, B, tail.bend)]
+  const curve = tail.bend === 0 ? [tip] : bentTailCurve(A, B, tip, tail.bend)
 
   return { sA: wrap(s0 - hw, perim), sB: wrap(s0 + hw, perim), A, B, curve }
 }
 
-/** 直線 a→b を、左法線側へ bend ぶん膨らませた 2 次ベジェの中間点。 */
-function bendSide(a: Pt, b: Pt, bend: number): Pt[] {
-  const dx = b.x - a.x
-  const dy = b.y - a.y
+/**
+ * 根元（A→tip→B）を、しっぽの芯（根元の中点→先端）ごとたわませる。
+ *
+ * 辺ごとに別々に膨らませると、根元から先端までの距離が左右で違うぶんだけ
+ * 片側が太って見えてしまう（幅が変わって見える）。芯のたわみ 1 本ぶんの
+ * ずれを両辺の中間点へ同じベクトルで足すことで、幅はそのままにしっぽ全体を
+ * しならせる。
+ */
+function bentTailCurve(A: Pt, B: Pt, tip: Pt, bend: number): Pt[] {
+  const mid = { x: (A.x + B.x) / 2, y: (A.y + B.y) / 2 }
+  const dx = tip.x - mid.x
+  const dy = tip.y - mid.y
   const d = Math.hypot(dx, dy)
-  if (d < 1e-6) return []
-  const cx = (a.x + b.x) / 2 - (dy / d) * bend * d * 0.5
-  const cy = (a.y + b.y) / 2 + (dx / d) * bend * d * 0.5
+  if (d < 1e-6) return [tip]
+  const off = { x: -(dy / d) * bend * d * 0.5, y: (dx / d) * bend * d * 0.5 }
+  return [...bulge(A, tip, off), tip, ...bulge(tip, B, off)]
+}
+
+/** 直線 a→b を、中間点に off を足した 1 点を制御点とする 2 次ベジェで丸める。 */
+function bulge(a: Pt, b: Pt, off: Pt): Pt[] {
+  const cx = (a.x + b.x) / 2 + off.x
+  const cy = (a.y + b.y) / 2 + off.y
   const out: Pt[] = []
   for (let i = 1; i < CURVE_STEPS; i++) {
     const t = i / CURVE_STEPS

@@ -226,7 +226,7 @@ export function layoutText(block: TextBlock, measure: Measure = monoMeasure): Te
 
   interface Placed {
     cells: { cell: Cell; pos: number }[]
-    ruby: { chars: string; pos: number }[]
+    ruby: { chars: string; pos: number; rotate: number }[]
     length: number
   }
 
@@ -247,7 +247,13 @@ export function layoutText(block: TextBlock, measure: Measure = monoMeasure): Te
         const span = Math.max(end - start, n * RUBY_SIZE)
         const center = (start + end) / 2
         ;[...run.ruby].forEach((ch, i) => {
-          out.ruby.push({ chars: ch, pos: center - span / 2 + ((i + 0.5) * span) / n })
+          out.ruby.push({
+            chars: ch,
+            pos: center - span / 2 + ((i + 0.5) * span) / n,
+            // 縦書きの親字と同じ規則。ここを抜くと「ー」が横倒しのまま
+            // 縦のルビに混じり、読みの流れが折れて見える。
+            rotate: vertical && ROTATE.has(ch) ? 90 : 0,
+          })
         })
       }
     }
@@ -285,7 +291,7 @@ export function layoutText(block: TextBlock, measure: Measure = monoMeasure): Te
         x: vertical ? cross + off : along,
         y: vertical ? along : cross - off,
         size: RUBY_SIZE,
-        rotate: 0,
+        rotate: r.rotate,
         squeeze: 1,
       })
     }
