@@ -904,6 +904,13 @@ button.tiny {
   color: var(--text-dim);
   padding: 0 0.3rem;
 }
+/* 確定済みの札のうち、AI の推し（セリフ・絵）と一致していたものにだけ付く。
+   .chip.active.agreed と同じ「外側に破線」だが、ピルは詰めて並ぶので
+   offset を詰めて隣と衝突しないようにする。 */
+.mood-pill.agreed {
+  outline: 1px dashed var(--accent);
+  outline-offset: 1.5px;
+}
 /* セリフは 2 行まで。行数を決め打ちにしないと、タイルの高さが揃わず段がずれる。 */
 .caption-body {
   font-size: 0.72rem;
