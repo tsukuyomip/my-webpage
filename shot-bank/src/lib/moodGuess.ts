@@ -321,16 +321,23 @@ export function speakerShown(shot: Shot): 'yes' | 'no' | 'unknown' {
   return named.length === faces.length ? 'no' : 'unknown'
 }
 
-/** この 1 枚に、たぶん付く表情。手で振ってあるものは触らない。 */
+/**
+ * この 1 枚に、たぶん付く表情。
+ *
+ * **確定済み・除外済みでも、AI がどう見ているかはそのまま返す。** ここで
+ * 「手で振ってあるものは除く」をやると、確定した後にタグ振りで再学習が
+ * 走るたびに、その確定した札自身が学習の対象（already）に入って以後は
+ * 二度と推されなくなり、「AI も同じ意見だったか」（wasGuessed）を知る
+ * 手立てが消えてしまう。確定済み・除外済みを「仮」表示から隠すのは、
+ * 表示側（lib/filter.ts の guessedMoods）の仕事。
+ */
 export function guessMoods(shot: Shot, models: MoodModel[]): string[] {
   // 別人が喋っている絵では、セリフは写っている顔の表情を語っていない。
   if (speakerShown(shot) === 'no') return []
   const t = textOf(shot)
   if (!t || !models.length) return []
   const f = features(t)
-  const already = new Set(shot.moods ?? [])
   return models
-    .filter((m) => !already.has(m.tag))
     .filter((m) => scoreWith(f, m.pos, m.neg, m.nPos, m.nNeg, m.vocab) >= m.threshold)
     .map((m) => m.tag)
 }

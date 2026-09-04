@@ -76,19 +76,19 @@ describe('タグの判定', () => {
 
   it('閾値を超えたタグだけ出す', () => {
     const scores = [logit(0.7), logit(0.3), logit(0.9)] // smile=0.7, frown=0.3, 1girl=0.9
-    const out = guessMoodsFromScores(scores, tags, undefined)
+    const out = guessMoodsFromScores(scores, tags)
     expect(out).toContain('笑') // smile の閾値は 0.606
     expect(out).not.toContain('怒') // frown の閾値は 0.54 なので 0.3 は届かない
   })
 
-  it('手で振ってあるものは推さない', () => {
+  it('確定済みでも、閾値を超えていれば推す（絞り込みは呼び出し側の仕事）', () => {
     const scores = [logit(0.9), logit(0.9), logit(0.9)]
-    const out = guessMoodsFromScores(scores, tags, ['笑'])
-    expect(out).not.toContain('笑')
+    const out = guessMoodsFromScores(scores, tags)
+    expect(out).toContain('笑')
   })
 
   it('対応する WD タグが表に無ければ、そのムードは出さない', () => {
-    const out = guessMoodsFromScores([logit(0.9)], [['smile', 0]], undefined)
+    const out = guessMoodsFromScores([logit(0.9)], [['smile', 0]])
     expect(out).toContain('笑')
     expect(out).not.toContain('怒') // frown が表に無い
   })
@@ -119,13 +119,11 @@ describe('保存済みスコアからの判定', () => {
     const logit = (p: number) => Math.log(p / (1 - p))
     const raw = [logit(0.7), logit(0.3)]
     const quantized = quantizeScores(raw)
-    expect(guessMoodsFromStoredScores(quantized, tags, undefined)).toEqual(
-      guessMoodsFromScores(raw, tags, undefined),
-    )
+    expect(guessMoodsFromStoredScores(quantized, tags)).toEqual(guessMoodsFromScores(raw, tags))
   })
 
-  it('手で振ってあるものは推さない', () => {
-    const out = guessMoodsFromStoredScores([255, 255], tags, ['笑'])
-    expect(out).not.toContain('笑')
+  it('確定済みでも、閾値を超えていれば推す', () => {
+    const out = guessMoodsFromStoredScores([255, 255], tags)
+    expect(out).toContain('笑')
   })
 })

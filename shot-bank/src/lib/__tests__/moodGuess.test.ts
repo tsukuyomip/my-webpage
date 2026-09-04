@@ -184,9 +184,9 @@ describe('喋っている人が写っているか', () => {
 describe('推す', () => {
   const models = trainMoods(shots)
 
-  it('手で振ってあるタグは推さない', () => {
+  it('確定済みでも、閾値を超えていれば推す（絞り込みは表示側の仕事）', () => {
     const shot = { id: 'x', body: REAL.find((r) => r.moods.includes('笑'))!.body, moods: ['笑'] } as Shot
-    expect(guessMoods(shot, models)).not.toContain('笑')
+    expect(guessMoods(shot, models)).toContain('笑')
   })
 
   it('本文が無ければ何も推さない', () => {

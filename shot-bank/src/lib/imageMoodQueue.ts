@@ -30,13 +30,13 @@ export async function guessImageMoodsForShot(shot: Shot): Promise<Shot> {
   for (const face of faces) {
     const stored = await getWdScores(face.id)
     if (stored && stored.version === WD_SCORE_VERSION) {
-      for (const m of guessMoodsFromStoredScores(stored.scores, tags, shot.moods)) found.add(m)
+      for (const m of guessMoodsFromStoredScores(stored.scores, tags)) found.add(m)
       continue
     }
     const { scores } = await runWdTagger(px, face)
     const quantized = quantizeScores(scores)
     fresh.push({ faceId: face.id, shotId: shot.id, version: WD_SCORE_VERSION, scores: quantized })
-    for (const m of guessMoodsFromStoredScores(quantized, tags, shot.moods)) found.add(m)
+    for (const m of guessMoodsFromStoredScores(quantized, tags)) found.add(m)
   }
   if (fresh.length) await putWdScores(fresh)
 
