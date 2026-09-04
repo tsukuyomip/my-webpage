@@ -192,12 +192,10 @@ function sigmoid(x: number): number {
  */
 export const WD_SCORE_VERSION = 1
 
-function pickMoods(prob: (tagIndex: number) => number, tags: WdTag[], already: string[] | undefined): string[] {
-  const already_ = new Set(already ?? [])
+function pickMoods(prob: (tagIndex: number) => number, tags: WdTag[]): string[] {
   const nameToIndex = new Map(tags.map((t, i) => [t[0], i]))
   const out: string[] = []
   for (const [mood, rule] of Object.entries(WD_RULES)) {
-    if (already_.has(mood)) continue
     const idx = nameToIndex.get(rule.tag)
     if (idx === undefined) continue
     if (prob(idx) >= rule.threshold) out.push(mood)
@@ -207,27 +205,25 @@ function pickMoods(prob: (tagIndex: number) => number, tags: WdTag[], already: s
 
 /**
  * モデルの生の出力（sigmoid をかける前）から、ムードを判定する。
- * 手で振ってあるものは触らない（セリフ版と同じ規則）。
+ *
+ * **確定済み・除外済みでも、AI がどう見ているかはそのまま返す。** 「手で
+ * 振ってあるものは除く」を判定のここでやってしまうと、確定した後に初めて
+ * 推論が走った枚では「AI も同じ意見だったか」を二度と知りようがなくなる
+ * （wasGuessed が常に false になる）。確定済み・除外済みを「仮」表示から
+ * 隠すのは、表示側（lib/filter.ts の guessedMoods）の仕事。
  */
-export function guessMoodsFromScores(
-  rawScores: ArrayLike<number>,
-  tags: WdTag[],
-  already: string[] | undefined,
-): string[] {
-  return pickMoods((idx) => sigmoid(rawScores[idx]!), tags, already)
+export function guessMoodsFromScores(rawScores: ArrayLike<number>, tags: WdTag[]): string[] {
+  return pickMoods((idx) => sigmoid(rawScores[idx]!), tags)
 }
 
 /**
  * 保存済みの量子化スコア（quantizeScores の出力。0..255 ≒ 確率 0..1）から、
  * ONNX を回さずにムードを判定する。しきい値だけ直したときの再判定や、
- * 一括推論のレジューム（採り直し済みかの判定）に使う。
+ * 一括推論のレジューム（採り直し済みかの判定）に使う。確定済みでも除かない
+ * 理由は guessMoodsFromScores と同じ。
  */
-export function guessMoodsFromStoredScores(
-  storedScores: ArrayLike<number>,
-  tags: WdTag[],
-  already: string[] | undefined,
-): string[] {
-  return pickMoods((idx) => storedScores[idx]! / 255, tags, already)
+export function guessMoodsFromStoredScores(storedScores: ArrayLike<number>, tags: WdTag[]): string[] {
+  return pickMoods((idx) => storedScores[idx]! / 255, tags)
 }
 
 /**
