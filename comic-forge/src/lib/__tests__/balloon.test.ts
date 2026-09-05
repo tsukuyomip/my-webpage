@@ -161,6 +161,78 @@ describe('しっぽの差し込み', () => {
   it('しっぽが無ければ輪郭のまま', () => {
     expect(spliceTails(outlineFor(base()), [])).toEqual(outlineFor(base()))
   })
+
+  it('曲げたしっぽの太さは、途中で一定幅のまま止まらず根元から先端へ細る', () => {
+    // CURVE_STEPS=10 前提：先端から 9 個ぶん離れた点がだいたい根元寄り（t≈0.1）、
+    // 5 個ぶん離れた点がだいたい真ん中（t≈0.5）。
+    const b = base({ tails: [tail({ bend: 0.6, len: 300, spread: 0.1 })] })
+    const tip = tailTip(b, 0)!
+    const pts = balloonPath(b)
+    let tipIdx = 0
+    let best = Infinity
+    for (let i = 0; i < pts.length; i++) {
+      const d = Math.hypot(pts[i].x - tip.x, pts[i].y - tip.y)
+      if (d < best) {
+        best = d
+        tipIdx = i
+      }
+    }
+    const near = (k: number) => Math.hypot(pts[tipIdx - k].x - pts[tipIdx + k].x, pts[tipIdx - k].y - pts[tipIdx + k].y)
+    const rootish = near(9)
+    const middish = near(5)
+    // 一定幅のまま先端近くまで保たれる「リボン状」だと、真ん中の幅は根元の
+    // 幅とほとんど変わらない。線形に細るなら、真ん中はだいたい半分程度になる。
+    expect(middish).toBeLessThan(rootish * 0.75)
+    expect(middish).toBeGreaterThan(rootish * 0.25)
+  })
+
+  it('曲げたしっぽは、根元から先端まで同じ向きにしか曲がらない（S字にならない）', () => {
+    // 折れ線の「曲がる向き」（隣り合う 2 辺の外積の符号）を先端の前後で別々に見て、
+    // どちらの側でも符号が反転しないことを確かめる。先端そのものは輪郭上の頂点として
+    // 向きが変わって当然なので、先端をまたぐ判定はしない。
+    const turnSigns = (pts: Pt[]): number[] => {
+      const signs: number[] = []
+      for (let i = 1; i < pts.length - 1; i++) {
+        const e1 = { x: pts[i].x - pts[i - 1].x, y: pts[i].y - pts[i - 1].y }
+        const e2 = { x: pts[i + 1].x - pts[i].x, y: pts[i + 1].y - pts[i].y }
+        const l1 = Math.hypot(e1.x, e1.y)
+        const l2 = Math.hypot(e2.x, e2.y)
+        if (l1 < 1e-6 || l2 < 1e-6) continue
+        const cross = (e1.x * e2.y - e1.y * e2.x) / (l1 * l2)
+        const deg = (Math.asin(Math.max(-1, Math.min(1, cross))) * 180) / Math.PI
+        if (Math.abs(deg) >= 1.5) signs.push(Math.sign(deg))
+      }
+      return signs
+    }
+    const noSignFlip = (signs: number[]) => signs.every((s) => s === signs[0])
+
+    for (const shape of ['ellipse', 'round', 'rect'] as const) {
+      for (const at of [0, 0.05, 0.25, 0.4]) {
+        for (const aim of [0, 20, -30]) {
+          for (const bend of [0.1, 0.4, 0.7, 0.99, -0.5, -0.9]) {
+            const b = base({ shape, tails: [tail({ at, aim, bend, len: 260, spread: 0.03 })] })
+            const tip = tailTip(b, 0)!
+            const pts = balloonPath(b)
+            let tipIdx = 0
+            let best = Infinity
+            for (let i = 0; i < pts.length; i++) {
+              const d = Math.hypot(pts[i].x - tip.x, pts[i].y - tip.y)
+              if (d < best) {
+                best = d
+                tipIdx = i
+              }
+            }
+            // CURVE_STEPS=10 前提：先端の前後 9 点ずつが曲げた区間（その外側は
+            // 輪郭本体や根元の継ぎ目で、そこも含めて見ると自然な角を誤検出する）。
+            const side1 = turnSigns(pts.slice(tipIdx - 9, tipIdx + 1))
+            const side2 = turnSigns(pts.slice(tipIdx, tipIdx + 10))
+            expect(noSignFlip(side1), `${shape} at=${at} aim=${aim} bend=${bend} 前半`).toBe(true)
+            expect(noSignFlip(side2), `${shape} at=${at} aim=${aim} bend=${bend} 後半`).toBe(true)
+          }
+        }
+      }
+    }
+  })
 })
 
 describe('置き場所と当たり', () => {

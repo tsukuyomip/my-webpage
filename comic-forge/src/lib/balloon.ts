@@ -229,68 +229,84 @@ function outwardNormalAt(pts: Pt[], index: number, center: Pt): Pt {
   return mx * n.x + my * n.y >= 0 ? n : { x: -n.x, y: -n.y }
 }
 
-/** 先端側の接線を、根元の接線からどれだけ回した向きにするか（固定）。 */
-const FILLET_ANGLE = (70 * Math.PI) / 180
+/** 先端側の接線を、根元の接線からどれだけ回した向きにするか（固定）。大きいほど、しなやかに大きく曲がる。 */
+const FILLET_ANGLE = (90 * Math.PI) / 180
 /** 曲げの効き方の上限。1 に近づけすぎると先端近くで尖って見える。 */
-const FILLET_MAX = 0.85
+const FILLET_MAX = 0.88
 
 /**
  * 根元（A→tip→B）を曲げる。
  *
- * 根元では輪郭に対して垂直な接線（normal）で出す（そうしないと、輪郭から
- * 生えたところで折れ線が急に折れて、継ぎ目が見えてしまう）。両辺とも
- * 根元の中点（この 1 点だけ）で測った法線を使う。A・B それぞれの位置で
- * 法線を測ると、楕円が細長いときなどに左右で向きが大きく違ってしまい、
- * 片側だけ大きく迂回する不自然な形になる。
+ * A→tip、B→tip をそれぞれ独立に曲げる（edgeToTip）。2 本を別々に曲げると
+ * 太さが場所によって勝手に変わり、根元の幅のまま先端近くまでほとんど
+ * 細らずに残る「リボン状」になってしまう。これを、狙った太さ（根元の幅から
+ * 先端の 0 まで線形に細る）になる場所を 2 本の曲線それぞれの上に探し、
+ * そこの点を採る形に直している。曲線そのものの形（曲がり方）はいじらず、
+ * その上のどこを取るかだけを太さから逆算するので、edgeToTip が保証する
+ * 「S 字にならない」性質がそのまま両辺に残る。
  */
 function bentTailCurve(A: Pt, B: Pt, tip: Pt, bend: number, normal: Pt): Pt[] {
+  const rootHalfWidth = Math.hypot(B.x - A.x, B.y - A.y) / 2
   const angle = Math.sign(bend) * FILLET_ANGLE
   const cos = Math.cos(angle)
   const sin = Math.sin(angle)
   const tipTangent = { x: normal.x * cos - normal.y * sin, y: normal.x * sin + normal.y * cos }
   const f = Math.min(1, Math.abs(bend)) * FILLET_MAX
-  const toTip = edgeToTip(A, normal, tip, tipTangent, f)
-  const fromTip = edgeToTip(B, normal, tip, tipTangent, f)
-  fromTip.reverse()
-  return [...toTip, tip, ...fromTip]
+
+  // A→tip・B→tip の同じ位置（媒介変数 s）どうしの間隔は、根元の全幅から
+  // 0 までなめらかに・単調に狭まる（実測で確認）。狙った太さ w になる s を
+  // 二分探索すれば、その s での 2 点がちょうど太さ w の輪郭になる。
+  const widthAt = (s: number) => {
+    const pa = edgeToTipAt(A, normal, tip, tipTangent, f, s)
+    const pb = edgeToTipAt(B, normal, tip, tipTangent, f, s)
+    return Math.hypot(pb.x - pa.x, pb.y - pa.y)
+  }
+
+  const toA: Pt[] = []
+  const toB: Pt[] = []
+  for (let i = 1; i < CURVE_STEPS; i++) {
+    const t = i / CURVE_STEPS
+    const target = 2 * rootHalfWidth * (1 - t)
+    let lo = 0
+    let hi = 1
+    for (let iter = 0; iter < 24; iter++) {
+      const mid = (lo + hi) / 2
+      if (widthAt(mid) > target) lo = mid
+      else hi = mid
+    }
+    const s = (lo + hi) / 2
+    toA.push(edgeToTipAt(A, normal, tip, tipTangent, f, s))
+    toB.push(edgeToTipAt(B, normal, tip, tipTangent, f, s))
+  }
+  toB.reverse()
+  return [...toA, tip, ...toB]
 }
 
 /**
- * 根元 root から先端 tip までを、根元では normal の向きへ立ち上がり、そこから
- * 先端まで一方向にだけ曲がる 3 次ベジェで結ぶ。
+ * root から tip までを、根元では normal の向きへ立ち上がり、そこから先端まで
+ * 一方向にだけ曲がる 3 次ベジェの、媒介変数 t での点だけを返す。
  *
  * root からの接線（normal）と、tip への入り方（tipTangent の逆向き）、
  * この 2 本の半直線が交わる点 Q を求め、制御点をどちらも「各端点から Q へ
  * 向かう線分の上」に置く（同じ比率 f で内分する）。この置き方をすると、
  * 制御多角形が root→p1→p2→tip の順で必ず同じ向きに曲がる形（凸）になり、
  * 曲がる向きが途中で反転する S 字には原理的にならない。
- * 辺ごとに独立な向きへたわませていた前の実装は、根元の法線が芯（根元→先端）
- * の向きから傾いている場合に反対向きの押し合いが起きて S 字になっていた。
  */
-function edgeToTip(root: Pt, normal: Pt, tip: Pt, tipTangent: Pt, f: number): Pt[] {
-  const out: Pt[] = []
+function edgeToTipAt(root: Pt, normal: Pt, tip: Pt, tipTangent: Pt, f: number, t: number): Pt {
   if (f > 1e-6) {
     const q = rayIntersect(root, normal, tip, { x: -tipTangent.x, y: -tipTangent.y })
     if (q) {
       const p1 = { x: root.x + f * (q.x - root.x), y: root.y + f * (q.y - root.y) }
       const p2 = { x: tip.x + f * (q.x - tip.x), y: tip.y + f * (q.y - tip.y) }
-      for (let i = 1; i < CURVE_STEPS; i++) {
-        const t = i / CURVE_STEPS
-        const m = 1 - t
-        out.push({
-          x: m * m * m * root.x + 3 * m * m * t * p1.x + 3 * m * t * t * p2.x + t * t * t * tip.x,
-          y: m * m * m * root.y + 3 * m * m * t * p1.y + 3 * m * t * t * p2.y + t * t * t * tip.y,
-        })
+      const m = 1 - t
+      return {
+        x: m * m * m * root.x + 3 * m * m * t * p1.x + 3 * m * t * t * p2.x + t * t * t * tip.x,
+        y: m * m * m * root.y + 3 * m * m * t * p1.y + 3 * m * t * t * p2.y + t * t * t * tip.y,
       }
-      return out
     }
   }
   // 曲げが 0（または 2 本の半直線が平行で交わらない）ときは直線でつなぐ。
-  for (let i = 1; i < CURVE_STEPS; i++) {
-    const t = i / CURVE_STEPS
-    out.push({ x: root.x + (tip.x - root.x) * t, y: root.y + (tip.y - root.y) * t })
-  }
-  return out
+  return { x: root.x + (tip.x - root.x) * t, y: root.y + (tip.y - root.y) * t }
 }
 
 /** 半直線 a+t*da（t>0）と b+s*db（s>0）の交点。平行なら null。 */
