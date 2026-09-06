@@ -6,6 +6,7 @@ import {
   pointAtLength,
   pointInPolygon,
   spliceTails,
+  tailFromTip,
   tailTip,
 } from '../balloon'
 import { addTail, defaultTail, newBalloon, SHAPES } from '../balloon-edit'
@@ -151,11 +152,43 @@ describe('しっぽの差し込み', () => {
     expect(balloonPath(base({ tails: [tail({ len: 0 })] }))).toEqual(outlineFor(base()))
   })
 
-  it('曲げると点が増え、先の位置は変わらない', () => {
-    const straight = base({ tails: [tail({ bend: 0 })] })
-    const bent = base({ tails: [tail({ bend: 0.5 })] })
-    expect(balloonPath(bent).length).toBeGreaterThan(balloonPath(straight).length)
-    expect(tailTip(bent, 0)).toEqual(tailTip(straight, 0))
+  it('曲げると先端は動く（根元は動かない）', () => {
+    // 芯は円弧なので、根元の位置・向き・長さを決めると、曲げた分だけ先端が振れる。
+    // 根元と先端の両方を固定したまま曲げようとすると S 字にしかならないため、
+    // 曲げたときに動くのは先端のほう、と決めている。
+    const straight = base({ tails: [tail({ bend: 0, len: 200 })] })
+    const bent = base({ tails: [tail({ bend: 0.5, len: 200 })] })
+    const a = tailTip(straight, 0)!
+    const c = tailTip(bent, 0)!
+    expect(Math.hypot(a.x - c.x, a.y - c.y)).toBeGreaterThan(20)
+  })
+
+  it('曲げた分だけ長さは弧長として保たれる（先端は近づく）', () => {
+    // 長さは「まっすぐ伸ばしたときの長さ」＝弧長。曲げると根元からの直線距離は縮む。
+    const reach = (bend: number) => {
+      const b = base({ tails: [tail({ bend, len: 300 })] })
+      const tip = tailTip(b, 0)!
+      return Math.hypot(tip.x, tip.y)
+    }
+    expect(reach(0)).toBeGreaterThan(reach(0.5))
+    expect(reach(0.5)).toBeGreaterThan(reach(0.99))
+  })
+
+  it('先を掴んで引っぱると、曲げたままでもそこへ先が来る', () => {
+    // 円弧は「根元の接線と弦のなす角＝総回転角の半分」なので、掴んだ点から
+    // 根元の位置と弧長を逆算できる。根元は輪郭上の頂点から選ぶぶんだけ粗いので、
+    // ぴったりではなく「指で掴んだ精度で追いつく」ことを見る。
+    for (const bend of [0, 0.3, -0.5, 0.8, -0.99]) {
+      for (const target of [{ x: 250, y: 180 }, { x: -100, y: 260 }, { x: 0, y: -300 }]) {
+        const b = base({ tails: [tail({ bend, len: 200 })] })
+        const b2 = base({ tails: [{ ...tail({ bend, len: 200 }), ...tailFromTip(b, 0, target) }] })
+        const got = tailTip(b2, 0)!
+        const err = Math.hypot(got.x - target.x, got.y - target.y)
+        expect(err, `bend=${bend} target=${target.x},${target.y}`).toBeLessThan(
+          Math.hypot(target.x, target.y) * 0.08,
+        )
+      }
+    }
   })
 
   it('しっぽが無ければ輪郭のまま', () => {
@@ -186,15 +219,47 @@ describe('しっぽの差し込み', () => {
     expect(middish).toBeGreaterThan(rootish * 0.25)
   })
 
+  it('太くて短いしっぽを目一杯曲げても、輪郭が自分と交わらない', () => {
+    // 曲げるほど半径が小さくなる。半径が根元の半幅より小さくなると内側の辺が
+    // 自分を追い越して折り返す（太い紙を急に曲げると内側が皺になるのと同じ）ので、
+    // 半径のほうに下限を設けてある。太く・短く・目一杯曲げた条件で効きを確かめる。
+    const crosses = (pts: Pt[]) => {
+      const hit = (p1: Pt, p2: Pt, p3: Pt, p4: Pt) => {
+        const d1 = { x: p2.x - p1.x, y: p2.y - p1.y }
+        const d2 = { x: p4.x - p3.x, y: p4.y - p3.y }
+        const den = d1.x * d2.y - d1.y * d2.x
+        if (Math.abs(den) < 1e-9) return false
+        const rx = p3.x - p1.x
+        const ry = p3.y - p1.y
+        const t = (rx * d2.y - ry * d2.x) / den
+        const u = (rx * d1.y - ry * d1.x) / den
+        return t > 1e-6 && t < 1 - 1e-6 && u > 1e-6 && u < 1 - 1e-6
+      }
+      for (let i = 0; i < pts.length; i++) {
+        for (let j = i + 2; j < pts.length; j++) {
+          if (i === 0 && j === pts.length - 1) continue
+          if (hit(pts[i], pts[(i + 1) % pts.length], pts[j], pts[(j + 1) % pts.length])) return true
+        }
+      }
+      return false
+    }
+    for (const spread of [0.05, 0.15, 0.35]) {
+      for (const len of [20, 60, 200]) {
+        for (const bend of [0.99, -0.99, 0.6, -0.6]) {
+          const b = base({ tails: [tail({ at: 0.25, spread, len, bend })] })
+          expect(crosses(balloonPath(b)), `sp=${spread} len=${len} bend=${bend}`).toBe(false)
+        }
+      }
+    }
+  })
+
   it('曲げたしっぽは、根元から先端まで同じ向きにしか曲がらない（S字にならない）', () => {
     // 折れ線の「曲がる向き」（隣り合う 2 辺の外積の符号）を先端の前後で別々に見て、
     // どちらの側でも符号が反転しないことを確かめる。先端そのものは輪郭上の頂点として
     // 向きが変わって当然なので、先端をまたぐ判定はしない。
     //
-    // しきい値は 1.5°ではなく 25°。CURVE_STEPS=10 の粗い折れ線では、太さのオフセット
-    // 方向を固定にしている影響で、なめらかな曲線を折れ線化しただけの見た目に問題の
-    // ない揺れが十数度出ることがある（実測で確認）。ここで見たいのは、その揺れではなく
-    // 曲がる向きがはっきり逆転する本物の S 字（数値実験では 40〜90°級で出る）。
+    // 芯が円弧（曲率が一定）なので、両辺とも曲がる向きは最初から最後まで揃うはず。
+    // 揺れを見逃さないよう、しきい値は 0.5°まで下げて厳しく見る。
     const turnSigns = (pts: Pt[]): number[] => {
       const signs: number[] = []
       for (let i = 1; i < pts.length - 1; i++) {
@@ -205,17 +270,17 @@ describe('しっぽの差し込み', () => {
         if (l1 < 1e-6 || l2 < 1e-6) continue
         const cross = (e1.x * e2.y - e1.y * e2.x) / (l1 * l2)
         const deg = (Math.asin(Math.max(-1, Math.min(1, cross))) * 180) / Math.PI
-        if (Math.abs(deg) >= 25) signs.push(Math.sign(deg))
+        if (Math.abs(deg) >= 0.5) signs.push(Math.sign(deg))
       }
       return signs
     }
     const noSignFlip = (signs: number[]) => signs.every((s) => s === signs[0])
 
     for (const shape of ['ellipse', 'round', 'rect'] as const) {
-      for (const at of [0, 0.05, 0.25, 0.4]) {
-        for (const aim of [0, 20, -30]) {
-          for (const bend of [0.1, 0.4, 0.7, 0.99, -0.5, -0.9]) {
-            const b = base({ shape, tails: [tail({ at, aim, bend, len: 260, spread: 0.03 })] })
+      for (const at of [0, 0.05, 0.25, 0.4, 0.6, 0.8]) {
+        for (const spread of [0.01, 0.03, 0.12]) {
+          for (const bend of [0.05, 0.1, 0.4, 0.7, 0.99, -0.2, -0.5, -0.9, -0.99]) {
+            const b = base({ shape, tails: [tail({ at, bend, len: 260, spread })] })
             const tip = tailTip(b, 0)!
             const pts = balloonPath(b)
             let tipIdx = 0
@@ -231,8 +296,8 @@ describe('しっぽの差し込み', () => {
             // 輪郭本体や根元の継ぎ目で、そこも含めて見ると自然な角を誤検出する）。
             const side1 = turnSigns(pts.slice(tipIdx - 9, tipIdx + 1))
             const side2 = turnSigns(pts.slice(tipIdx, tipIdx + 10))
-            expect(noSignFlip(side1), `${shape} at=${at} aim=${aim} bend=${bend} 前半`).toBe(true)
-            expect(noSignFlip(side2), `${shape} at=${at} aim=${aim} bend=${bend} 後半`).toBe(true)
+            expect(noSignFlip(side1), `${shape} at=${at} sp=${spread} bend=${bend} 前半`).toBe(true)
+            expect(noSignFlip(side2), `${shape} at=${at} sp=${spread} bend=${bend} 後半`).toBe(true)
           }
         }
       }

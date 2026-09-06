@@ -194,25 +194,28 @@ function tailCut(pts: Pt[], acc: number[], tail: Tail, center: Pt): Cut | null {
   const A = pointAtLength(pts, acc, s0 - hw).p
   const B = pointAtLength(pts, acc, s0 + hw).p
   const baseAt = pointAtLength(pts, acc, s0)
-  const base = baseAt.p
 
-  // 向きは「中心 → 根元」の延長。aim でそこから振る。
-  let dx = base.x - center.x
-  let dy = base.y - center.y
-  const len = Math.hypot(dx, dy) || 1
-  dx /= len
-  dy /= len
-  const r = (tail.aim * Math.PI) / 180
-  const ux = dx * Math.cos(r) - dy * Math.sin(r)
-  const uy = dx * Math.sin(r) + dy * Math.cos(r)
-  const tip = { x: base.x + ux * tail.len, y: base.y + uy * tail.len }
-
-  const curve =
-    tail.bend === 0
-      ? [tip]
-      : bentTailCurve(A, B, tip, tail.bend, outwardNormalAt(pts, baseAt.index, center))
+  // 向き（どちらへ伸びるか）は、根元がどこに付いているかだけで決まる。
+  // 根元では必ず輪郭に垂直に出すので、根元の位置を決めた時点で向きも決まる。
+  //
+  // 垂直の基準は、しっぽが実際に生えている辺そのもの＝根元の A→B。輪郭の
+  // 1 辺から法線を採ると、その辺の向き（サンプリングの刻み）ぶんだけ傾いて、
+  // まっすぐなはずのしっぽが少し斜めに出てしまう。A・B は根元の中心から弧長で
+  // 左右対称に取ってあるので、その垂線なら三角形がきれいに左右対称になる。
+  const curve = tailArc(A, B, tail.len, tail.bend, outwardNormalOf(A, B, baseAt.p, center))
 
   return { sA: wrap(s0 - hw, perim), sB: wrap(s0 + hw, perim), A, B, curve }
+}
+
+/** 根元の辺 A→B から、外向きの単位法線を作る。base は外向きを選ぶための目印。 */
+function outwardNormalOf(A: Pt, B: Pt, base: Pt, center: Pt): Pt {
+  const dx = B.x - A.x
+  const dy = B.y - A.y
+  const len = Math.hypot(dx, dy) || 1
+  const n = { x: -dy / len, y: dx / len }
+  // 中心から遠ざかる向きを選ぶ（2 つある法線候補のうち外側のほう）。
+  const out = (base.x - center.x) * n.x + (base.y - center.y) * n.y
+  return out >= 0 ? n : { x: -n.x, y: -n.y }
 }
 
 /** 輪郭の頂点 index→index+1 の辺から、外向きの単位法線を作る。 */
@@ -229,90 +232,84 @@ function outwardNormalAt(pts: Pt[], index: number, center: Pt): Pt {
   return mx * n.x + my * n.y >= 0 ? n : { x: -n.x, y: -n.y }
 }
 
-/**
- * 芯（根元の中点→先端）の根元での立ち上がり（P0→P1）の長さを、根元→先端の
- * 直線距離の何倍にするか（曲げ最大時）。大きいほど、根元の垂直な向きを
- * 長く保ってから曲がるので、しなやかに大きく曲がる。
- */
-const SPINE_SHOOT = 0.5
-/** P1→P2 の向き（根元の接線から曲げの向きへ何度回すか）。 */
-const SPINE_TURN = (60 * Math.PI) / 180
-/** P1→P2 の長さを、根元→先端の直線距離の何倍にするか（曲げ最大時）。 */
-const SPINE_SWING = 0.45
+/** 曲がり 100% で芯が向きを変える角度。芯は円弧なので、これがそのまま曲がりの強さ。 */
+const MAX_TURN = (150 * Math.PI) / 180
+/** 曲げの半径は、根元の半幅のこの倍数より小さくしない（内側の辺が折り返さないように）。 */
+const MIN_RADIUS_RATIO = 1.25
 
 /**
- * 根元（A→tip→B）を曲げる。
+ * 根元（A→tip→B）を、芯を曲げた二等辺三角形にする。
  *
- * しっぽは「根元の幅から先端の 0 まで細る二等辺三角形」で、曲げるのは
- * その三角形が乗る 1 本の芯（根元の中点→先端）だけ。芯は 3 次ベジェで、
- * 根元では輪郭に対してつねに垂直な接線（normal）で立ち上がる。
+ * 芯は **円弧** ちょうど 1 本。円弧は曲率が最初から最後まで一定なので、
+ * 途中で曲がる向きが反転する S 字には原理的にならない（1 回だけ曲がる）。
+ * 根元では輪郭の法線の向きに出るので、輪郭とは必ず垂直に交わる。
  *
- * 太さのオフセット方向は、芯の実接線（曲がるにつれて向きが大きく回る）
- * ではなく、根元の法線を 90°回した固定の向きを最後まで使う。芯自体の
- * 向きでオフセットすると、大きく曲げたときに芯が自分の近くまで回り込み、
- * 太さぶん離した両辺が互いを追い越して交差してしまう（三角形が捩れて
- * 見える）。固定の向きで筋交いのように切るとこれが起きない（形・置き場所・
- * 向き・曲げ量を広く振っての数値実験で確認。ただし輪郭が極端に細長い上に
- * aim も大きく振った、かなり稀な組み合わせでは、太さのオフセットがなお
- * 揺れることがある）。
+ * 円弧は「根元の位置・根元の向き・弧の長さ・回す角度」で決まりきってしまい、
+ * 先端の位置を別に指定する余地はない。先端は曲げた結果として動く。
+ * 以前は根元と先端の両方を固定したまま曲げようとしていたため、条件が多すぎて
+ * 行って戻る S 字にしかならなかった。
  */
-function bentTailCurve(A: Pt, B: Pt, tip: Pt, bend: number, normal: Pt): Pt[] {
+function tailArc(A: Pt, B: Pt, len: number, bend: number, normal: Pt): Pt[] {
   const mid = { x: (A.x + B.x) / 2, y: (A.y + B.y) / 2 }
   const rootHalfWidth = Math.hypot(B.x - A.x, B.y - A.y) / 2
-  const spine = bulgeSpine(mid, tip, normal, bend)
+  const turn = arcTurn(len, bend, rootHalfWidth)
 
   // 根元での法線を 90°回した向きが、輪郭に沿って A→B へ進む向きと同じに
   // なるよう符号を決める（左右が入れ替わらないように）。
   let perp = { x: -normal.y, y: normal.x }
-  const perpSign = perp.x * (B.x - A.x) + perp.y * (B.y - A.y) >= 0 ? 1 : -1
-  perp = { x: perp.x * perpSign, y: perp.y * perpSign }
+  if (perp.x * (B.x - A.x) + perp.y * (B.y - A.y) < 0) perp = { x: -perp.x, y: -perp.y }
 
-  const toB: Pt[] = []
   const toA: Pt[] = []
+  const toB: Pt[] = []
   for (let i = 1; i < CURVE_STEPS; i++) {
-    const t = i / CURVE_STEPS
-    const p = spine(t)
-    const hw = rootHalfWidth * (1 - t)
-    toB.push({ x: p.x + perp.x * hw, y: p.y + perp.y * hw })
-    toA.push({ x: p.x - perp.x * hw, y: p.y - perp.y * hw })
+    const s = i / CURVE_STEPS
+    const p = arcPoint(mid, normal, turn, len, s)
+    // 太さを足す向きも芯と同じだけ回す。円弧では、これがその場所での法線そのもの。
+    const n = rotate(perp, turn * s)
+    const hw = rootHalfWidth * (1 - s)
+    toB.push({ x: p.x + n.x * hw, y: p.y + n.y * hw })
+    toA.push({ x: p.x - n.x * hw, y: p.y - n.y * hw })
   }
   toB.reverse()
-  return [...toA, tip, ...toB]
+  return [...toA, arcPoint(mid, normal, turn, len, 1), ...toB]
 }
 
 /**
- * root から tip までの、根元では normal の向きへ立ち上がる 1 本の 3 次ベジェ
- * （媒介変数 t での点を返す関数として）。
+ * 芯の円弧が向きを変える角度。長さと曲がりだけで決まる。
  *
- * P0=root、P1=root+normal*L1（根元の接線を normal に固定するための点）、
- * P2=P1 を、normal を曲げの向きへ SPINE_TURN だけ回した向きへ L2 だけ進めた点、
- * P3=tip。曲げが 0 に近づくほど L1・L2 も 0 に近づき、直線に戻る。
- *
- * この置き方だと、曲がる向きが先端の手前で反転する S 字にはならない
- * （数値実験で確認：しっぽの根元がちょうど輪郭の頂点にあり、normal が
- * root→tip の直線と一致する、いちばんよくある配置を含め、形・置き場所・
- * 向き・曲げ量を広く振っても崩れない）。
+ * 曲げるほど半径が小さくなるが、半径が根元の半幅より小さくなると内側の辺が
+ * 自分を追い越して折り返す（太い紙を急に曲げると内側が皺になるのと同じ）。
+ * そうならない範囲に抑える。
  */
-function bulgeSpine(root: Pt, tip: Pt, normal: Pt, bend: number): (t: number) => Pt {
-  const chord = { x: tip.x - root.x, y: tip.y - root.y }
-  const chordLen = Math.hypot(chord.x, chord.y) || 1
-  const side = bend >= 0 ? 1 : -1
-  const bendMag = Math.min(1, Math.abs(bend))
-  const l1 = SPINE_SHOOT * chordLen * bendMag
-  const l2 = SPINE_SWING * chordLen * bendMag
-  const p1 = { x: root.x + normal.x * l1, y: root.y + normal.y * l1 }
-  const turn = side * SPINE_TURN
-  const cos = Math.cos(turn)
-  const sin = Math.sin(turn)
-  const e2 = { x: normal.x * cos - normal.y * sin, y: normal.x * sin + normal.y * cos }
-  const p2 = { x: p1.x + e2.x * l2, y: p1.y + e2.y * l2 }
-  return (t: number) => {
-    const m = 1 - t
-    return {
-      x: m * m * m * root.x + 3 * m * m * t * p1.x + 3 * m * t * t * p2.x + t * t * t * tip.x,
-      y: m * m * m * root.y + 3 * m * m * t * p1.y + 3 * m * t * t * p2.y + t * t * t * tip.y,
-    }
+function arcTurn(len: number, bend: number, rootHalfWidth: number): number {
+  const turn = Math.max(-1, Math.min(1, bend)) * MAX_TURN
+  if (rootHalfWidth <= 0) return turn
+  const max = len / (MIN_RADIUS_RATIO * rootHalfWidth)
+  return Math.max(-max, Math.min(max, turn))
+}
+
+/**
+ * 根元 root から接線 tangent の向きに出る、長さ len・総回転角 turn の円弧の、
+ * s（0 が根元、1 が先端）の位置。turn が 0 のときは直線。
+ *
+ * s は弧長に比例する（円弧を等速で進む）ので、len はそのまま「しっぽの長さ」。
+ */
+function arcPoint(root: Pt, tangent: Pt, turn: number, len: number, s: number): Pt {
+  if (Math.abs(turn) < 1e-6) {
+    return { x: root.x + tangent.x * len * s, y: root.y + tangent.y * len * s }
   }
+  // 半径は符号つき。中心は根元から接線を 90°回した向きへ半径ぶん進んだところ。
+  const r = len / turn
+  const cx = root.x - tangent.y * r
+  const cy = root.y + tangent.x * r
+  const spun = rotate({ x: root.x - cx, y: root.y - cy }, turn * s)
+  return { x: cx + spun.x, y: cy + spun.y }
+}
+
+function rotate(v: Pt, angle: number): Pt {
+  const cos = Math.cos(angle)
+  const sin = Math.sin(angle)
+  return { x: v.x * cos - v.y * sin, y: v.x * sin + v.y * cos }
 }
 
 /**
@@ -400,20 +397,29 @@ export function tailFromTip(b: Balloon, index: number, local: Pt): Partial<Tail>
   const acc = cumulative(pts)
   const perim = acc[pts.length]
 
-  // 中心から見た角度に一番近い輪郭上の位置を、根元にする
-  const angle = Math.atan2(local.y, local.x)
+  // 円弧では「根元の接線」と「根元→先端を結ぶ弦」のなす角が、総回転角のちょうど
+  // 半分になる。掴んだ点がその弦の先に来るような輪郭上の位置を、根元にする。
+  const spread = Math.min(MAX_SPREAD, Math.max(MIN_SPREAD, tail.spread))
+  const turn = arcTurn(tail.len, tail.bend, (spread * perim) / 2)
+  const half = turn / 2
+  const center = { x: 0, y: 0 }
   let bestAt = tail.at
   let bestD = Infinity
   for (let i = 0; i < pts.length; i++) {
-    const d = Math.abs(angleDiff(Math.atan2(pts[i].y, pts[i].x), angle))
+    const chord = rotate(outwardNormalAt(pts, i, center), half)
+    const d = Math.abs(
+      angleDiff(Math.atan2(local.y - pts[i].y, local.x - pts[i].x), Math.atan2(chord.y, chord.x)),
+    )
     if (d < bestD) {
       bestD = d
       bestAt = perim > 0 ? acc[i] / perim : 0
     }
   }
   const base = pointAtLength(pts, acc, bestAt * perim).p
-  const len = Math.hypot(local.x - base.x, local.y - base.y)
-  return { at: bestAt, len: Math.max(4, len), aim: 0 }
+  const chordLen = Math.hypot(local.x - base.x, local.y - base.y)
+  // 弦の長さから弧の長さへ。回転角 0 なら弦がそのまま長さになる。
+  const len = Math.abs(half) < 1e-6 ? chordLen : (chordLen * half) / Math.sin(half)
+  return { at: bestAt, len: Math.max(4, len) }
 }
 
 function angleDiff(a: number, b: number): number {
