@@ -93,10 +93,8 @@ export interface Tail {
   spread: number
   /** 伸ばす長さ（ページ座標） */
   len: number
-  /** 曲がり（0 で直線） */
+  /** 曲がり（0 で直線）。芯の円弧が向きを変える量 */
   bend: number
-  /** 向きの微調整（度） */
-  aim: number
   style: 'solid' | 'spike'
 }
 

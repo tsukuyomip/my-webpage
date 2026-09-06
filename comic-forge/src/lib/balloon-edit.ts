@@ -24,7 +24,7 @@ export function defaultTail(h: number): Tail {
   // 根元の幅は輪郭ぜんたいの長さに対する割合。0.1 だと吹き出しの幅の 4 割ほどを
   // 占めてしまい、間の抜けた形になる。漫画のしっぽは根元がもっと細い。
   // 吹き出しを縦長にしたぶん、長さも控えめに取る。
-  return { at: 0.25, spread: 0.025, len: Math.max(16, h * 0.28), bend: 0, aim: 0, style: 'solid' }
+  return { at: 0.25, spread: 0.025, len: Math.max(16, h * 0.28), bend: 0, style: 'solid' }
 }
 
 export function newBalloon(doc: Project, result: LayoutResult, panel?: PanelId): Balloon {
