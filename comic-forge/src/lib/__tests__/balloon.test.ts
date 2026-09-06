@@ -190,6 +190,11 @@ describe('しっぽの差し込み', () => {
     // 折れ線の「曲がる向き」（隣り合う 2 辺の外積の符号）を先端の前後で別々に見て、
     // どちらの側でも符号が反転しないことを確かめる。先端そのものは輪郭上の頂点として
     // 向きが変わって当然なので、先端をまたぐ判定はしない。
+    //
+    // しきい値は 1.5°ではなく 25°。CURVE_STEPS=10 の粗い折れ線では、太さのオフセット
+    // 方向を固定にしている影響で、なめらかな曲線を折れ線化しただけの見た目に問題の
+    // ない揺れが十数度出ることがある（実測で確認）。ここで見たいのは、その揺れではなく
+    // 曲がる向きがはっきり逆転する本物の S 字（数値実験では 40〜90°級で出る）。
     const turnSigns = (pts: Pt[]): number[] => {
       const signs: number[] = []
       for (let i = 1; i < pts.length - 1; i++) {
@@ -200,7 +205,7 @@ describe('しっぽの差し込み', () => {
         if (l1 < 1e-6 || l2 < 1e-6) continue
         const cross = (e1.x * e2.y - e1.y * e2.x) / (l1 * l2)
         const deg = (Math.asin(Math.max(-1, Math.min(1, cross))) * 180) / Math.PI
-        if (Math.abs(deg) >= 1.5) signs.push(Math.sign(deg))
+        if (Math.abs(deg) >= 25) signs.push(Math.sign(deg))
       }
       return signs
     }

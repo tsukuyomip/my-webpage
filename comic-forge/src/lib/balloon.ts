@@ -229,92 +229,90 @@ function outwardNormalAt(pts: Pt[], index: number, center: Pt): Pt {
   return mx * n.x + my * n.y >= 0 ? n : { x: -n.x, y: -n.y }
 }
 
-/** 先端側の接線を、根元の接線からどれだけ回した向きにするか（固定）。大きいほど、しなやかに大きく曲がる。 */
-const FILLET_ANGLE = (90 * Math.PI) / 180
-/** 曲げの効き方の上限。1 に近づけすぎると先端近くで尖って見える。 */
-const FILLET_MAX = 0.88
+/**
+ * 芯（根元の中点→先端）の根元での立ち上がり（P0→P1）の長さを、根元→先端の
+ * 直線距離の何倍にするか（曲げ最大時）。大きいほど、根元の垂直な向きを
+ * 長く保ってから曲がるので、しなやかに大きく曲がる。
+ */
+const SPINE_SHOOT = 0.5
+/** P1→P2 の向き（根元の接線から曲げの向きへ何度回すか）。 */
+const SPINE_TURN = (60 * Math.PI) / 180
+/** P1→P2 の長さを、根元→先端の直線距離の何倍にするか（曲げ最大時）。 */
+const SPINE_SWING = 0.45
 
 /**
  * 根元（A→tip→B）を曲げる。
  *
- * A→tip、B→tip をそれぞれ独立に曲げる（edgeToTip）。2 本を別々に曲げると
- * 太さが場所によって勝手に変わり、根元の幅のまま先端近くまでほとんど
- * 細らずに残る「リボン状」になってしまう。これを、狙った太さ（根元の幅から
- * 先端の 0 まで線形に細る）になる場所を 2 本の曲線それぞれの上に探し、
- * そこの点を採る形に直している。曲線そのものの形（曲がり方）はいじらず、
- * その上のどこを取るかだけを太さから逆算するので、edgeToTip が保証する
- * 「S 字にならない」性質がそのまま両辺に残る。
+ * しっぽは「根元の幅から先端の 0 まで細る二等辺三角形」で、曲げるのは
+ * その三角形が乗る 1 本の芯（根元の中点→先端）だけ。芯は 3 次ベジェで、
+ * 根元では輪郭に対してつねに垂直な接線（normal）で立ち上がる。
+ *
+ * 太さのオフセット方向は、芯の実接線（曲がるにつれて向きが大きく回る）
+ * ではなく、根元の法線を 90°回した固定の向きを最後まで使う。芯自体の
+ * 向きでオフセットすると、大きく曲げたときに芯が自分の近くまで回り込み、
+ * 太さぶん離した両辺が互いを追い越して交差してしまう（三角形が捩れて
+ * 見える）。固定の向きで筋交いのように切るとこれが起きない（形・置き場所・
+ * 向き・曲げ量を広く振っての数値実験で確認。ただし輪郭が極端に細長い上に
+ * aim も大きく振った、かなり稀な組み合わせでは、太さのオフセットがなお
+ * 揺れることがある）。
  */
 function bentTailCurve(A: Pt, B: Pt, tip: Pt, bend: number, normal: Pt): Pt[] {
+  const mid = { x: (A.x + B.x) / 2, y: (A.y + B.y) / 2 }
   const rootHalfWidth = Math.hypot(B.x - A.x, B.y - A.y) / 2
-  const angle = Math.sign(bend) * FILLET_ANGLE
-  const cos = Math.cos(angle)
-  const sin = Math.sin(angle)
-  const tipTangent = { x: normal.x * cos - normal.y * sin, y: normal.x * sin + normal.y * cos }
-  const f = Math.min(1, Math.abs(bend)) * FILLET_MAX
+  const spine = bulgeSpine(mid, tip, normal, bend)
 
-  // A→tip・B→tip の同じ位置（媒介変数 s）どうしの間隔は、根元の全幅から
-  // 0 までなめらかに・単調に狭まる（実測で確認）。狙った太さ w になる s を
-  // 二分探索すれば、その s での 2 点がちょうど太さ w の輪郭になる。
-  const widthAt = (s: number) => {
-    const pa = edgeToTipAt(A, normal, tip, tipTangent, f, s)
-    const pb = edgeToTipAt(B, normal, tip, tipTangent, f, s)
-    return Math.hypot(pb.x - pa.x, pb.y - pa.y)
-  }
+  // 根元での法線を 90°回した向きが、輪郭に沿って A→B へ進む向きと同じに
+  // なるよう符号を決める（左右が入れ替わらないように）。
+  let perp = { x: -normal.y, y: normal.x }
+  const perpSign = perp.x * (B.x - A.x) + perp.y * (B.y - A.y) >= 0 ? 1 : -1
+  perp = { x: perp.x * perpSign, y: perp.y * perpSign }
 
-  const toA: Pt[] = []
   const toB: Pt[] = []
+  const toA: Pt[] = []
   for (let i = 1; i < CURVE_STEPS; i++) {
     const t = i / CURVE_STEPS
-    const target = 2 * rootHalfWidth * (1 - t)
-    let lo = 0
-    let hi = 1
-    for (let iter = 0; iter < 24; iter++) {
-      const mid = (lo + hi) / 2
-      if (widthAt(mid) > target) lo = mid
-      else hi = mid
-    }
-    const s = (lo + hi) / 2
-    toA.push(edgeToTipAt(A, normal, tip, tipTangent, f, s))
-    toB.push(edgeToTipAt(B, normal, tip, tipTangent, f, s))
+    const p = spine(t)
+    const hw = rootHalfWidth * (1 - t)
+    toB.push({ x: p.x + perp.x * hw, y: p.y + perp.y * hw })
+    toA.push({ x: p.x - perp.x * hw, y: p.y - perp.y * hw })
   }
   toB.reverse()
   return [...toA, tip, ...toB]
 }
 
 /**
- * root から tip までを、根元では normal の向きへ立ち上がり、そこから先端まで
- * 一方向にだけ曲がる 3 次ベジェの、媒介変数 t での点だけを返す。
+ * root から tip までの、根元では normal の向きへ立ち上がる 1 本の 3 次ベジェ
+ * （媒介変数 t での点を返す関数として）。
  *
- * root からの接線（normal）と、tip への入り方（tipTangent の逆向き）、
- * この 2 本の半直線が交わる点 Q を求め、制御点をどちらも「各端点から Q へ
- * 向かう線分の上」に置く（同じ比率 f で内分する）。この置き方をすると、
- * 制御多角形が root→p1→p2→tip の順で必ず同じ向きに曲がる形（凸）になり、
- * 曲がる向きが途中で反転する S 字には原理的にならない。
+ * P0=root、P1=root+normal*L1（根元の接線を normal に固定するための点）、
+ * P2=P1 を、normal を曲げの向きへ SPINE_TURN だけ回した向きへ L2 だけ進めた点、
+ * P3=tip。曲げが 0 に近づくほど L1・L2 も 0 に近づき、直線に戻る。
+ *
+ * この置き方だと、曲がる向きが先端の手前で反転する S 字にはならない
+ * （数値実験で確認：しっぽの根元がちょうど輪郭の頂点にあり、normal が
+ * root→tip の直線と一致する、いちばんよくある配置を含め、形・置き場所・
+ * 向き・曲げ量を広く振っても崩れない）。
  */
-function edgeToTipAt(root: Pt, normal: Pt, tip: Pt, tipTangent: Pt, f: number, t: number): Pt {
-  if (f > 1e-6) {
-    const q = rayIntersect(root, normal, tip, { x: -tipTangent.x, y: -tipTangent.y })
-    if (q) {
-      const p1 = { x: root.x + f * (q.x - root.x), y: root.y + f * (q.y - root.y) }
-      const p2 = { x: tip.x + f * (q.x - tip.x), y: tip.y + f * (q.y - tip.y) }
-      const m = 1 - t
-      return {
-        x: m * m * m * root.x + 3 * m * m * t * p1.x + 3 * m * t * t * p2.x + t * t * t * tip.x,
-        y: m * m * m * root.y + 3 * m * m * t * p1.y + 3 * m * t * t * p2.y + t * t * t * tip.y,
-      }
+function bulgeSpine(root: Pt, tip: Pt, normal: Pt, bend: number): (t: number) => Pt {
+  const chord = { x: tip.x - root.x, y: tip.y - root.y }
+  const chordLen = Math.hypot(chord.x, chord.y) || 1
+  const side = bend >= 0 ? 1 : -1
+  const bendMag = Math.min(1, Math.abs(bend))
+  const l1 = SPINE_SHOOT * chordLen * bendMag
+  const l2 = SPINE_SWING * chordLen * bendMag
+  const p1 = { x: root.x + normal.x * l1, y: root.y + normal.y * l1 }
+  const turn = side * SPINE_TURN
+  const cos = Math.cos(turn)
+  const sin = Math.sin(turn)
+  const e2 = { x: normal.x * cos - normal.y * sin, y: normal.x * sin + normal.y * cos }
+  const p2 = { x: p1.x + e2.x * l2, y: p1.y + e2.y * l2 }
+  return (t: number) => {
+    const m = 1 - t
+    return {
+      x: m * m * m * root.x + 3 * m * m * t * p1.x + 3 * m * t * t * p2.x + t * t * t * tip.x,
+      y: m * m * m * root.y + 3 * m * m * t * p1.y + 3 * m * t * t * p2.y + t * t * t * tip.y,
     }
   }
-  // 曲げが 0（または 2 本の半直線が平行で交わらない）ときは直線でつなぐ。
-  return { x: root.x + (tip.x - root.x) * t, y: root.y + (tip.y - root.y) * t }
-}
-
-/** 半直線 a+t*da（t>0）と b+s*db（s>0）の交点。平行なら null。 */
-function rayIntersect(a: Pt, da: Pt, b: Pt, db: Pt): Pt | null {
-  const denom = da.x * db.y - da.y * db.x
-  if (Math.abs(denom) < 1e-9) return null
-  const t = ((b.x - a.x) * db.y - (b.y - a.y) * db.x) / denom
-  return { x: a.x + t * da.x, y: a.y + t * da.y }
 }
 
 /**
