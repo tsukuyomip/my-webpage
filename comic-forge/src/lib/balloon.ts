@@ -112,15 +112,34 @@ export function outlineFor(b: Balloon): Pt[] {
     }
 
     case 'ellipse':
-    default: {
-      const out: Pt[] = []
-      for (let i = 0; i < SAMPLES; i++) {
-        const th = (i / SAMPLES) * Math.PI * 2
-        out.push({ x: a * Math.cos(th), y: c * Math.sin(th) })
-      }
-      return out
-    }
+    default:
+      return ellipseOutline(a, c)
   }
+}
+
+function ellipseOutline(a: number, c: number): Pt[] {
+  const out: Pt[] = []
+  for (let i = 0; i < SAMPLES; i++) {
+    const th = (i / SAMPLES) * Math.PI * 2
+    out.push({ x: a * Math.cos(th), y: c * Math.sin(th) })
+  }
+  return out
+}
+
+/**
+ * しっぽを生やすための「土台」の輪郭。
+ *
+ * もくもく・ギザギザは、楕円に飾り（ふくらみ・トゲ）を乗せた形。この飾りの
+ * 上でしっぽの根元を決めると、トゲの斜面に対する垂線でしっぽが出てしまい、
+ * 横を向いて吹き出し本体を突き抜ける。飾りを外した楕円のほうを土台にすれば、
+ * 「丸い吹き出しに対して垂直」に生えて、向き（＝根元の位置）の意味も他の形と
+ * 揃う。描く輪郭のほうは、しっぽとの輪郭同士の重ね合わせ（OR）で作る。
+ */
+function baseOutlineFor(b: Balloon): Pt[] {
+  if (b.shape === 'cloud' || b.shape === 'burst') {
+    return ellipseOutline(Math.max(1, b.w / 2), Math.max(1, b.h / 2))
+  }
+  return outlineFor(b)
 }
 
 /* ── 弧長まわり ───────────────────────────── */
@@ -175,9 +194,8 @@ function inInterval(s: number, a: number, b: number, perim: number): boolean {
 interface Cut {
   sA: number
   sB: number
-  A: Pt
-  B: Pt
-  curve: Pt[]
+  /** 描く輪郭へ差し込む点列（切り欠きの手前から先端を回って向こう側まで）。 */
+  emit: Pt[]
 }
 
 const MAX_SPREAD = 0.35
@@ -185,15 +203,26 @@ const MAX_SPREAD = 0.35
 const MIN_SPREAD = 0.004
 const CURVE_STEPS = 10
 
-function tailCut(pts: Pt[], acc: number[], tail: Tail, center: Pt): Cut | null {
-  const perim = acc[pts.length]
-  if (perim <= 0 || tail.len <= 0) return null
+/**
+ * しっぽ 1 本を、描く輪郭へ差し込める形にする。
+ *
+ * 形そのもの（根元の位置・幅・向き・曲がり）は土台の輪郭 base の上で決め、
+ * 描く輪郭 pts へは「両脇がどこで輪郭を横切るか」で差し込む。こうすると、
+ * 飾りのある形（もくもく・ギザギザ）でも、しっぽと吹き出しの輪郭を
+ * 重ね合わせた（OR を取った）ものになる。
+ */
+function tailCut(pts: Pt[], acc: number[], base: Pt[], tail: Tail, center: Pt): Cut | null {
+  if (acc[pts.length] <= 0 || tail.len <= 0) return null
+  const bacc = cumulative(base)
+  const bperim = bacc[base.length]
+  if (bperim <= 0) return null
+
   const spread = Math.min(MAX_SPREAD, Math.max(MIN_SPREAD, tail.spread))
-  const s0 = wrap(tail.at, 1) * perim
-  const hw = (spread * perim) / 2
-  const A = pointAtLength(pts, acc, s0 - hw).p
-  const B = pointAtLength(pts, acc, s0 + hw).p
-  const baseAt = pointAtLength(pts, acc, s0)
+  const s0 = wrap(tail.at, 1) * bperim
+  const hw = (spread * bperim) / 2
+  const A = pointAtLength(base, bacc, s0 - hw).p
+  const B = pointAtLength(base, bacc, s0 + hw).p
+  const baseAt = pointAtLength(base, bacc, s0)
 
   // 向き（どちらへ伸びるか）は、根元がどこに付いているかだけで決まる。
   // 根元では必ず輪郭に垂直に出すので、根元の位置を決めた時点で向きも決まる。
@@ -203,8 +232,59 @@ function tailCut(pts: Pt[], acc: number[], tail: Tail, center: Pt): Cut | null {
   // まっすぐなはずのしっぽが少し斜めに出てしまう。A・B は根元の中心から弧長で
   // 左右対称に取ってあるので、その垂線なら三角形がきれいに左右対称になる。
   const curve = tailArc(A, B, tail.len, tail.bend, outwardNormalOf(A, B, baseAt.p, center))
+  const tipAt = Math.floor(curve.length / 2)
 
-  return { sA: wrap(s0 - hw, perim), sB: wrap(s0 + hw, perim), A, B, curve }
+  // 両脇を、根元より内側（中心）から先端までの 1 本の折れ線として持つ。
+  // ここで扱う形はどれも中心から見て放射状に一意（星形）なので、中心から
+  // 始めれば必ず内側から出発する。先端は必ず外側にあるので、途中で必ず輪郭を
+  // 横切る（＝交点は必ず見つかる）。
+  const sideA = [center, A, ...curve.slice(0, tipAt + 1)]
+  const sideB = [center, B, ...curve.slice(tipAt + 1).reverse(), curve[tipAt]]
+
+  const hitA = lastCrossing(sideA, pts, acc)
+  const hitB = lastCrossing(sideB, pts, acc)
+  if (!hitA || !hitB) return null
+
+  // 交点より内側は吹き出しに埋まっているので捨てる。
+  const keepA = sideA.slice(hitA.at + 1)
+  const keepB = sideB.slice(hitB.at + 1)
+  return {
+    sA: hitA.s,
+    sB: hitB.s,
+    emit: [hitA.p, ...keepA, ...keepB.slice(0, -1).reverse(), hitB.p],
+  }
+}
+
+/** 折れ線 side が輪郭を横切るところのうち、いちばん先端寄りのもの。 */
+function lastCrossing(side: Pt[], pts: Pt[], acc: number[]): { p: Pt; s: number; at: number } | null {
+  let best: { p: Pt; s: number; at: number; t: number } | null = null
+  for (let k = 0; k < side.length - 1; k++) {
+    for (let i = 0; i < pts.length; i++) {
+      const hit = segmentCross(side[k], side[k + 1], pts[i], pts[(i + 1) % pts.length])
+      if (!hit) continue
+      // 後ろの区間ほど先端寄り。同じ区間なら、より進んだところを採る。
+      if (best && (best.at > k || (best.at === k && best.t >= hit.t))) continue
+      best = { p: hit.p, s: acc[i] + (acc[i + 1] - acc[i]) * hit.u, at: k, t: hit.t }
+    }
+  }
+  return best
+}
+
+/** 線分 p1→p2 と q1→q2 の交点。交わらないなら null。 */
+function segmentCross(p1: Pt, p2: Pt, q1: Pt, q2: Pt): { p: Pt; t: number; u: number } | null {
+  const dx = p2.x - p1.x
+  const dy = p2.y - p1.y
+  const ex = q2.x - q1.x
+  const ey = q2.y - q1.y
+  const den = dx * ey - dy * ex
+  if (Math.abs(den) < 1e-12) return null
+  const rx = q1.x - p1.x
+  const ry = q1.y - p1.y
+  const t = (rx * ey - ry * ex) / den
+  const u = (rx * dy - ry * dx) / den
+  const e = 1e-9
+  if (t < -e || t > 1 + e || u < -e || u > 1 + e) return null
+  return { p: { x: p1.x + dx * t, y: p1.y + dy * t }, t, u: Math.min(1, Math.max(0, u)) }
 }
 
 /** 根元の辺 A→B から、外向きの単位法線を作る。base は外向きを選ぶための目印。 */
@@ -318,7 +398,12 @@ function rotate(v: Pt, angle: number): Pt {
  * しっぽの位置はすべて「元の輪郭」の上で先に決める。1 本ずつ順に差し込むと、
  * 2 本目の位置が 1 本目の結果に引きずられて動いてしまう。
  */
-export function spliceTails(pts: Pt[], tails: Tail[], center: Pt = { x: 0, y: 0 }): Pt[] {
+export function spliceTails(
+  pts: Pt[],
+  tails: Tail[],
+  center: Pt = { x: 0, y: 0 },
+  base: Pt[] = pts,
+): Pt[] {
   if (tails.length === 0) return pts
   const acc = cumulative(pts)
   const perim = acc[pts.length]
@@ -326,7 +411,7 @@ export function spliceTails(pts: Pt[], tails: Tail[], center: Pt = { x: 0, y: 0 
 
   const cuts: Cut[] = []
   for (const tail of tails) {
-    const cut = tailCut(pts, acc, tail, center)
+    const cut = tailCut(pts, acc, base, tail, center)
     if (!cut) continue
     // 根元が重なるしっぽは弾く。重ねると輪郭が自分と交差する。
     if (cuts.some((o) => inInterval(cut.sA, o.sA, o.sB, perim) || inInterval(o.sA, cut.sA, cut.sB, perim))) {
@@ -364,7 +449,7 @@ export function spliceTails(pts: Pt[], tails: Tail[], center: Pt = { x: 0, y: 0 
   for (let i = 0; i < rolled.length; i++) {
     if (!insideCut(racc[i])) events.push({ s: racc[i], emit: [rolled[i]] })
   }
-  for (const c of shifted) events.push({ s: c.sA, emit: [c.A, ...c.curve, c.B] })
+  for (const c of shifted) events.push({ s: c.sA, emit: c.emit })
   events.sort((a, b) => a.s - b.s)
 
   const out: Pt[] = []
@@ -374,7 +459,7 @@ export function spliceTails(pts: Pt[], tails: Tail[], center: Pt = { x: 0, y: 0 
 
 /** その吹き出しの、しっぽまで入った閉じた輪郭（局所座標）。 */
 export function balloonPath(b: Balloon): Pt[] {
-  return spliceTails(outlineFor(b), b.tails ?? [])
+  return spliceTails(outlineFor(b), b.tails ?? [], { x: 0, y: 0 }, baseOutlineFor(b))
 }
 
 /** しっぽの先の位置（局所座標）。つまみを描くのと、掴んだときの逆算に使う。 */
@@ -383,17 +468,17 @@ export function tailTip(b: Balloon, index: number): Pt | null {
   if (!tail) return null
   const pts = outlineFor(b)
   const acc = cumulative(pts)
-  const cut = tailCut(pts, acc, tail, { x: 0, y: 0 })
+  const cut = tailCut(pts, acc, baseOutlineFor(b), tail, { x: 0, y: 0 })
   if (!cut) return null
-  const mid = cut.curve[Math.floor(cut.curve.length / 2)]
-  return mid ?? null
+  // emit は「交点→先端→交点」の順なので、真ん中がそのまま先端。
+  return cut.emit[Math.floor(cut.emit.length / 2)] ?? null
 }
 
 /** 掴んだ先の位置から、しっぽの向き・長さに戻す。 */
 export function tailFromTip(b: Balloon, index: number, local: Pt): Partial<Tail> {
   const tail = b.tails?.[index]
   if (!tail) return {}
-  const pts = outlineFor(b)
+  const pts = baseOutlineFor(b)
   const acc = cumulative(pts)
   const perim = acc[pts.length]
 
