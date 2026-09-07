@@ -124,6 +124,53 @@ describe('しっぽの差し込み', () => {
     }
   })
 
+  it('もくもく・ギザギザでも、しっぽは丸い吹き出しと同じ向きに出る', () => {
+    // 飾り（ふくらみ・トゲ）の上で根元を決めると、トゲの斜面に対する垂線で
+    // 横向きに生えて本体を突き抜ける。飾りを外した楕円を土台にしているので、
+    // 同じ大きさの丸い吹き出しと先端の位置が一致するはず。
+    for (const at of [0, 0.1, 0.25, 0.5, 0.7]) {
+      const t = tail({ at, len: 250 })
+      const plain = tailTip(base({ shape: 'ellipse', tails: [t] }), 0)!
+      for (const shape of ['cloud', 'burst'] as const) {
+        const got = tailTip(base({ shape, tails: [t] }), 0)!
+        expect(Math.hypot(got.x - plain.x, got.y - plain.y), `${shape} at=${at}`).toBeLessThan(1)
+      }
+    }
+  })
+
+  it('どの形でも、しっぽを生やした輪郭は自分と交わらない', () => {
+    // 輪郭は「吹き出し ∪ しっぽ」。しっぽの両脇が輪郭とどこで交わるかで
+    // 差し込んでいるので、トゲを突き抜けたり内側へ潜り込んだりしない。
+    const hit = (p1: Pt, p2: Pt, p3: Pt, p4: Pt) => {
+      const d1 = { x: p2.x - p1.x, y: p2.y - p1.y }
+      const d2 = { x: p4.x - p3.x, y: p4.y - p3.y }
+      const den = d1.x * d2.y - d1.y * d2.x
+      if (Math.abs(den) < 1e-9) return false
+      const rx = p3.x - p1.x
+      const ry = p3.y - p1.y
+      const t = (rx * d2.y - ry * d2.x) / den
+      const u = (rx * d1.y - ry * d1.x) / den
+      return t > 1e-6 && t < 1 - 1e-6 && u > 1e-6 && u < 1 - 1e-6
+    }
+    const crosses = (pts: Pt[]) => {
+      for (let i = 0; i < pts.length; i++) {
+        for (let j = i + 2; j < pts.length; j++) {
+          if (i === 0 && j === pts.length - 1) continue
+          if (hit(pts[i], pts[(i + 1) % pts.length], pts[j], pts[(j + 1) % pts.length])) return true
+        }
+      }
+      return false
+    }
+    for (const shape of SHAPES.map((s) => s.id)) {
+      for (const at of [0, 0.08, 0.25, 0.42, 0.6, 0.85]) {
+        for (const bend of [0, 0.5, -0.8]) {
+          const b = base({ shape, tails: [tail({ at, bend, len: 250, spread: 0.06 })] })
+          expect(crosses(balloonPath(b)), `${shape} at=${at} bend=${bend}`).toBe(false)
+        }
+      }
+    }
+  })
+
   it('しっぽの本数だけ先が増える', () => {
     const two = balloonPath(base({ tails: [tail({ at: 0.25 }), tail({ at: 0.75 })] }))
     const down = two.filter((p) => p.y > 130).length
